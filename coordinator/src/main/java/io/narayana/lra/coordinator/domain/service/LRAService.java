@@ -19,6 +19,7 @@ import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.coordinator.domain.model.LRAParticipantRecord;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
+import io.narayana.lra.coordinator.domain.model.RegistrationRequest;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.NotFoundException;
@@ -433,6 +434,52 @@ public class LRAService {
 
         if (participant == null || participant.getRecoveryURI() == null) {
             // probably already closing or cancelling
+            return Response.Status.PRECONDITION_FAILED.getStatusCode();
+        }
+
+        String recoveryURI = participant.getRecoveryURI().toASCIIString();
+
+        if (!updateRecoveryURI(lra, participant.getParticipantURI(), recoveryURI, false)) {
+            String msg = LRALogger.i18nLogger.warn_saveState(LongRunningAction.DEACTIVATE_REASON);
+            throw new WebApplicationException(msg, Response.status(SERVICE_UNAVAILABLE)
+                    .entity(msg)
+                    .build());
+        }
+
+        recoveryUrl.append(recoveryURI);
+
+        return Response.Status.OK.getStatusCode();
+    }
+
+    public int joinLRAWithRequest(StringBuilder recoveryUrl, URI lra, long timeLimit,
+            RegistrationRequest request, String recoveryUrlBase, StringBuilder compensatorData) {
+        if (lra == null) {
+            lraTrace(null, "Error missing LRA header in join request");
+        } else {
+            lraTrace(lra, "join LRA (messaging registration)");
+        }
+
+        LongRunningAction transaction = getTransaction(lra);
+
+        if (timeLimit < 0) {
+            timeLimit = 0;
+        }
+
+        LRAParticipantRecord participant;
+
+        try {
+            participant = transaction.enlistParticipant(lra, request, recoveryUrlBase,
+                    timeLimit, compensatorData != null ? compensatorData.toString() : null);
+
+            if (participant != null && participant.getPreviousCompensatorData() != null && compensatorData != null) {
+                compensatorData.setLength(0);
+                compensatorData.append(participant.getPreviousCompensatorData());
+            }
+        } catch (Exception e) {
+            return Response.Status.PRECONDITION_FAILED.getStatusCode();
+        }
+
+        if (participant == null || participant.getRecoveryURI() == null) {
             return Response.Status.PRECONDITION_FAILED.getStatusCode();
         }
 
