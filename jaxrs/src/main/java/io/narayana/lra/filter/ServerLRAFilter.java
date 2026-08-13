@@ -13,8 +13,9 @@ import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVER
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.client.CallbackRegistrarHTTP;
+import io.narayana.lra.client.LRAClient;
+import io.narayana.lra.client.LRAClientFactory;
 import io.narayana.lra.client.LRAParticipantData;
-import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -79,7 +80,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
     @ConfigProperty(name = ENLIST_PARTICIPANT_CLIENT_MAX_RETRY, defaultValue = "3")
     int enlistMaxRetries;
 
-    private NarayanaLRAClient lraClient;
+    private LRAClient lraClient;
     private LRARequestHandler requestHandler;
 
     @Override
@@ -222,9 +223,9 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
         }
     }
 
-    private NarayanaLRAClient getLRAClient() {
+    private LRAClient getLRAClient() {
         if (lraClient == null) {
-            lraClient = new NarayanaLRAClient();
+            lraClient = LRAClientFactory.createClient();
         }
         return lraClient;
     }

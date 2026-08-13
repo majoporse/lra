@@ -23,6 +23,7 @@ import io.narayana.lra.BearerTokenResolver;
 import io.narayana.lra.Current;
 import io.narayana.lra.PropagateToken;
 import io.narayana.lra.client.CallbackRegistrar;
+import io.narayana.lra.client.LRAClient;
 import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipant;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
@@ -67,12 +68,12 @@ public class LRARequestHandler {
 
     private static final long DEFAULT_TIMEOUT_MILLIS = 0L;
 
-    private final NarayanaLRAClient lraClient;
+    private final LRAClient lraClient;
     private final CallbackRegistrar callbackRegistrar;
     private final LRAParticipantRegistry lraParticipantRegistry;
     private final int enlistMaxRetries;
 
-    public LRARequestHandler(NarayanaLRAClient lraClient,
+    public LRARequestHandler(LRAClient lraClient,
             CallbackRegistrar callbackRegistrar,
             LRAParticipantRegistry lraParticipantRegistry,
             int enlistMaxRetries) {

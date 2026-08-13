@@ -25,7 +25,6 @@ import java.util.concurrent.CompletionStage;
 /**
  * JAX-RS REST Client interface for LRA Coordinator operations.
  * This is the internal HTTP-specific client — not used directly by application code.
- * Use {@link CoordinatorClient} (the abstract interface) instead.
  *
  * <p>
  * Maps to the endpoints defined in {@code io.narayana.lra.coordinator.api.Coordinator}.
