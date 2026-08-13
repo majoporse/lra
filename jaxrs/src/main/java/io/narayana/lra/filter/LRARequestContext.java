@@ -36,7 +36,8 @@ public class LRARequestContext {
     private URI suspendedLRA;
     private URI currentLRA;
     private URI newLRA;
-    private Object abortWith; // ArrayList<LRARequestHandler.Progress> — stored as Object like ServerLRAFilter
+    private Object abortWith; // stored as Object like ServerLRAFilter
+    private ProgressTracker progressTracker;
     private String compensatorLink;
 
     // --- LRA annotation properties (resolved by the handler) ---
@@ -181,6 +182,24 @@ public class LRARequestContext {
 
     public void setAbortWith(Object abortWith) {
         this.abortWith = abortWith;
+    }
+
+    public ProgressTracker getProgressTracker() {
+        return progressTracker;
+    }
+
+    public void setProgressTracker(ProgressTracker progressTracker) {
+        this.progressTracker = progressTracker;
+    }
+
+    /**
+     * Convenience method: add a progress step, lazily creating the tracker if needed.
+     */
+    public void setProgress(ProgressTracker.ProgressStep step, String reason) {
+        if (progressTracker == null) {
+            progressTracker = new ProgressTracker();
+        }
+        progressTracker.add(step, reason);
     }
 
     public String getCompensatorLink() {
