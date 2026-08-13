@@ -862,48 +862,6 @@ public class LongRunningAction extends BasicAction {
 
     }
 
-    public LRAParticipantRecord enlistParticipant(URI coordinatorUrl, RegistrationRequest request, String recoveryUrlBase,
-            long timeLimit, String compensatorData) {
-        ReentrantLock lock = tryTimedLockTransaction(participantEnlistTimeout);
-        if (lock == null) {
-            String reason = LRALogger.i18nLogger.warn_enlistment();
-            LRALogger.logger.warn(reason);
-            throw new ServiceUnavailableException(reason);
-        } else {
-            try {
-                LRAParticipantRecord participant = new LRAParticipantRecord(this, lraService, request, compensatorData);
-                String pid = participant.get_uid().fileStringForm();
-
-                participant.setRecoveryURI(recoveryUrlBase, this.get_uid().fileStringForm(), pid);
-
-                endStateCheck();
-
-                if (isFinished()) {
-                    throw new WebApplicationException(Response.status(Response.Status.GONE)
-                            .entity(LRALogger.i18nLogger.error_tooLateToJoin(id.toASCIIString(), "finished"))
-                            .build());
-                }
-
-                if (add(participant) != AddOutcome.AR_REJECTED) {
-                    if (setTimeLimit(timeLimit, true) != Response.Status.OK.getStatusCode()) {
-                        LRALogger.logger.warn(
-                                LRALogger.i18nLogger.warn_saveState("could not durably record the new time limit"));
-                    }
-                }
-
-                if (deactivate()) {
-                    savedIntentionList = true;
-                } else {
-                    throw new ServiceUnavailableException(LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON));
-                }
-
-                return participant;
-            } finally {
-                lock.unlock();
-            }
-        }
-    }
-
     private LRAParticipantRecord doEnlistParticipant(URI coordinatorUrl, String participantUrl, String recoveryUrlBase,
             long timeLimit, String compensatorData, String version) {
         LRAParticipantRecord p = new LRAParticipantRecord(this, lraService, participantUrl, compensatorData);
@@ -951,7 +909,7 @@ public class LongRunningAction extends BasicAction {
             }
 
             return p;
-        } else if (isRecovering() && p.getCompensator() == null && p.getEndNotificationEndpoint() != null) {
+        } else if (isRecovering() && p.getCompensator() == null && p.getEndNotificationUri() != null) {
             // the participant is an AfterLRA listener so manually add it to heuristic list
             heuristicList.putRear(p);
             updateState();

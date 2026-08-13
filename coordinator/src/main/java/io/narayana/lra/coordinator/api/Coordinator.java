@@ -35,7 +35,6 @@ import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
-import io.narayana.lra.coordinator.domain.model.RegistrationRequest;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.coordinator.security.JwtTokenContext;
@@ -516,11 +515,9 @@ public class Coordinator extends Application {
             @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version,
             @HeaderParam(LRAConstants.NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME) @DefaultValue("") String userData,
-            @HeaderParam(HttpHeaders.CONTENT_TYPE) @DefaultValue("") String contentType,
             @RequestBody(name = "Compensator data", description = "A compensator can also register with an LRA by putting the compensator end "
                     + "points in the body of request as a link header. This feature is deprecated and undocumented "
-                    + "and will be removed in a later version of the protocol. "
-                    + "Alternatively, provide a JSON body with endpoint fields for messaging-based registration.") String compensatorURL) {
+                    + "and will be removed in a later version of the protocol") String compensatorURL) {
 
         // test to see if the join request contains any participant specific data
         if (userData != null && !userData.isEmpty() && !isAllowParticipantData(version)) {
@@ -531,12 +528,6 @@ public class Coordinator extends Application {
                     .entity(errMsg)
                     .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
                     .build());
-        }
-
-        // Check if the body is a JSON RegistrationRequest
-        if (contentType != null && contentType.contains(MediaType.APPLICATION_JSON)
-                && compensatorURL != null && compensatorURL.trim().startsWith("{")) {
-            return joinLRAFromJson(lraId, timeLimit, compensatorURL, mediaType, version, userData);
         }
 
         // test to see if the compensator endpoints are in the body of the join request
@@ -587,66 +578,6 @@ public class Coordinator extends Application {
         }
 
         return joinLRA(toURI(lraId), mediaType, timeLimit, compensatorURL, null, version);
-    }
-
-    private Response joinLRAFromJson(String lraId, long timeLimit, String jsonBody,
-            String mediaType, String version, String userData) {
-        ObjectMapper mapper = new ObjectMapper();
-        RegistrationRequest request;
-
-        try {
-            request = mapper.readValue(jsonBody, RegistrationRequest.class);
-        } catch (JsonProcessingException e) {
-            String errorMsg = String.format("Cannot join to LRA id '%s': invalid JSON body: %s", lraId, e.getMessage());
-            LRALogger.logger.error(errorMsg);
-            return Response.status(BAD_REQUEST)
-                    .entity(errorMsg)
-                    .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                    .build();
-        }
-
-        final String recoveryUrlBase = String.format("%s%s/%s",
-                context.getBaseUri().toASCIIString(), COORDINATOR_PATH_NAME, RECOVERY_COORDINATOR_PATH_NAME);
-
-        StringBuilder sb = new StringBuilder();
-        if (userData != null) {
-            sb.append(userData);
-        }
-
-        StringBuilder recoveryUrl = new StringBuilder();
-        int status;
-
-        try {
-            status = lraService.joinLRAWithRequest(recoveryUrl, toURI(lraId), timeLimit,
-                    request, recoveryUrlBase, sb);
-        } catch (ServiceUnavailableException e) {
-            return Response.status(Response.Status.SERVICE_UNAVAILABLE.getStatusCode()).entity(e.getMessage()).build();
-        }
-
-        String recoveryUrlValue;
-        if (mediaType.equals(MediaType.APPLICATION_JSON)) {
-            JsonObject model = Json.createObjectBuilder().add("recoveryUrl", recoveryUrl.toString()).build();
-            recoveryUrlValue = model.toString();
-        } else {
-            recoveryUrlValue = recoveryUrl.toString();
-        }
-
-        try {
-            return Response.status(status)
-                    .entity(recoveryUrlValue)
-                    .location(new URI(recoveryUrl.toString()))
-                    .header(LRA_HTTP_RECOVERY_HEADER, recoveryUrl)
-                    .header(NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME, sb)
-                    .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                    .build();
-        } catch (URISyntaxException e) {
-            String errMsg = LRALogger.i18nLogger.error_invalidRecoveryUrlToJoinLRAURI(recoveryUrl.toString(), toURI(lraId));
-            LRALogger.logger.info(errMsg);
-            throw new WebApplicationException(errMsg, Response.status(BAD_REQUEST)
-                    .entity(errMsg)
-                    .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                    .build());
-        }
     }
 
     private static void makeLink(StringBuilder b, String key, String value) {

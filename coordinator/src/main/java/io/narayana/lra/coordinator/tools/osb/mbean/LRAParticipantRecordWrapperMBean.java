@@ -18,7 +18,7 @@ public interface LRAParticipantRecordWrapperMBean extends LogRecordWrapperMBean 
 
     String getCompensator();
 
-    String getEndNotificationEndpoint();
+    URI getEndNotificationUri();
 
     String getLRAStatus();
 }
