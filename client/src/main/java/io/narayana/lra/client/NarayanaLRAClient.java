@@ -311,7 +311,7 @@ public class NarayanaLRAClient implements Closeable {
     public List<LRAData> getAllLRAs() {
         try {
             // Build the CoordinatorClient using the base coordinator URL
-            CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
+            HttpCoordinatorClient client = createCoordinatorClient(coordinatorUrl);
 
             Response response = client.getAllLRAs(
                     "", // status filter (empty for all)
@@ -433,7 +433,7 @@ public class NarayanaLRAClient implements Closeable {
 
             try {
                 // Build the CoordinatorClient using the selected coordinator instance
-                CoordinatorClient client = createCoordinatorClient(coordinatorInstance);
+                HttpCoordinatorClient client = createCoordinatorClient(coordinatorInstance);
 
                 Response response = client.startLRA(
                         clientID,
@@ -574,7 +574,7 @@ public class NarayanaLRAClient implements Closeable {
     public void leaveLRA(URI lraId, String body) throws WebApplicationException {
         try {
             // Build the CoordinatorClient using the base coordinator URL
-            CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(lraId));
+            HttpCoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(lraId));
 
             // Extract the LRA UID
             String lraUid = LRAConstants.getLRAUid(lraId);
@@ -597,73 +597,6 @@ public class NarayanaLRAClient implements Closeable {
             throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
                     .entity("leave LRA client request timed out, try again later").build());
         }
-    }
-
-    /**
-     * For particular compensator class it returns termination uris based on the provided base uri.
-     * You get map of string and URI.
-     *
-     * @param compensatorClass compensator class to examine.
-     * @param uriPrefix the uri that triggered this join request.
-     * @param timeout how long the participant is prepared to wait for LRA
-     *        to compensate or complete.
-     * @return map of URI
-     */
-    public static Map<String, String> getTerminationUris(Class<?> compensatorClass, String uriPrefix, Long timeout) {
-        Map<String, String> paths = new HashMap<>();
-        final boolean[] asyncTermination = { false };
-
-        String timeoutValue = timeout != null ? Long.toString(timeout) : "0";
-
-        Arrays.stream(compensatorClass.getMethods()).forEach(method -> {
-            Path pathAnnotation = method.getAnnotation(Path.class);
-
-            if (pathAnnotation != null) {
-
-                if (checkMethod(paths, method, COMPENSATE, pathAnnotation,
-                        method.getAnnotation(Compensate.class), uriPrefix) != 0) {
-                    paths.put(TIMELIMIT_PARAM_NAME, timeoutValue);
-
-                    if (isAsyncCompletion(method)) {
-                        asyncTermination[0] = true;
-                    }
-                }
-
-                if (checkMethod(paths, method, COMPLETE, pathAnnotation,
-                        method.getAnnotation(Complete.class), uriPrefix) != 0) {
-                    paths.put(TIMELIMIT_PARAM_NAME, timeoutValue);
-
-                    if (isAsyncCompletion(method)) {
-                        asyncTermination[0] = true;
-                    }
-                }
-                checkMethod(paths, method, STATUS, pathAnnotation,
-                        method.getAnnotation(Status.class), uriPrefix);
-                checkMethod(paths, method, FORGET, pathAnnotation,
-                        method.getAnnotation(Forget.class), uriPrefix);
-
-                checkMethod(paths, method, LEAVE, pathAnnotation, method.getAnnotation(Leave.class), uriPrefix);
-                checkMethod(paths, method, AFTER, pathAnnotation, method.getAnnotation(AfterLRA.class), uriPrefix);
-            }
-        });
-
-        if (asyncTermination[0] && !paths.containsKey(STATUS) && !paths.containsKey(FORGET)) {
-            String logMsg = LRALogger.i18nLogger.error_asyncTerminationBeanMissStatusAndForget(compensatorClass);
-            LRALogger.logger.warn(logMsg);
-            throw new WebApplicationException(
-                    Response.status(BAD_REQUEST)
-                            .entity(logMsg)
-                            .build());
-        }
-
-        StringBuilder linkHeaderValue = new StringBuilder();
-
-        if (!paths.isEmpty()) {
-            paths.forEach((k, v) -> makeLink(linkHeaderValue, null, k, v));
-            paths.put(LINK_TEXT, linkHeaderValue.toString());
-        }
-
-        return paths;
     }
 
     /**
@@ -745,7 +678,7 @@ public class NarayanaLRAClient implements Closeable {
             URI uriWithoutQuery = UriBuilder.fromUri(uri).replaceQuery(null).build();
 
             // Build the CoordinatorClient using the base coordinator URL
-            CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
+            HttpCoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
 
             // Extract the LRA UID
             String lraUid = LRAConstants.getLRAUid(uri);
@@ -819,7 +752,7 @@ public class NarayanaLRAClient implements Closeable {
     public LRAData getLRAInfo(URI uri, String acceptMediaType) throws WebApplicationException {
         try {
             URI uriWithoutQuery = UriBuilder.fromUri(uri).replaceQuery(null).build();
-            CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
+            HttpCoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
             String lraUid = LRAConstants.getLRAUid(uri);
 
             Response response = client.getLRAInfo(
@@ -858,7 +791,7 @@ public class NarayanaLRAClient implements Closeable {
     public void renewTimeLimit(URI uri, Long timeLimit) throws WebApplicationException {
         try {
             URI uriWithoutQuery = UriBuilder.fromUri(uri).replaceQuery(null).build();
-            CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
+            HttpCoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
             String lraUid = LRAConstants.getLRAUid(uri);
 
             Response response = client.renewTimeLimit(
@@ -891,7 +824,7 @@ public class NarayanaLRAClient implements Closeable {
             throws WebApplicationException {
         try {
             URI uriWithoutQuery = UriBuilder.fromUri(nestedLraId).replaceQuery(null).build();
-            CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
+            HttpCoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
 
             String encodedLRA = URLEncoder.encode(nestedLraId.toString(), StandardCharsets.UTF_8);
             Response response = client.getNestedLRAStatus(encodedLRA)
@@ -934,7 +867,7 @@ public class NarayanaLRAClient implements Closeable {
             throws WebApplicationException {
         try {
             URI uriWithoutQuery = UriBuilder.fromUri(nestedLraId).replaceQuery(null).build();
-            CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
+            HttpCoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
 
             String encodedLRA = URLEncoder.encode(nestedLraId.toString(), StandardCharsets.UTF_8);
             Response response = client.completeNestedLRA(
@@ -965,7 +898,7 @@ public class NarayanaLRAClient implements Closeable {
             throws WebApplicationException {
         try {
             URI uriWithoutQuery = UriBuilder.fromUri(nestedLraId).replaceQuery(null).build();
-            CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
+            HttpCoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
 
             String encodedLRA = URLEncoder.encode(nestedLraId.toString(), StandardCharsets.UTF_8);
             Response response = client.compensateNestedLRA(
@@ -1017,7 +950,7 @@ public class NarayanaLRAClient implements Closeable {
     public void forgetNestedLRA(URI nestedLraId) throws WebApplicationException {
         try {
             URI uriWithoutQuery = UriBuilder.fromUri(nestedLraId).replaceQuery(null).build();
-            CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
+            HttpCoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
 
             String encodedLRA = URLEncoder.encode(nestedLraId.toString(), StandardCharsets.UTF_8);
             Response response = client.forgetNestedLRA(encodedLRA)
@@ -1097,8 +1030,8 @@ public class NarayanaLRAClient implements Closeable {
         }
 
         try {
-            // Build the CoordinatorClient using the base coordinator URL
-            CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uri));
+            // Build the HttpCoordinatorClient using the base coordinator URL
+            HttpCoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uri));
 
             // Extract the LRA UID
             String lraUid = LRAConstants.getLRAUid(uri);
@@ -1174,8 +1107,8 @@ public class NarayanaLRAClient implements Closeable {
         try {
             URI uri = UriBuilder.fromUri(lra).replaceQuery(null).build();
 
-            // Build the CoordinatorClient using the base coordinator URL
-            CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uri));
+            // Build the HttpCoordinatorClient using the base coordinator URL
+            HttpCoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uri));
 
             // Remove query parameters from LRA ID and extract the UID
             String lraId = LRAConstants.getLRAUid(lra);
@@ -1330,13 +1263,13 @@ public class NarayanaLRAClient implements Closeable {
     }
 
     /**
-     * Creates a MicroProfile REST client for the CoordinatorClient interface.
+     * Creates a MicroProfile REST client for the HttpCoordinatorClient interface.
      *
      * @param baseUri the base URI for the coordinator client
-     * @return a CoordinatorClient instance
+     * @return an HttpCoordinatorClient instance
      */
-    private CoordinatorClient createCoordinatorClient(URI baseUri) {
+    private HttpCoordinatorClient createCoordinatorClient(URI baseUri) {
         RestClientBuilder builder = RestClientBuilder.newBuilder().baseUri(baseUri);
-        return new RestClientConfig().configure(builder).build(CoordinatorClient.class);
+        return new RestClientConfig().configure(builder).build(HttpCoordinatorClient.class);
     }
 }
