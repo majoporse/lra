@@ -34,8 +34,8 @@ public class LRAParticipantRecordWrapper extends LogRecordWrapper implements LRA
     }
 
     @Override
-    public URI getEndNotificationUri() {
-        return getParticipant().getEndNotificationUri();
+    public String getEndNotificationEndpoint() {
+        return getParticipant().getEndNotificationEndpoint();
     }
 
     @Override
