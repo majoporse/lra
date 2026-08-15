@@ -160,6 +160,7 @@ public class Coordinator extends Application {
             @Parameter(name = STATUS_PARAM_NAME, description = "Filter the returned LRAs to only those in the give state (see CompensatorStatus)") @QueryParam(STATUS_PARAM_NAME) @DefaultValue("") String state,
             @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version) {
+        System.out.println("I am here!!!!");
         LRAStatus requestedLRAStatus = null;
         if (!state.isEmpty()) {
             try {
