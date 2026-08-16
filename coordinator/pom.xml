@@ -174,11 +174,13 @@
       <groupId>io.smallrye.reactive</groupId>
       <artifactId>smallrye-reactive-messaging-kafka</artifactId>
       <version>4.22.0</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-messaging-kafka</artifactId>
       <version>3.38.2</version>
+      <scope>provided</scope>
     </dependency>
   </dependencies>
 
