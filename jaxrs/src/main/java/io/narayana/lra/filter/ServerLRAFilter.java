@@ -26,17 +26,13 @@ import io.narayana.lra.BearerTokenResolver;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.PropagateToken;
-import io.narayana.lra.client.KafkaLRAClient;
-import io.narayana.lra.client.LRAClient;
 import io.narayana.lra.client.LRAParticipantData;
 import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipant;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
-import io.narayana.lra.contracts.kafka.LRAKafkaConstants;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.ContextNotActiveException;
-import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.Path;
@@ -100,10 +96,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
     @Inject
     private LRAParticipantRegistry lraParticipantRegistry;
 
-    @Inject
-    private Instance<LRAClient> lraClientInstance;
-
-    private LRAClient lraClient;
+    private NarayanaLRAClient lraClient;
 
     @Inject
     LRAParticipantData data;
@@ -426,15 +419,13 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                         participant.augmentTerminationURIs(terminateURIs, containerRequestContext.getUriInfo().getBaseUri());
                     }
 
-                    URI compensateUri = toURI(terminateURIs.get(COMPENSATE));
-                    URI completeUri = toURI(terminateURIs.get(COMPLETE));
-                    URI forgetUri = toURI(terminateURIs.get(FORGET));
-                    URI leaveUri = toURI(terminateURIs.get(LEAVE));
-                    URI afterUri = toURI(terminateURIs.get(AFTER));
-                    URI statusUri = toURI(terminateURIs.get(STATUS));
-
                     String compensatorLink = buildCompensatorURI(
-                            compensateUri, completeUri, forgetUri, leaveUri, afterUri, statusUri);
+                            toURI(terminateURIs.get(COMPENSATE)),
+                            toURI(terminateURIs.get(COMPLETE)),
+                            toURI(terminateURIs.get(FORGET)),
+                            toURI(terminateURIs.get(LEAVE)),
+                            toURI(terminateURIs.get(AFTER)),
+                            toURI(terminateURIs.get(STATUS)));
                     StringBuilder previousParticipantData = new StringBuilder();
 
                     // store the registration link in case the participant wants to associate data with the enlistment in the LRA
@@ -445,8 +436,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                     // may fail. We therefore re-try a configurable amount of times.
                     for (int i = 0;; i++) {
                         try {
-                            recoveryUrl = getLRAClient().joinLRA(lraId, timeLimit,
-                                    compensateUri, completeUri, forgetUri, leaveUri, afterUri, statusUri,
+                            recoveryUrl = getLRAClient().enlistCompensator(lraId, timeLimit, compensatorLink,
                                     previousParticipantData);
                             break;
                         } catch (WebApplicationException e) {
@@ -558,7 +548,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                 try {
                     // do not attempt to cancel if the request filter tried but failed to start a new LRA
                     if (progress == null || progressDoesNotContain(progress, ProgressStep.StartFailed)) {
-                        getLRAClient().cancelLRA(current, null, null);
+                        getLRAClient().cancelLRA(current);
                         progress = updateProgress(progress, ProgressStep.Ended, null);
                     }
                 } catch (NotFoundException ignore) {
@@ -622,8 +612,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                     }
                 }
             } else if (current != null && compensator != null && userData != null) {
-                // TODO: Handle participant data updates for Kafka transport
-                // This path is only reached for HTTP transport with compensator link
+                getLRAClient().enlistCompensator(current, 0L, compensator, new StringBuilder(userData));
             }
 
             if (responseContext.getStatus() == Response.Status.OK.getStatusCode()
@@ -664,32 +653,12 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
         }
     }
 
-    private LRAClient getLRAClient() {
+    private NarayanaLRAClient getLRAClient() {
         if (lraClient == null) {
-            String transport = ConfigProvider.getConfig()
-                    .getOptionalValue(LRAKafkaConstants.CONFIG_TRANSPORT, String.class)
-                    .orElse("http");
-            if (lraClientInstance != null) {
-                if ("kafka".equals(transport)) {
-                    for (LRAClient client : lraClientInstance) {
-                        if (client instanceof KafkaLRAClient) {
-                            lraClient = client;
-                            break;
-                        }
-                    }
-                } else {
-                    for (LRAClient client : lraClientInstance) {
-                        if (client instanceof NarayanaLRAClient) {
-                            lraClient = client;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (lraClient == null) {
-                lraClient = new NarayanaLRAClient();
-            }
+            // no need to lock
+            lraClient = new NarayanaLRAClient();
         }
+
         return lraClient;
     }
 
