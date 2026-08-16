@@ -15,7 +15,7 @@ import io.narayana.lra.coordinator.domain.model.LongRunningAction;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
-import io.quarkus.arc.properties.UnlessBuildProperty;
+import io.quarkus.arc.properties.IfBuildProperty;
 import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.core.Response;
@@ -28,7 +28,7 @@ import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Message;
 
 @ApplicationScoped
-@UnlessBuildProperty(name = "lra.kafka.enabled", stringValue = "true")
+@IfBuildProperty(name = "lra.kafka.enabled", stringValue = "true")
 public class KafkaLRAListener {
 
     private final LRAService lraService;
