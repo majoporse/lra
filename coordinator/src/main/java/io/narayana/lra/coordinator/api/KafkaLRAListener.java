@@ -19,6 +19,7 @@ import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.core.Response;
 import java.net.URI;
+import java.util.concurrent.CompletionStage;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
@@ -40,7 +41,7 @@ public class KafkaLRAListener {
     }
 
     @Incoming(LRAKafkaConstants.TOPIC_START)
-    public void onStartLRA(Message<StartLRA.Request> message) {
+    public CompletionStage<Void> onStartLRA(Message<StartLRA.Request> message) {
         StartLRA.Request request = message.getPayload();
         StartLRA.Reply reply;
 
@@ -56,11 +57,11 @@ public class KafkaLRAListener {
         }
 
         sendReply(request.replyTopic, reply);
-        message.ack();
+        return message.ack();
     }
 
     @Incoming(LRAKafkaConstants.TOPIC_CLOSE)
-    public void onCloseLRA(Message<CloseLRA.Request> message) {
+    public CompletionStage<Void> onCloseLRA(Message<CloseLRA.Request> message) {
         CloseLRA.Request request = message.getPayload();
         CloseLRA.Reply reply;
 
@@ -73,11 +74,11 @@ public class KafkaLRAListener {
         }
 
         sendReply(request.replyTopic, reply);
-        message.ack();
+        return message.ack();
     }
 
     @Incoming(LRAKafkaConstants.TOPIC_CANCEL)
-    public void onCancelLRA(Message<CancelLRA.Request> message) {
+    public CompletionStage<Void> onCancelLRA(Message<CancelLRA.Request> message) {
         CancelLRA.Request request = message.getPayload();
         CancelLRA.Reply reply;
 
@@ -90,11 +91,11 @@ public class KafkaLRAListener {
         }
 
         sendReply(request.replyTopic, reply);
-        message.ack();
+        return message.ack();
     }
 
     @Incoming(LRAKafkaConstants.TOPIC_LEAVE)
-    public void onLeaveLRA(Message<LeaveLRA.Request> message) {
+    public CompletionStage<Void> onLeaveLRA(Message<LeaveLRA.Request> message) {
         LeaveLRA.Request request = message.getPayload();
         LeaveLRA.Reply reply;
 
@@ -107,11 +108,11 @@ public class KafkaLRAListener {
         }
 
         sendReply(request.replyTopic, reply);
-        message.ack();
+        return message.ack();
     }
 
     @Incoming(LRAKafkaConstants.TOPIC_JOIN)
-    public void onJoinLRA(Message<JoinLRA.Request> message) {
+    public CompletionStage<Void> onJoinLRA(Message<JoinLRA.Request> message) {
         JoinLRA.Request request = message.getPayload();
         JoinLRA.Reply reply;
 
@@ -141,7 +142,7 @@ public class KafkaLRAListener {
         }
 
         sendReply(request.replyTopic, reply);
-        message.ack();
+        return message.ack();
     }
 
     private String buildLinkHeader(JoinLRA.Request request) {
@@ -165,7 +166,7 @@ public class KafkaLRAListener {
     }
 
     @Incoming(LRAKafkaConstants.TOPIC_STATUS)
-    public void onStatusLRA(Message<StatusLRA.Request> message) {
+    public CompletionStage<Void> onStatusLRA(Message<StatusLRA.Request> message) {
         StatusLRA.Request request = message.getPayload();
         StatusLRA.Reply reply;
 
@@ -182,7 +183,7 @@ public class KafkaLRAListener {
         }
 
         sendReply(request.replyTopic, reply);
-        message.ack();
+        return message.ack();
     }
 
     private void sendReply(String replyTopic, Object reply) {

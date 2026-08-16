@@ -6,17 +6,21 @@ import io.narayana.lra.contracts.kafka.CancelLRA;
 import io.narayana.lra.contracts.kafka.CloseLRA;
 import io.narayana.lra.contracts.kafka.JoinLRA;
 import io.narayana.lra.contracts.kafka.LRAKafkaConstants;
+import io.narayana.lra.contracts.kafka.LRAKafkaReply;
+import io.narayana.lra.contracts.kafka.LRAKafkaRequest;
 import io.narayana.lra.contracts.kafka.LeaveLRA;
 import io.narayana.lra.contracts.kafka.StartLRA;
 import io.narayana.lra.contracts.kafka.StatusLRA;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import java.net.URI;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -32,23 +36,29 @@ import org.eclipse.microprofile.reactive.messaging.Message;
 public class KafkaLRAClient implements LRAClient {
     private static final long REPLY_TIMEOUT_SECONDS = 30;
 
+    @Inject
     @Channel(LRAKafkaConstants.TOPIC_START)
-    Emitter<String> startEmitter;
+    Emitter<StartLRA.Request> startEmitter;
 
+    @Inject
     @Channel(LRAKafkaConstants.TOPIC_CLOSE)
-    Emitter<String> closeEmitter;
+    Emitter<CloseLRA.Request> closeEmitter;
 
+    @Inject
     @Channel(LRAKafkaConstants.TOPIC_CANCEL)
-    Emitter<String> cancelEmitter;
+    Emitter<CancelLRA.Request> cancelEmitter;
 
+    @Inject
     @Channel(LRAKafkaConstants.TOPIC_LEAVE)
-    Emitter<String> leaveEmitter;
+    Emitter<LeaveLRA.Request> leaveEmitter;
 
+    @Inject
     @Channel(LRAKafkaConstants.TOPIC_JOIN)
-    Emitter<String> joinEmitter;
+    Emitter<JoinLRA.Request> joinEmitter;
 
+    @Inject
     @Channel(LRAKafkaConstants.TOPIC_STATUS)
-    Emitter<String> statusEmitter;
+    Emitter<StatusLRA.Request> statusEmitter;
 
     private final ObjectMapper objectMapper;
     private final ConcurrentHashMap<String, CompletableFuture<String>> pendingReplies;
@@ -73,7 +83,7 @@ public class KafkaLRAClient implements LRAClient {
     }
 
     @Incoming(LRAKafkaConstants.TOPIC_REPLY)
-    public void onReply(Message<String> message) {
+    public CompletionStage<Void> onReply(Message<String> message) {
         String correlationId = extractCorrelationIdFromPayload(message.getPayload());
         if (correlationId != null) {
             CompletableFuture<String> future = pendingReplies.remove(correlationId);
@@ -81,7 +91,7 @@ public class KafkaLRAClient implements LRAClient {
                 future.complete(message.getPayload());
             }
         }
-        message.ack();
+        return message.ack();
     }
 
     private String extractCorrelationIdFromPayload(String payload) {
@@ -96,14 +106,17 @@ public class KafkaLRAClient implements LRAClient {
         return null;
     }
 
-    private String sendAndWait(Emitter<String> emitter, String correlationId, String messageJson) {
+    private <T extends LRAKafkaRequest, R extends LRAKafkaReply> R sendAndWait(
+            Emitter<T> emitter, T request, Class<R> replyClass) {
+        String correlationId = request.correlationId;
         CompletableFuture<String> future = new CompletableFuture<>();
         pendingReplies.put(correlationId, future);
 
-        emitter.send(messageJson);
+        emitter.send(request);
 
         try {
-            return future.get(REPLY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            String replyJson = future.get(REPLY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            return objectMapper.readValue(replyJson, replyClass);
         } catch (TimeoutException e) {
             pendingReplies.remove(correlationId);
             throw new WebApplicationException("Kafka request timed out",
@@ -111,6 +124,10 @@ public class KafkaLRAClient implements LRAClient {
         } catch (ExecutionException | InterruptedException e) {
             pendingReplies.remove(correlationId);
             throw new WebApplicationException("Kafka request failed: " + e.getMessage(),
+                    Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
+        } catch (JsonProcessingException e) {
+            pendingReplies.remove(correlationId);
+            throw new WebApplicationException("Failed to deserialize reply: " + e.getMessage(),
                     Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
         }
     }
@@ -122,9 +139,7 @@ public class KafkaLRAClient implements LRAClient {
         String parentStr = parentLRA != null ? parentLRA.toASCIIString() : null;
 
         StartLRA.Request request = new StartLRA.Request(correlationId, replyTopic, clientID, timeoutMillis, parentStr);
-        String requestJson = toJson(request);
-        String replyJson = sendAndWait(startEmitter, correlationId, requestJson);
-        StartLRA.Reply reply = fromJson(replyJson, StartLRA.Reply.class);
+        StartLRA.Reply reply = sendAndWait(startEmitter, request, StartLRA.Reply.class);
 
         if (reply.error != null) {
             throw new WebApplicationException(reply.error, Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
@@ -137,9 +152,7 @@ public class KafkaLRAClient implements LRAClient {
         String correlationId = UUID.randomUUID().toString();
         CloseLRA.Request request = new CloseLRA.Request(correlationId, replyTopic, lraId.toASCIIString(), compensator,
                 userData);
-        String requestJson = toJson(request);
-        String replyJson = sendAndWait(closeEmitter, correlationId, requestJson);
-        CloseLRA.Reply reply = fromJson(replyJson, CloseLRA.Reply.class);
+        CloseLRA.Reply reply = sendAndWait(closeEmitter, request, CloseLRA.Reply.class);
 
         if (reply.error != null) {
             throw new WebApplicationException(reply.error, Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
@@ -151,9 +164,7 @@ public class KafkaLRAClient implements LRAClient {
         String correlationId = UUID.randomUUID().toString();
         CancelLRA.Request request = new CancelLRA.Request(correlationId, replyTopic, lraId.toASCIIString(), compensator,
                 userData);
-        String requestJson = toJson(request);
-        String replyJson = sendAndWait(cancelEmitter, correlationId, requestJson);
-        CancelLRA.Reply reply = fromJson(replyJson, CancelLRA.Reply.class);
+        CancelLRA.Reply reply = sendAndWait(cancelEmitter, request, CancelLRA.Reply.class);
 
         if (reply.error != null) {
             throw new WebApplicationException(reply.error, Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
@@ -164,9 +175,7 @@ public class KafkaLRAClient implements LRAClient {
     public void leaveLRA(URI lraId, String body) {
         String correlationId = UUID.randomUUID().toString();
         LeaveLRA.Request request = new LeaveLRA.Request(correlationId, replyTopic, lraId.toASCIIString(), body);
-        String requestJson = toJson(request);
-        String replyJson = sendAndWait(leaveEmitter, correlationId, requestJson);
-        LeaveLRA.Reply reply = fromJson(replyJson, LeaveLRA.Reply.class);
+        LeaveLRA.Reply reply = sendAndWait(leaveEmitter, request, LeaveLRA.Reply.class);
 
         if (reply.error != null) {
             throw new WebApplicationException(reply.error, Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
@@ -187,9 +196,7 @@ public class KafkaLRAClient implements LRAClient {
                 uriToString(leaveUri), uriToString(afterUri), uriToString(statusUri),
                 data);
 
-        String requestJson = toJson(request);
-        String replyJson = sendAndWait(joinEmitter, correlationId, requestJson);
-        JoinLRA.Reply reply = fromJson(replyJson, JoinLRA.Reply.class);
+        JoinLRA.Reply reply = sendAndWait(joinEmitter, request, JoinLRA.Reply.class);
 
         if (reply.error != null) {
             throw new WebApplicationException(reply.error, Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
@@ -211,9 +218,7 @@ public class KafkaLRAClient implements LRAClient {
     public LRAStatus getStatus(URI lraId) {
         String correlationId = UUID.randomUUID().toString();
         StatusLRA.Request request = new StatusLRA.Request(correlationId, replyTopic, lraId.toASCIIString());
-        String requestJson = toJson(request);
-        String replyJson = sendAndWait(statusEmitter, correlationId, requestJson);
-        StatusLRA.Reply reply = fromJson(replyJson, StatusLRA.Reply.class);
+        StatusLRA.Reply reply = sendAndWait(statusEmitter, request, StatusLRA.Reply.class);
 
         if (reply.error != null) {
             throw new WebApplicationException(reply.error, Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
@@ -229,21 +234,5 @@ public class KafkaLRAClient implements LRAClient {
     @Override
     public void close() {
         // SmallRye Reactive Messaging handles producer/consumer lifecycle
-    }
-
-    private String toJson(Object obj) {
-        try {
-            return objectMapper.writeValueAsString(obj);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize message", e);
-        }
-    }
-
-    private <T> T fromJson(String json, Class<T> clazz) {
-        try {
-            return objectMapper.readValue(json, clazz);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to deserialize message", e);
-        }
     }
 }

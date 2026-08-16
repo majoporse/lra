@@ -669,25 +669,24 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
             String transport = ConfigProvider.getConfig()
                     .getOptionalValue(LRAKafkaConstants.CONFIG_TRANSPORT, String.class)
                     .orElse("http");
-            if ("kafka".equals(transport)) {
-                // Get KafkaLRAClient from CDI
-                for (LRAClient client : lraClientInstance) {
-                    if (client instanceof KafkaLRAClient) {
-                        lraClient = client;
-                        break;
+            if (lraClientInstance != null) {
+                if ("kafka".equals(transport)) {
+                    for (LRAClient client : lraClientInstance) {
+                        if (client instanceof KafkaLRAClient) {
+                            lraClient = client;
+                            break;
+                        }
                     }
-                }
-            } else {
-                // Get NarayanaLRAClient from CDI
-                for (LRAClient client : lraClientInstance) {
-                    if (client instanceof NarayanaLRAClient) {
-                        lraClient = client;
-                        break;
+                } else {
+                    for (LRAClient client : lraClientInstance) {
+                        if (client instanceof NarayanaLRAClient) {
+                            lraClient = client;
+                            break;
+                        }
                     }
                 }
             }
             if (lraClient == null) {
-                // Fallback to creating manually if CDI doesn't have it
                 lraClient = new NarayanaLRAClient();
             }
         }
