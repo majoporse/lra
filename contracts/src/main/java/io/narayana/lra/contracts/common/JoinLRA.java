@@ -1,7 +1,7 @@
-package io.narayana.lra.contracts.kafka;
+package io.narayana.lra.contracts.common;
 
 public class JoinLRA {
-    public static class Request extends LRAKafkaRequest {
+    public static class Request {
         public String lraId;
         public Long timeLimit;
         public String compensateLink;
@@ -15,11 +15,10 @@ public class JoinLRA {
         public Request() {
         }
 
-        public Request(String correlationId, String replyTopic, String lraId, Long timeLimit,
+        public Request(String lraId, Long timeLimit,
                 String compensateLink, String completeLink, String forgetLink,
                 String leaveLink, String afterLink, String statusLink,
                 String compensatorData) {
-            super(correlationId, replyTopic);
             this.lraId = lraId;
             this.timeLimit = timeLimit;
             this.compensateLink = compensateLink;
@@ -30,19 +29,30 @@ public class JoinLRA {
             this.statusLink = statusLink;
             this.compensatorData = compensatorData;
         }
+
+        public Request(String correlationId, String replyTopic, String lraId, Long timeLimit,
+                String compensateLink, String completeLink, String forgetLink,
+                String leaveLink, String afterLink, String statusLink,
+                String compensatorData) {
+            this(lraId, timeLimit, compensateLink, completeLink, forgetLink,
+                    leaveLink, afterLink, statusLink, compensatorData);
+        }
     }
 
-    public static class Reply extends LRAKafkaReply {
+    public static class Reply {
         public String recoveryUrl;
         public String previousCompensatorData;
 
         public Reply() {
         }
 
-        public Reply(String correlationId, String recoveryUrl, String previousCompensatorData, String error) {
-            super(correlationId, error);
+        public Reply(String recoveryUrl, String previousCompensatorData, String error) {
             this.recoveryUrl = recoveryUrl;
             this.previousCompensatorData = previousCompensatorData;
+        }
+
+        public Reply(String correlationId, String recoveryUrl, String previousCompensatorData, String error) {
+            this(recoveryUrl, previousCompensatorData, error);
         }
     }
 }

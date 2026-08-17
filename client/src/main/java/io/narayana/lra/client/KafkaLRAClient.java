@@ -2,15 +2,15 @@ package io.narayana.lra.client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.narayana.lra.contracts.kafka.CancelLRA;
-import io.narayana.lra.contracts.kafka.CloseLRA;
-import io.narayana.lra.contracts.kafka.JoinLRA;
+import io.narayana.lra.contracts.kafka.CancelLRAKafka;
+import io.narayana.lra.contracts.kafka.CloseLRAKafka;
+import io.narayana.lra.contracts.kafka.JoinLRAKafka;
 import io.narayana.lra.contracts.kafka.LRAKafkaConstants;
 import io.narayana.lra.contracts.kafka.LRAKafkaReply;
 import io.narayana.lra.contracts.kafka.LRAKafkaRequest;
-import io.narayana.lra.contracts.kafka.LeaveLRA;
-import io.narayana.lra.contracts.kafka.StartLRA;
-import io.narayana.lra.contracts.kafka.StatusLRA;
+import io.narayana.lra.contracts.kafka.LeaveLRAKafka;
+import io.narayana.lra.contracts.kafka.StartLRAKafka;
+import io.narayana.lra.contracts.kafka.StatusLRAKafka;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -35,30 +35,31 @@ import org.eclipse.microprofile.reactive.messaging.Message;
 @ApplicationScoped
 public class KafkaLRAClient implements LRAClient {
     private static final long REPLY_TIMEOUT_SECONDS = 30;
+    private static final boolean FIRE_AND_FORGET = true;
 
     @Inject
     @Channel(LRAKafkaConstants.TOPIC_START)
-    Emitter<StartLRA.Request> startEmitter;
+    Emitter<StartLRAKafka.Request> startEmitter;
 
     @Inject
     @Channel(LRAKafkaConstants.TOPIC_CLOSE)
-    Emitter<CloseLRA.Request> closeEmitter;
+    Emitter<CloseLRAKafka.Request> closeEmitter;
 
     @Inject
     @Channel(LRAKafkaConstants.TOPIC_CANCEL)
-    Emitter<CancelLRA.Request> cancelEmitter;
+    Emitter<CancelLRAKafka.Request> cancelEmitter;
 
     @Inject
     @Channel(LRAKafkaConstants.TOPIC_LEAVE)
-    Emitter<LeaveLRA.Request> leaveEmitter;
+    Emitter<LeaveLRAKafka.Request> leaveEmitter;
 
     @Inject
     @Channel(LRAKafkaConstants.TOPIC_JOIN)
-    Emitter<JoinLRA.Request> joinEmitter;
+    Emitter<JoinLRAKafka.Request> joinEmitter;
 
     @Inject
     @Channel(LRAKafkaConstants.TOPIC_STATUS)
-    Emitter<StatusLRA.Request> statusEmitter;
+    Emitter<StatusLRAKafka.Request> statusEmitter;
 
     private final ObjectMapper objectMapper;
     private final ConcurrentHashMap<String, CompletableFuture<String>> pendingReplies;
@@ -106,9 +107,22 @@ public class KafkaLRAClient implements LRAClient {
         return null;
     }
 
+    private <T extends LRAKafkaRequest, R extends LRAKafkaReply> R send(
+            Emitter<T> emitter, T request, Class<R> replyClass, boolean fireAndForget) {
+        if (fireAndForget) {
+            sendAndForget(emitter, request);
+            return null;
+        }
+        return sendAndWait(emitter, request, replyClass);
+    }
+
+    private <T extends LRAKafkaRequest> void sendAndForget(Emitter<T> emitter, T request) {
+        emitter.send(request);
+    }
+
     private <T extends LRAKafkaRequest, R extends LRAKafkaReply> R sendAndWait(
             Emitter<T> emitter, T request, Class<R> replyClass) {
-        String correlationId = request.correlationId;
+        String correlationId = request.getCorrelationId();
         CompletableFuture<String> future = new CompletableFuture<>();
         pendingReplies.put(correlationId, future);
 
@@ -132,54 +146,48 @@ public class KafkaLRAClient implements LRAClient {
         }
     }
 
+    private String nextCorrelationId() {
+        return UUID.randomUUID().toString();
+    }
+
+    private void checkError(LRAKafkaReply reply) {
+        if (reply == null || reply.getError() != null) {
+            throw new WebApplicationException(reply.getError(),
+                    Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
+        }
+    }
+
     @Override
     public URI startLRA(URI parentLRA, String clientID, Long timeout, ChronoUnit unit, boolean verbose) {
-        String correlationId = UUID.randomUUID().toString();
         Long timeoutMillis = timeout != null ? java.time.Duration.of(timeout, unit).toMillis() : 0L;
         String parentStr = parentLRA != null ? parentLRA.toASCIIString() : null;
 
-        StartLRA.Request request = new StartLRA.Request(correlationId, replyTopic, clientID, timeoutMillis, parentStr);
-        StartLRA.Reply reply = sendAndWait(startEmitter, request, StartLRA.Reply.class);
+        StartLRAKafka.Request request = new StartLRAKafka.Request(nextCorrelationId(), replyTopic, clientID, timeoutMillis, parentStr);
+        StartLRAKafka.Reply reply = send(startEmitter, request, StartLRAKafka.Reply.class, false);
 
-        if (reply.error != null) {
-            throw new WebApplicationException(reply.error, Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
-        }
+        checkError(reply);
         return URI.create(reply.lraId);
     }
 
     @Override
     public void closeLRA(URI lraId, String compensator, String userData) {
-        String correlationId = UUID.randomUUID().toString();
-        CloseLRA.Request request = new CloseLRA.Request(correlationId, replyTopic, lraId.toASCIIString(), compensator,
-                userData);
-        CloseLRA.Reply reply = sendAndWait(closeEmitter, request, CloseLRA.Reply.class);
-
-        if (reply.error != null) {
-            throw new WebApplicationException(reply.error, Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
-        }
+        CloseLRAKafka.Request request = new CloseLRAKafka.Request(nextCorrelationId(), replyTopic,
+                lraId.toASCIIString(), compensator, userData);
+        send(closeEmitter, request, CloseLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 
     @Override
     public void cancelLRA(URI lraId, String compensator, String userData) {
-        String correlationId = UUID.randomUUID().toString();
-        CancelLRA.Request request = new CancelLRA.Request(correlationId, replyTopic, lraId.toASCIIString(), compensator,
-                userData);
-        CancelLRA.Reply reply = sendAndWait(cancelEmitter, request, CancelLRA.Reply.class);
-
-        if (reply.error != null) {
-            throw new WebApplicationException(reply.error, Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
-        }
+        CancelLRAKafka.Request request = new CancelLRAKafka.Request(nextCorrelationId(), replyTopic,
+                lraId.toASCIIString(), compensator, userData);
+        send(cancelEmitter, request, CancelLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 
     @Override
     public void leaveLRA(URI lraId, String body) {
-        String correlationId = UUID.randomUUID().toString();
-        LeaveLRA.Request request = new LeaveLRA.Request(correlationId, replyTopic, lraId.toASCIIString(), body);
-        LeaveLRA.Reply reply = sendAndWait(leaveEmitter, request, LeaveLRA.Reply.class);
-
-        if (reply.error != null) {
-            throw new WebApplicationException(reply.error, Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
-        }
+        LeaveLRAKafka.Request request = new LeaveLRAKafka.Request(nextCorrelationId(), replyTopic,
+                lraId.toASCIIString(), body);
+        send(leaveEmitter, request, LeaveLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 
     @Override
@@ -187,20 +195,17 @@ public class KafkaLRAClient implements LRAClient {
             URI compensateUri, URI completeUri,
             URI forgetUri, URI leaveUri, URI afterUri, URI statusUri,
             StringBuilder compensatorData) {
-        String correlationId = UUID.randomUUID().toString();
         String data = compensatorData != null ? compensatorData.toString() : null;
 
-        JoinLRA.Request request = new JoinLRA.Request(
-                correlationId, replyTopic, lraId.toASCIIString(), timeLimit,
+        JoinLRAKafka.Request request = new JoinLRAKafka.Request(
+                nextCorrelationId(), replyTopic, lraId.toASCIIString(), timeLimit,
                 uriToString(compensateUri), uriToString(completeUri), uriToString(forgetUri),
                 uriToString(leaveUri), uriToString(afterUri), uriToString(statusUri),
                 data);
 
-        JoinLRA.Reply reply = sendAndWait(joinEmitter, request, JoinLRA.Reply.class);
+        JoinLRAKafka.Reply reply = send(joinEmitter, request, JoinLRAKafka.Reply.class, false);
 
-        if (reply.error != null) {
-            throw new WebApplicationException(reply.error, Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
-        }
+        checkError(reply);
 
         if (compensatorData != null && reply.previousCompensatorData != null) {
             compensatorData.setLength(0);
@@ -216,13 +221,10 @@ public class KafkaLRAClient implements LRAClient {
 
     @Override
     public LRAStatus getStatus(URI lraId) {
-        String correlationId = UUID.randomUUID().toString();
-        StatusLRA.Request request = new StatusLRA.Request(correlationId, replyTopic, lraId.toASCIIString());
-        StatusLRA.Reply reply = sendAndWait(statusEmitter, request, StatusLRA.Reply.class);
+        StatusLRAKafka.Request request = new StatusLRAKafka.Request(nextCorrelationId(), replyTopic, lraId.toASCIIString());
+        StatusLRAKafka.Reply reply = send(statusEmitter, request, StatusLRAKafka.Reply.class, false);
 
-        if (reply.error != null) {
-            throw new WebApplicationException(reply.error, Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
-        }
+        checkError(reply);
         return LRAStatus.valueOf(reply.status);
     }
 

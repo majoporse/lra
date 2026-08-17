@@ -4,13 +4,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
-import io.narayana.lra.contracts.kafka.CancelLRA;
-import io.narayana.lra.contracts.kafka.CloseLRA;
-import io.narayana.lra.contracts.kafka.JoinLRA;
+import io.narayana.lra.contracts.kafka.CancelLRAKafka;
+import io.narayana.lra.contracts.kafka.CloseLRAKafka;
+import io.narayana.lra.contracts.kafka.JoinLRAKafka;
 import io.narayana.lra.contracts.kafka.LRAKafkaConstants;
-import io.narayana.lra.contracts.kafka.LeaveLRA;
-import io.narayana.lra.contracts.kafka.StartLRA;
-import io.narayana.lra.contracts.kafka.StatusLRA;
+import io.narayana.lra.contracts.kafka.LeaveLRAKafka;
+import io.narayana.lra.contracts.kafka.StartLRAKafka;
+import io.narayana.lra.contracts.kafka.StatusLRAKafka;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
@@ -43,9 +43,9 @@ public class KafkaLRAListener {
     }
 
     @Incoming(LRAKafkaConstants.TOPIC_START)
-    public CompletionStage<Void> onStartLRA(Message<StartLRA.Request> message) {
-        StartLRA.Request request = message.getPayload();
-        StartLRA.Reply reply;
+    public CompletionStage<Void> onStartLRA(Message<StartLRAKafka.Request> message) {
+        StartLRAKafka.Request request = message.getPayload();
+        StartLRAKafka.Reply reply;
 
         try {
             String coordinatorUrl = "http://localhost:8080/" + LRAConstants.COORDINATOR_PATH_NAME;
@@ -53,70 +53,70 @@ public class KafkaLRAListener {
                     ? URI.create(request.parentLRA)
                     : null;
             LongRunningAction lra = lraService.startLRA(coordinatorUrl, parentId, request.clientId, request.timeout);
-            reply = new StartLRA.Reply(request.correlationId, lra.getId().toASCIIString(), null);
+            reply = new StartLRAKafka.Reply(request.getCorrelationId(), lra.getId().toASCIIString(), null);
         } catch (Exception e) {
-            reply = new StartLRA.Reply(request.correlationId, null, e.getMessage());
+            reply = new StartLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
         }
 
-        sendReply(request.replyTopic, reply);
+        sendReply(request.getReplyTopic(), reply);
         return message.ack();
     }
 
     @Incoming(LRAKafkaConstants.TOPIC_CLOSE)
-    public CompletionStage<Void> onCloseLRA(Message<CloseLRA.Request> message) {
-        CloseLRA.Request request = message.getPayload();
-        CloseLRA.Reply reply;
+    public CompletionStage<Void> onCloseLRA(Message<CloseLRAKafka.Request> message) {
+        CloseLRAKafka.Request request = message.getPayload();
+        CloseLRAKafka.Reply reply;
 
         try {
             URI lraId = URI.create(request.lraId);
             LRAData lraData = lraService.endLRA(lraId, false, false, request.compensator, request.userData);
-            reply = new CloseLRA.Reply(request.correlationId, lraData.getStatus().name(), null);
+            reply = new CloseLRAKafka.Reply(request.getCorrelationId(), lraData.getStatus().name(), null);
         } catch (Exception e) {
-            reply = new CloseLRA.Reply(request.correlationId, null, e.getMessage());
+            reply = new CloseLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
         }
 
-        sendReply(request.replyTopic, reply);
+        sendReply(request.getReplyTopic(), reply);
         return message.ack();
     }
 
     @Incoming(LRAKafkaConstants.TOPIC_CANCEL)
-    public CompletionStage<Void> onCancelLRA(Message<CancelLRA.Request> message) {
-        CancelLRA.Request request = message.getPayload();
-        CancelLRA.Reply reply;
+    public CompletionStage<Void> onCancelLRA(Message<CancelLRAKafka.Request> message) {
+        CancelLRAKafka.Request request = message.getPayload();
+        CancelLRAKafka.Reply reply;
 
         try {
             URI lraId = URI.create(request.lraId);
             LRAData lraData = lraService.endLRA(lraId, true, false, request.compensator, request.userData);
-            reply = new CancelLRA.Reply(request.correlationId, lraData.getStatus().name(), null);
+            reply = new CancelLRAKafka.Reply(request.getCorrelationId(), lraData.getStatus().name(), null);
         } catch (Exception e) {
-            reply = new CancelLRA.Reply(request.correlationId, null, e.getMessage());
+            reply = new CancelLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
         }
 
-        sendReply(request.replyTopic, reply);
+        sendReply(request.getReplyTopic(), reply);
         return message.ack();
     }
 
     @Incoming(LRAKafkaConstants.TOPIC_LEAVE)
-    public CompletionStage<Void> onLeaveLRA(Message<LeaveLRA.Request> message) {
-        LeaveLRA.Request request = message.getPayload();
-        LeaveLRA.Reply reply;
+    public CompletionStage<Void> onLeaveLRA(Message<LeaveLRAKafka.Request> message) {
+        LeaveLRAKafka.Request request = message.getPayload();
+        LeaveLRAKafka.Reply reply;
 
         try {
             URI lraId = URI.create(request.lraId);
             lraService.leave(lraId, request.body);
-            reply = new LeaveLRA.Reply(request.correlationId, null);
+            reply = new LeaveLRAKafka.Reply(request.getCorrelationId(), null);
         } catch (Exception e) {
-            reply = new LeaveLRA.Reply(request.correlationId, e.getMessage());
+            reply = new LeaveLRAKafka.Reply(request.getCorrelationId(), e.getMessage());
         }
 
-        sendReply(request.replyTopic, reply);
+        sendReply(request.getReplyTopic(), reply);
         return message.ack();
     }
 
     @Incoming(LRAKafkaConstants.TOPIC_JOIN)
-    public CompletionStage<Void> onJoinLRA(Message<JoinLRA.Request> message) {
-        JoinLRA.Request request = message.getPayload();
-        JoinLRA.Reply reply;
+    public CompletionStage<Void> onJoinLRA(Message<JoinLRAKafka.Request> message) {
+        JoinLRAKafka.Request request = message.getPayload();
+        JoinLRAKafka.Reply reply;
 
         try {
             URI lraId = URI.create(request.lraId);
@@ -133,21 +133,21 @@ public class KafkaLRAListener {
                     linkHeader, recoveryUrlBase, compensatorData);
 
             if (status == Response.Status.OK.getStatusCode()) {
-                reply = new JoinLRA.Reply(request.correlationId, recoveryUrl.toString(),
+                reply = new JoinLRAKafka.Reply(request.getCorrelationId(), recoveryUrl.toString(),
                         compensatorData.toString(), null);
             } else {
-                reply = new JoinLRA.Reply(request.correlationId, null, null,
+                reply = new JoinLRAKafka.Reply(request.getCorrelationId(), null, null,
                         "Join failed with status: " + status);
             }
         } catch (Exception e) {
-            reply = new JoinLRA.Reply(request.correlationId, null, null, e.getMessage());
+            reply = new JoinLRAKafka.Reply(request.getCorrelationId(), null, null, e.getMessage());
         }
 
-        sendReply(request.replyTopic, reply);
+        sendReply(request.getReplyTopic(), reply);
         return message.ack();
     }
 
-    private String buildLinkHeader(JoinLRA.Request request) {
+    private String buildLinkHeader(JoinLRAKafka.Request request) {
         StringBuilder sb = new StringBuilder();
         appendLink(sb, "compensate", request.compensateLink);
         appendLink(sb, "complete", request.completeLink);
@@ -168,9 +168,9 @@ public class KafkaLRAListener {
     }
 
     @Incoming(LRAKafkaConstants.TOPIC_STATUS)
-    public CompletionStage<Void> onStatusLRA(Message<StatusLRA.Request> message) {
-        StatusLRA.Request request = message.getPayload();
-        StatusLRA.Reply reply;
+    public CompletionStage<Void> onStatusLRA(Message<StatusLRAKafka.Request> message) {
+        StatusLRAKafka.Request request = message.getPayload();
+        StatusLRAKafka.Reply reply;
 
         try {
             URI lraId = URI.create(request.lraId);
@@ -179,12 +179,12 @@ public class KafkaLRAListener {
             if (status == null) {
                 status = LRAStatus.Active;
             }
-            reply = new StatusLRA.Reply(request.correlationId, status.name(), null);
+            reply = new StatusLRAKafka.Reply(request.getCorrelationId(), status.name(), null);
         } catch (Exception e) {
-            reply = new StatusLRA.Reply(request.correlationId, null, e.getMessage());
+            reply = new StatusLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
         }
 
-        sendReply(request.replyTopic, reply);
+        sendReply(request.getReplyTopic(), reply);
         return message.ack();
     }
 
