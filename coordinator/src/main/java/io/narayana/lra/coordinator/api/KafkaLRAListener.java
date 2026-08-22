@@ -8,6 +8,7 @@ import io.narayana.lra.contracts.kafka.CancelLRAKafka;
 import io.narayana.lra.contracts.kafka.CloseLRAKafka;
 import io.narayana.lra.contracts.kafka.JoinLRAKafka;
 import io.narayana.lra.contracts.kafka.LRAKafkaConstants;
+import io.narayana.lra.contracts.kafka.LRAKafkaEnvelope;
 import io.narayana.lra.contracts.kafka.LeaveLRAKafka;
 import io.narayana.lra.contracts.kafka.StartLRAKafka;
 import io.narayana.lra.contracts.kafka.StatusLRAKafka;
@@ -28,7 +29,7 @@ import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Message;
 
 @ApplicationScoped
-@IfBuildProperty(name = "lra.kafka.enabled", stringValue = "true")
+@IfBuildProperty(name = "quarkus.lra.kafka.enabled", stringValue = "true")
 public class KafkaLRAListener {
 
     private final LRAService lraService;
@@ -42,9 +43,44 @@ public class KafkaLRAListener {
         this.objectMapper = new ObjectMapper();
     }
 
-    @Incoming(LRAKafkaConstants.TOPIC_START)
-    public CompletionStage<Void> onStartLRA(Message<StartLRAKafka.Request> message) {
-        StartLRAKafka.Request request = message.getPayload();
+    @Incoming(LRAKafkaConstants.TOPIC_REQUEST)
+    public CompletionStage<Void> onRequest(Message<String> message) {
+        String rawJson = message.getPayload();
+
+        try {
+            LRAKafkaEnvelope envelope = objectMapper.readValue(rawJson, LRAKafkaEnvelope.class);
+
+            switch (envelope.type) {
+                case LRAKafkaConstants.TYPE_START:
+                    handleStart(objectMapper.convertValue(envelope.payload, StartLRAKafka.Request.class));
+                    break;
+                case LRAKafkaConstants.TYPE_CLOSE:
+                    handleClose(objectMapper.convertValue(envelope.payload, CloseLRAKafka.Request.class));
+                    break;
+                case LRAKafkaConstants.TYPE_CANCEL:
+                    handleCancel(objectMapper.convertValue(envelope.payload, CancelLRAKafka.Request.class));
+                    break;
+                case LRAKafkaConstants.TYPE_LEAVE:
+                    handleLeave(objectMapper.convertValue(envelope.payload, LeaveLRAKafka.Request.class));
+                    break;
+                case LRAKafkaConstants.TYPE_JOIN:
+                    handleJoin(objectMapper.convertValue(envelope.payload, JoinLRAKafka.Request.class));
+                    break;
+                case LRAKafkaConstants.TYPE_STATUS:
+                    handleStatus(objectMapper.convertValue(envelope.payload, StatusLRAKafka.Request.class));
+                    break;
+                default:
+                    LRALogger.logger.error("Unknown LRA Kafka message type: " + envelope.type);
+                    break;
+            }
+        } catch (Exception e) {
+            LRALogger.logger.error("Failed to process LRA Kafka message", e);
+        }
+
+        return message.ack();
+    }
+
+    private void handleStart(StartLRAKafka.Request request) {
         StartLRAKafka.Reply reply;
 
         try {
@@ -59,12 +95,9 @@ public class KafkaLRAListener {
         }
 
         sendReply(request.getReplyTopic(), reply);
-        return message.ack();
     }
 
-    @Incoming(LRAKafkaConstants.TOPIC_CLOSE)
-    public CompletionStage<Void> onCloseLRA(Message<CloseLRAKafka.Request> message) {
-        CloseLRAKafka.Request request = message.getPayload();
+    private void handleClose(CloseLRAKafka.Request request) {
         CloseLRAKafka.Reply reply;
 
         try {
@@ -76,12 +109,9 @@ public class KafkaLRAListener {
         }
 
         sendReply(request.getReplyTopic(), reply);
-        return message.ack();
     }
 
-    @Incoming(LRAKafkaConstants.TOPIC_CANCEL)
-    public CompletionStage<Void> onCancelLRA(Message<CancelLRAKafka.Request> message) {
-        CancelLRAKafka.Request request = message.getPayload();
+    private void handleCancel(CancelLRAKafka.Request request) {
         CancelLRAKafka.Reply reply;
 
         try {
@@ -93,12 +123,9 @@ public class KafkaLRAListener {
         }
 
         sendReply(request.getReplyTopic(), reply);
-        return message.ack();
     }
 
-    @Incoming(LRAKafkaConstants.TOPIC_LEAVE)
-    public CompletionStage<Void> onLeaveLRA(Message<LeaveLRAKafka.Request> message) {
-        LeaveLRAKafka.Request request = message.getPayload();
+    private void handleLeave(LeaveLRAKafka.Request request) {
         LeaveLRAKafka.Reply reply;
 
         try {
@@ -110,12 +137,9 @@ public class KafkaLRAListener {
         }
 
         sendReply(request.getReplyTopic(), reply);
-        return message.ack();
     }
 
-    @Incoming(LRAKafkaConstants.TOPIC_JOIN)
-    public CompletionStage<Void> onJoinLRA(Message<JoinLRAKafka.Request> message) {
-        JoinLRAKafka.Request request = message.getPayload();
+    private void handleJoin(JoinLRAKafka.Request request) {
         JoinLRAKafka.Reply reply;
 
         try {
@@ -144,7 +168,24 @@ public class KafkaLRAListener {
         }
 
         sendReply(request.getReplyTopic(), reply);
-        return message.ack();
+    }
+
+    private void handleStatus(StatusLRAKafka.Request request) {
+        StatusLRAKafka.Reply reply;
+
+        try {
+            URI lraId = URI.create(request.lraId);
+            LongRunningAction lra = lraService.getTransaction(lraId);
+            LRAStatus status = lra.getLRAStatus();
+            if (status == null) {
+                status = LRAStatus.Active;
+            }
+            reply = new StatusLRAKafka.Reply(request.getCorrelationId(), status.name(), null);
+        } catch (Exception e) {
+            reply = new StatusLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
+        }
+
+        sendReply(request.getReplyTopic(), reply);
     }
 
     private String buildLinkHeader(JoinLRAKafka.Request request) {
@@ -165,27 +206,6 @@ public class KafkaLRAListener {
             }
             sb.append("<").append(url).append(">;rel=\"").append(rel).append("\"");
         }
-    }
-
-    @Incoming(LRAKafkaConstants.TOPIC_STATUS)
-    public CompletionStage<Void> onStatusLRA(Message<StatusLRAKafka.Request> message) {
-        StatusLRAKafka.Request request = message.getPayload();
-        StatusLRAKafka.Reply reply;
-
-        try {
-            URI lraId = URI.create(request.lraId);
-            LongRunningAction lra = lraService.getTransaction(lraId);
-            LRAStatus status = lra.getLRAStatus();
-            if (status == null) {
-                status = LRAStatus.Active;
-            }
-            reply = new StatusLRAKafka.Reply(request.getCorrelationId(), status.name(), null);
-        } catch (Exception e) {
-            reply = new StatusLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
-        }
-
-        sendReply(request.getReplyTopic(), reply);
-        return message.ack();
     }
 
     private void sendReply(String replyTopic, Object reply) {

@@ -6,17 +6,18 @@ public final class LRAKafkaConstants {
     }
 
     // Kafka topic/channel names
-    public static final String TOPIC_START = "lra-start";
-    public static final String TOPIC_CLOSE = "lra-close";
-    public static final String TOPIC_CANCEL = "lra-cancel";
-    public static final String TOPIC_LEAVE = "lra-leave";
-    public static final String TOPIC_JOIN = "lra-join";
-    public static final String TOPIC_STATUS = "lra-status";
+    public static final String TOPIC_REQUEST = "lra-request";
     public static final String TOPIC_REPLY = "lra-reply";
     public static final String TOPIC_REPLY_PREFIX = "lra-reply-";
 
+    // Message types for the request envelope
+    public static final String TYPE_START = "start";
+    public static final String TYPE_CLOSE = "close";
+    public static final String TYPE_CANCEL = "cancel";
+    public static final String TYPE_LEAVE = "leave";
+    public static final String TYPE_JOIN = "join";
+    public static final String TYPE_STATUS = "status";
+
     // Config keys
-    public static final String CONFIG_TRANSPORT = "lra.transport";
-    public static final String CONFIG_SERVICE_ID = "lra.service.id";
-    public static final String CONFIG_REPLY_TOPIC = "lra.reply.topic";
+    public static final String CONFIG_SERVICE_ID = "quarkus.lra.client-topic";
 }
