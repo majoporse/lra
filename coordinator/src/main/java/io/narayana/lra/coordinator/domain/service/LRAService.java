@@ -5,9 +5,6 @@
 
 package io.narayana.lra.coordinator.domain.service;
 
-import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
-import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
-import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.stream.Collectors.toList;
 
@@ -17,13 +14,11 @@ import com.arjuna.ats.arjuna.coordinator.BasicAction;
 import com.arjuna.ats.arjuna.recovery.RecoveryManager;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.coordinator.domain.LRAException;
 import io.narayana.lra.coordinator.domain.model.LRAParticipantRecord;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
-import jakarta.ws.rs.NotFoundException;
-import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.core.Response;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -31,7 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
@@ -44,15 +38,14 @@ public class LRAService {
     private final Map<LongRunningAction, Map<String, String>> lraParticipants = new ConcurrentHashMap<>();
     private LRARecoveryModule recoveryModule;
 
-    public LongRunningAction getTransaction(URI lraId) throws NotFoundException {
+    public LongRunningAction getTransaction(URI lraId) {
         if (!lras.containsKey(lraId)) {
             String uid = LRAConstants.getLRAUid(lraId);
 
             if (uid == null || uid.isEmpty()) {
                 String errorMsg = LRALogger.i18nLogger.warn_invalid_uri(
                         String.valueOf(lraId), "LongRunningAction.getTransaction");
-                throw new NotFoundException(errorMsg, // 404
-                        Response.status(NOT_FOUND).entity(errorMsg).build());
+                throw new LRAException(errorMsg, LRAException.Type.NOT_FOUND);
             }
 
             // try comparing on uid since different URIs can map to the same resource
@@ -71,8 +64,7 @@ public class LRAService {
                 }
 
                 String errorMsg = "Cannot find transaction id: " + lraId;
-                throw new NotFoundException(errorMsg,
-                        Response.status(NOT_FOUND).entity(errorMsg).build());
+                throw new LRAException(errorMsg, LRAException.Type.NOT_FOUND);
             }
 
             return recoveringLRAs.get(lraId);
@@ -84,7 +76,7 @@ public class LRAService {
     public LongRunningAction lookupTransaction(URI lraId) {
         try {
             return lraId == null ? null : getTransaction(lraId);
-        } catch (NotFoundException e) {
+        } catch (LRAException e) {
             return null;
         }
     }
@@ -136,15 +128,6 @@ public class LRAService {
         return allByStatus;
     }
 
-    /**
-     * Getting all the LRA managed by recovery manager. This means all LRAs which are not mapped
-     * only in memory but that were already saved in object store.
-     *
-     * @param scan defines if there is run recovery manager scanning before returning the collection,
-     *        when the recovery is run then the object store is touched and the returned
-     *        list may be updated with the new loaded objects
-     * @return list of the {@link LRAData} which define the recovering LRAs
-     */
     public List<LRAData> getAllRecovering(boolean scan) {
         if (scan) {
             RecoveryManager.manager().scan();
@@ -226,25 +209,26 @@ public class LRAService {
         getRM().periodicWorkSecondPass(); // periodicWorkFirstPass is a no-op
     }
 
-    public boolean updateRecoveryURI(URI lraId, String compensatorUrl, String recoveryURI, boolean persist) {
+    public boolean updateRecoveryURI(URI lraId, ParticipantActions actions, String recoveryURI, boolean persist) {
         assert recoveryURI != null;
-        assert compensatorUrl != null;
+        assert actions != null;
         LongRunningAction transaction = getTransaction(lraId);
         Map<String, String> participants = lraParticipants.get(transaction);
+        String compensatorKey = actions.compensateAction != null ? actions.compensateAction.toJson() : "";
 
         // the <participants> collection should be thread safe against update requests, even though such concurrent
         // updates are improbable because only LRAService.joinLRA and RecoveryCoordinator.replaceCompensator
         // do updates but those are sequential operations anyway
         if (participants == null) {
             participants = new ConcurrentHashMap<>();
-            participants.put(recoveryURI, compensatorUrl);
+            participants.put(recoveryURI, compensatorKey);
             lraParticipants.put(transaction, participants);
         } else {
-            participants.replace(recoveryURI, compensatorUrl);
+            participants.replace(recoveryURI, compensatorKey);
         }
 
         if (persist) {
-            return transaction.updateRecoveryURI(compensatorUrl, recoveryURI);
+            return transaction.updateRecoveryURI(actions, recoveryURI);
         }
 
         return true;
@@ -269,19 +253,16 @@ public class LRAService {
         try {
             lra = new LongRunningAction(this, baseUri, lookupTransaction(parentLRA), clientId);
         } catch (URISyntaxException e) {
-            throw new WebApplicationException(e.getMessage(),
-                    Response.status(Response.Status.PRECONDITION_FAILED)
-                            .entity(String.format("Invalid base URI: '%s'", baseUri))
-                            .build());
+            throw new LRAException(String.format("Invalid base URI: '%s'", baseUri),
+                    LRAException.Type.PRECONDITION_FAILED);
         }
 
         status = lra.begin(timelimit);
 
         if (lra.getLRAStatus() == null) {
             // unable to save state, tell the caller to try again later
-            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
-                    .entity(LRALogger.i18nLogger.warn_saveState(LongRunningAction.DEACTIVATE_REASON))
-                    .build());
+            throw new LRAException(LRALogger.i18nLogger.warn_saveState(LongRunningAction.DEACTIVATE_REASON),
+                    LRAException.Type.SERVICE_UNAVAILABLE);
         }
 
         if (status != ActionStatus.RUNNING) {
@@ -289,10 +270,7 @@ public class LRAService {
             lra.finishLRA(true);
 
             String errorMsg = "Could not start LRA: " + ActionStatus.stringForm(status);
-
-            throw new WebApplicationException(Response.status(INTERNAL_SERVER_ERROR)
-                    .entity(errorMsg)
-                    .build());
+            throw new LRAException(errorMsg, LRAException.Type.INTERNAL_SERVER_ERROR);
         } else {
             addTransaction(lra);
 
@@ -311,8 +289,7 @@ public class LRAService {
 
         if (transaction.getLRAStatus() != LRAStatus.Active && !transaction.isRecovering() && transaction.isTopLevel()) {
             String errorMsg = String.format("%s: LRA is closing or closed: endLRA", lraId);
-            throw new WebApplicationException(errorMsg, Response.status(Response.Status.PRECONDITION_FAILED)
-                    .entity(errorMsg).build());
+            throw new LRAException(errorMsg, LRAException.Type.PRECONDITION_FAILED);
         }
 
         transaction.finishLRA(compensate, compensator, userData);
@@ -341,7 +318,7 @@ public class LRAService {
         LongRunningAction transaction = getTransaction(lraId);
 
         if (transaction.getLRAStatus() != LRAStatus.Active) {
-            return Response.Status.PRECONDITION_FAILED.getStatusCode();
+            return 412; // PRECONDITION_FAILED
         }
 
         boolean wasForgotten;
@@ -349,28 +326,26 @@ public class LRAService {
             wasForgotten = transaction.forgetParticipant(compensatorUrl);
         } catch (Exception e) {
             String errorMsg = String.format("LRAService.forget %s failed on finding participant '%s'", lraId, compensatorUrl);
-            throw new WebApplicationException(errorMsg, e, Response.status(Response.Status.BAD_REQUEST)
-                    .entity(errorMsg).build());
+            throw new LRAException(errorMsg, e, LRAException.Type.BAD_REQUEST);
         }
         if (wasForgotten) {
-            return Response.Status.OK.getStatusCode();
+            return 200; // OK
         } else {
             String errorMsg = String.format(
                     "LRAService.forget %s failed as the participant was not found, compensator url '%s'",
                     lraId, compensatorUrl);
-            throw new WebApplicationException(errorMsg, Response.status(Response.Status.BAD_REQUEST)
-                    .entity(errorMsg).build());
+            throw new LRAException(errorMsg, LRAException.Type.BAD_REQUEST);
         }
     }
 
     public int joinLRA(StringBuilder recoveryUrl, URI lra, long timeLimit,
-            String compensatorUrl, String linkHeader, String recoveryUrlBase,
+            ParticipantActions actions, String recoveryUrlBase,
             StringBuilder compensatorData) {
-        return joinLRA(recoveryUrl, lra, timeLimit, compensatorUrl, linkHeader, recoveryUrlBase, compensatorData, null);
+        return joinLRA(recoveryUrl, lra, timeLimit, actions, recoveryUrlBase, compensatorData, null);
     }
 
     public int joinLRA(StringBuilder recoveryUrl, URI lra, long timeLimit,
-            String compensatorUrl, String linkHeader, String recoveryUrlBase,
+            ParticipantActions actions, String recoveryUrlBase,
             StringBuilder compensatorData, String version) {
         if (lra == null) {
             lraTrace(null, "Error missing LRA header in join request");
@@ -387,25 +362,8 @@ public class LRAService {
         // the tx must be either Active (for participants with the @Compensate methods) or
         // Closing/Canceling (for the AfterLRA listeners)
         if (transaction.getLRAStatus() != LRAStatus.Active && !transaction.isRecovering()) {
-            // validate that the party wanting to join with this LRA is a listener only:
-            if (linkHeader != null) {
-                Matcher relMatcher = LINK_REL_PATTERN.matcher(linkHeader);
-
-                while (relMatcher.find()) {
-                    String key = relMatcher.group(1);
-
-                    if (key != null && key.equals("rel")) {
-                        String rel = relMatcher.group(2) == null ? relMatcher.group(3) : relMatcher.group(2);
-
-                        if (!LRAConstants.AFTER.equals(rel)) {
-                            // participants are not allowed to join inactive LRAs
-                            return Response.Status.PRECONDITION_FAILED.getStatusCode();
-                        } else if (!transaction.isRecovering()) {
-                            // listeners cannot be notified if the LRA has already ended
-                            return Response.Status.PRECONDITION_FAILED.getStatusCode();
-                        }
-                    }
-                }
+            if (actions.afterAction == null) {
+                return 412; // PRECONDITION_FAILED
             }
         }
 
@@ -414,7 +372,7 @@ public class LRAService {
         try {
             if (compensatorData != null) {
                 participant = transaction.enlistParticipant(lra,
-                        linkHeader != null ? linkHeader : compensatorUrl, recoveryUrlBase,
+                        actions, recoveryUrlBase,
                         timeLimit, compensatorData.toString(), version);
                 // return any previously registered data
                 compensatorData.setLength(0);
@@ -424,30 +382,27 @@ public class LRAService {
                 }
             } else {
                 participant = transaction.enlistParticipant(lra,
-                        linkHeader != null ? linkHeader : compensatorUrl, recoveryUrlBase,
+                        actions, recoveryUrlBase,
                         timeLimit, null, version);
             }
         } catch (UnsupportedEncodingException e) {
-            return Response.Status.PRECONDITION_FAILED.getStatusCode();
+            return 412; // PRECONDITION_FAILED
         }
 
         if (participant == null || participant.getRecoveryURI() == null) {
-            // probably already closing or cancelling
-            return Response.Status.PRECONDITION_FAILED.getStatusCode();
+            return 412; // PRECONDITION_FAILED
         }
 
         String recoveryURI = participant.getRecoveryURI().toASCIIString();
 
-        if (!updateRecoveryURI(lra, participant.getParticipantURI(), recoveryURI, false)) {
+        if (!updateRecoveryURI(lra, actions, recoveryURI, false)) {
             String msg = LRALogger.i18nLogger.warn_saveState(LongRunningAction.DEACTIVATE_REASON);
-            throw new WebApplicationException(msg, Response.status(SERVICE_UNAVAILABLE)
-                    .entity(msg)
-                    .build());
+            throw new LRAException(msg, LRAException.Type.SERVICE_UNAVAILABLE);
         }
 
         recoveryUrl.append(recoveryURI);
 
-        return Response.Status.OK.getStatusCode();
+        return 200; // OK
     }
 
     public boolean hasTransaction(URI id) {
@@ -478,7 +433,7 @@ public class LRAService {
         LongRunningAction lra = lras.get(lraId);
 
         if (lra == null) {
-            return NOT_FOUND.getStatusCode();
+            return 404; // NOT_FOUND
         }
 
         return lra.setTimeLimit(timelimit, true);

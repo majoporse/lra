@@ -6,7 +6,6 @@
 package io.narayana.lra.coordinator.domain.model;
 
 import static io.narayana.lra.LRAConstants.ENLIST_PARTICIPANT_LOCK_TIMEOUT;
-import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 
 import com.arjuna.ats.arjuna.common.Uid;
 import com.arjuna.ats.arjuna.coordinator.AbstractRecord;
@@ -21,11 +20,10 @@ import com.arjuna.ats.arjuna.state.OutputObjectState;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.coordinator.domain.LRAException;
 import io.narayana.lra.coordinator.domain.service.LRAService;
+import io.narayana.lra.coordinator.domain.service.ParticipantActions;
 import io.narayana.lra.logging.LRALogger;
-import jakarta.ws.rs.ServiceUnavailableException;
-import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
@@ -79,10 +77,8 @@ public class LongRunningAction extends BasicAction {
         if (lraService == null) {
             // all callers of this constructor pass in a non-null value
             // but the call was instigated by a client so report it as an internal problem
-            throw new WebApplicationException(Response.status(INTERNAL_SERVER_ERROR)
-                    .entity(LRALogger.i18nLogger.error_invalidArgument("null LRAService"))
-                    .build());
-
+            throw new LRAException(LRALogger.i18nLogger.error_invalidArgument("null LRAService"),
+                    LRAException.Type.INTERNAL_SERVER_ERROR);
         }
 
         this.lraService = lraService;
@@ -112,9 +108,8 @@ public class LongRunningAction extends BasicAction {
         if (lraService == null) {
             // all callers of this constructor pass in a non-null value
             // but the call was instigated by a client so report it as an internal problem
-            throw new WebApplicationException(Response.status(INTERNAL_SERVER_ERROR)
-                    .entity(LRALogger.i18nLogger.error_invalidArgument("null LRAService"))
-                    .build());
+            throw new LRAException(LRALogger.i18nLogger.error_invalidArgument("null LRAService"),
+                    LRAException.Type.INTERNAL_SERVER_ERROR);
         }
 
         this.lraService = lraService;
@@ -696,7 +691,8 @@ public class LongRunningAction extends BasicAction {
 
             if (save && (pendingList != null && pendingList.size() != 0)) {
                 if (!deactivate()) {
-                    throw new ServiceUnavailableException(LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON));
+                    throw new LRAException(LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON),
+                            LRAException.Type.SERVICE_UNAVAILABLE);
                 }
             }
 
@@ -827,32 +823,36 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
-    public LRAParticipantRecord enlistParticipant(URI coordinatorUrl, String participantUrl, String recoveryUrlBase,
+    public LRAParticipantRecord enlistParticipant(URI coordinatorUrl, ParticipantActions actions, String recoveryUrlBase,
             long timeLimit, String compensatorData, String version)
             throws UnsupportedEncodingException {
         ReentrantLock lock = tryTimedLockTransaction(participantEnlistTimeout);
         if (lock == null) {
             String reason = LRALogger.i18nLogger.warn_enlistment();
             LRALogger.logger.warn(reason);
-            throw new ServiceUnavailableException(reason);
+            throw new LRAException(reason, LRAException.Type.SERVICE_UNAVAILABLE);
         } else {
             try {
-                LRAParticipantRecord participant = findLRAParticipant(participantUrl, false);
+                String compensatorKey = actions.compensateAction != null ? actions.compensateAction.toJson() : null;
+                LRAParticipantRecord participant = compensatorKey != null ? findLRAParticipantByKey(compensatorKey, false)
+                        : null;
                 if (participant != null) {
                     participant.setCompensatorData(compensatorData);
                     return participant; // must have already been enlisted
                 }
-                participant = doEnlistParticipant(coordinatorUrl, participantUrl, recoveryUrlBase, timeLimit,
+                participant = doEnlistParticipant(coordinatorUrl, actions, recoveryUrlBase, timeLimit,
                         compensatorData, version);
                 if (participant != null) {
                     // need to remember that there is a new participant
                     if (deactivate()) { // if it fails the superclass will have logged a warning
                         savedIntentionList = true; // need this clean up if the LRA times out
                     } else {
-                        throw new ServiceUnavailableException(LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON));
+                        throw new LRAException(LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON),
+                                LRAException.Type.SERVICE_UNAVAILABLE);
                     }
                 } else {
-                    throw new ServiceUnavailableException(LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON));
+                    throw new LRAException(LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON),
+                            LRAException.Type.SERVICE_UNAVAILABLE);
                 }
                 return participant;
             } finally {
@@ -862,9 +862,12 @@ public class LongRunningAction extends BasicAction {
 
     }
 
-    private LRAParticipantRecord doEnlistParticipant(URI coordinatorUrl, String participantUrl, String recoveryUrlBase,
+    private LRAParticipantRecord doEnlistParticipant(URI coordinatorUrl, ParticipantActions actions, String recoveryUrlBase,
             long timeLimit, String compensatorData, String version) {
-        LRAParticipantRecord p = new LRAParticipantRecord(this, lraService, participantUrl, compensatorData);
+        LRAParticipantRecord p = new LRAParticipantRecord(this, lraService,
+                actions.compensateAction, actions.completeAction,
+                actions.statusAction, actions.forgetAction, actions.afterAction,
+                compensatorData);
         String pid = p.get_uid().fileStringForm();
 
         /*
@@ -894,22 +897,19 @@ public class LongRunningAction extends BasicAction {
         endStateCheck();
 
         if (isFinished()) {
-            throw new WebApplicationException(Response.status(Response.Status.GONE)
-                    .entity(LRALogger.i18nLogger.error_tooLateToJoin(id.toASCIIString(), "finished"))
-                    .build());
+            throw new LRAException(LRALogger.i18nLogger.error_tooLateToJoin(id.toASCIIString(), "finished"),
+                    LRAException.Type.NOT_FOUND);
         }
 
         if (add(p) != AddOutcome.AR_REJECTED) {
-            if (setTimeLimit(timeLimit, true) != Response.Status.OK.getStatusCode()) {
-                // there is no remove(p) so just issue a warning - but note that the caller will also try to
-                // save the state so the time limit will be written then or else it will report it using
-                // 503 Service Unavailable (an instance of ServiceUnavailableException)
+            if (setTimeLimit(timeLimit, true) != 200) {
+                // there is no remove(p) so just issue a warning
                 LRALogger.logger.warn(
                         LRALogger.i18nLogger.warn_saveState("could not durably record the new time limit"));
             }
 
             return p;
-        } else if (isRecovering() && p.getCompensator() == null && p.getEndNotificationUri() != null) {
+        } else if (isRecovering() && p.getCompensator() == null && p.hasAfterAction()) {
             // the participant is an AfterLRA listener so manually add it to heuristic list
             heuristicList.putRear(p);
             updateState();
@@ -925,7 +925,7 @@ public class LongRunningAction extends BasicAction {
     }
 
     private void updateCompensatorUserData(String compensator, String userData) {
-        LRAParticipantRecord participant = findLRAParticipant(compensator, false);
+        LRAParticipantRecord participant = findLRAParticipantByKey(compensator, false);
 
         if (participant != null) {
             participant.setCompensatorData(userData);
@@ -935,7 +935,7 @@ public class LongRunningAction extends BasicAction {
     }
 
     public boolean forgetParticipant(String participantUrl) {
-        return findLRAParticipant(participantUrl, true) != null;
+        return findLRAParticipantByKey(participantUrl, true) != null;
     }
 
     public boolean forgetAllParticipants() {
@@ -968,53 +968,23 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
-    private LRAParticipantRecord findLRAParticipant(String participantUrl, boolean remove) {
-        LRAParticipantRecord rec;
-
-        try {
-            URI recoveryUrl = new URI(LRAParticipantRecord.cannonicalForm(participantUrl));
-
-            rec = findLRAParticipantByRecoveryUrl(recoveryUrl, remove, pendingList, preparedList, heuristicList, failedList);
-
-        } catch (URISyntaxException ignore) {
-            String pUrl;
-            try {
-                pUrl = LRAParticipantRecord.extractCompensator(participantUrl);
-            } catch (URISyntaxException e) {
-                LRALogger.logger.info(LRALogger.i18nLogger.warn_invalid_uri(
-                        participantUrl, e.getMessage() + " findLRAParticipant"));
-
-                return null;
-            }
-            rec = findLRAParticipant(pUrl, remove, pendingList, preparedList, heuristicList, failedList);
-        }
-
-        return rec;
+    private LRAParticipantRecord findLRAParticipantByKey(String key, boolean remove) {
+        return findLRAParticipantByKey(key, remove, pendingList, preparedList, heuristicList, failedList);
     }
 
-    private LRAParticipantRecord findLRAParticipant(String participantUrl, boolean remove, RecordList... lists) {
+    private LRAParticipantRecord findLRAParticipantByKey(String key, boolean remove, RecordList... lists) {
         for (RecordList list : lists) {
             if (list != null) {
                 RecordListIterator i = new RecordListIterator(list);
                 AbstractRecord r;
 
-                if (participantUrl.indexOf(',') != -1) {
-                    try {
-                        participantUrl = LRAParticipantRecord.extractCompensator(participantUrl);
-                    } catch (URISyntaxException e) {
-                        continue;
-                    }
-                }
-
                 while ((r = i.iterate()) != null) {
                     if (r instanceof LRAParticipantRecord) {
                         LRAParticipantRecord rr = (LRAParticipantRecord) r;
-                        // can't use == because this may be a recovery scenario
-                        if (participantUrl.equals(rr.getCompensator())) {
+                        if (key.equals(rr.getCompensator())) {
                             if (remove) {
                                 list.remove(rr);
                             }
-
                             return rr;
                         }
                     }
@@ -1066,21 +1036,21 @@ public class LongRunningAction extends BasicAction {
 
     private int lraStatusToHttpStatus() {
         if (status == null || status == LRAStatus.Active) {
-            return Response.Status.NO_CONTENT.getStatusCode(); // in progress, 204
+            return 204; // in progress
         }
 
         switch (status) {
             case Closed:
             case Cancelled:
-                return Response.Status.OK.getStatusCode(); // 200
+                return 200;
             case Closing:
             case Cancelling:
-                return Response.Status.ACCEPTED.getStatusCode(); // 202
+                return 202;
             case FailedToCancel:
             case FailedToClose:
-                return Response.Status.PRECONDITION_FAILED.getStatusCode(); // 412, probably not the correct code
+                return 412;
             default:
-                return INTERNAL_SERVER_ERROR.getStatusCode(); // 500
+                return 500;
         }
     }
 
@@ -1120,7 +1090,7 @@ public class LongRunningAction extends BasicAction {
             trace_progress("begin, deactivating");
         }
 
-        if (setTimeLimit(timeLimit, true) != Response.Status.OK.getStatusCode() || !deactivate()) {
+        if (setTimeLimit(timeLimit, true) != 200 || !deactivate()) {
             // unable to persist the state
             LRALogger.logger.warn(LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON));
 
@@ -1146,7 +1116,7 @@ public class LongRunningAction extends BasicAction {
 
     public int setTimeLimit(Long timeLimit, boolean save) {
         if (timeLimit <= 0L) {
-            return Response.Status.OK.getStatusCode();
+            return 200;
         }
 
         return scheduleCancellation(this::abortLRA, timeLimit, save);
@@ -1163,7 +1133,7 @@ public class LongRunningAction extends BasicAction {
             if (LRALogger.logger.isTraceEnabled()) {
                 trace_progress("scheduleCancellation: wrong state");
             }
-            return Response.Status.PRECONDITION_FAILED.getStatusCode();
+            return 412;
         }
 
         Long nanosToAdd = timeLimit;
@@ -1180,7 +1150,7 @@ public class LongRunningAction extends BasicAction {
 
             if (ft.isBefore(finishTime)) {
                 // the new timeout is earlier than the existing one - shortening is not allowed
-                return Response.Status.OK.getStatusCode();
+                return 200;
             }
 
             // it is later so cancel the current timer and reschedule with the extended timeout
@@ -1222,7 +1192,7 @@ public class LongRunningAction extends BasicAction {
             updateState(LRAStatus.Cancelling, save);
         }
 
-        return Response.Status.OK.getStatusCode();
+        return 200;
     }
 
     private void abortLRA() {
@@ -1256,13 +1226,20 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
-    public boolean updateRecoveryURI(String linkHeader, String recoveryUri) {
-        LRAParticipantRecord lraRecord = findLRAParticipant(recoveryUri, false);
+    public boolean updateRecoveryURI(ParticipantActions actions, String recoveryUri) {
+        URI recoveryURI;
+        try {
+            recoveryURI = new URI(recoveryUri);
+        } catch (URISyntaxException e) {
+            return false;
+        }
+        LRAParticipantRecord lraRecord = findLRAParticipantByRecoveryUrl(recoveryURI, false,
+                pendingList, preparedList, heuristicList, failedList);
 
         if (lraRecord != null) {
             try {
                 lraRecord.setRecoveryURI(recoveryUri);
-                lraRecord.updateCallbacks(linkHeader);
+                lraRecord.updateCallbacks(actions);
 
                 if (!deactivate()) {
                     LRALogger.logger.warn(LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON));
@@ -1270,7 +1247,7 @@ public class LongRunningAction extends BasicAction {
                     return false;
                 }
 
-            } catch (WebApplicationException e) {
+            } catch (LRAException e) {
                 if (LRALogger.logger.isInfoEnabled()) {
                     LRALogger.logger.infof("Could not save new recovery URL: %s", e.getMessage());
                 }

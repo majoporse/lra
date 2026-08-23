@@ -34,12 +34,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.coordinator.domain.LRAException;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
 import io.narayana.lra.coordinator.domain.service.LRAService;
+import io.narayana.lra.coordinator.domain.service.ParticipantActions;
+import io.narayana.lra.coordinator.domain.service.ParticipantLinkParser;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.coordinator.security.JwtTokenContext;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.json.Json;
 import jakarta.json.JsonObject;
 import jakarta.ws.rs.ApplicationPath;
@@ -52,7 +56,6 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
-import jakarta.ws.rs.ServiceUnavailableException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.Entity;
@@ -110,12 +113,19 @@ public class Coordinator extends Application {
     private static final boolean allowParticipantData = initAllowParticipantData();
 
     private final LRAService lraService;
-    private final RecoveryCoordinator recoveryCoordinator;
+    private RecoveryCoordinator recoveryCoordinator;
     private final NestedCoordinator nestedCoordinator;
+
+    @Inject
+    ParticipantLinkParser participantLinkParser;
+
+    @jakarta.annotation.PostConstruct
+    void init() {
+        recoveryCoordinator = new RecoveryCoordinator(participantLinkParser);
+    }
 
     public Coordinator() {
         lraService = LRARecoveryModule.getService();
-        recoveryCoordinator = new RecoveryCoordinator();
         nestedCoordinator = new NestedCoordinator();
     }
 
@@ -423,13 +433,9 @@ public class Coordinator extends Application {
             LRAData lraData = lraService.endLRA(lraURI, false, false, compensator, userData);
 
             return buildResponse(lraData.getStatus(), version, mediaType, lraURI);
-        } catch (WebApplicationException e) {
+        } catch (LRAException e) {
             LRALogger.logger.debug(e.getMessage());
-            // catch it otherwise the caller just sees a generic message corresponding to e.getResponse().getStatus()
-            // eg for a 503 it would be "Service Unavailable"
-            // and if we throw new WebApplicationException(e.getMessage(), e);
-            // then the caller sees the generic 500 Internal Server Error code rather than the specific 503 code
-            return Response.status(e.getResponse().getStatus())
+            return Response.status(mapExceptionType(e.getType()))
                     .entity(e.getMessage())
                     .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
                     .build();
@@ -474,9 +480,9 @@ public class Coordinator extends Application {
             LRAData lraData = lraService.endLRA(lraURI, true, false, compensator, userData);
 
             return buildResponse(lraData.getStatus(), version, mediaType, lraURI);
-        } catch (WebApplicationException e) {
+        } catch (LRAException e) {
             LRALogger.logger.debug(e.getMessage());
-            return Response.status(e.getResponse().getStatus())
+            return Response.status(mapExceptionType(e.getType()))
                     .entity(e.getMessage())
                     .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
                     .build();
@@ -618,9 +624,10 @@ public class Coordinator extends Application {
         int status;
 
         try {
-            status = lraService.joinLRA(recoveryUrl, lraId, timeLimit, null, linkHeader, recoveryUrlBase, userData, version);
-        } catch (ServiceUnavailableException e) {
-            return Response.status(Response.Status.SERVICE_UNAVAILABLE.getStatusCode()).entity(e.getMessage()).build();
+            ParticipantActions actions = participantLinkParser.parse(linkHeader);
+            status = lraService.joinLRA(recoveryUrl, lraId, timeLimit, actions, recoveryUrlBase, userData, version);
+        } catch (LRAException e) {
+            return Response.status(mapExceptionType(e.getType())).entity(e.getMessage()).build();
         }
 
         if (acceptMediaType.equals(MediaType.APPLICATION_JSON)) {
@@ -739,6 +746,22 @@ public class Coordinator extends Application {
                 && !version.equals(API_VERSION_1_1)
                 && !version.equals(API_VERSION_1_2)
                 && !version.equals(API_VERSION_1_3);
+    }
+
+    private static int mapExceptionType(LRAException.Type type) {
+        switch (type) {
+            case NOT_FOUND:
+                return 404;
+            case PRECONDITION_FAILED:
+                return 412;
+            case SERVICE_UNAVAILABLE:
+                return 503;
+            case BAD_REQUEST:
+                return 400;
+            case INTERNAL_SERVER_ERROR:
+            default:
+                return 500;
+        }
     }
 
     private URI toURI(String lraId) {

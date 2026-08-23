@@ -13,13 +13,14 @@ import io.narayana.lra.contracts.kafka.LeaveLRAKafka;
 import io.narayana.lra.contracts.kafka.StartLRAKafka;
 import io.narayana.lra.contracts.kafka.StatusLRAKafka;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
+import io.narayana.lra.coordinator.domain.model.actions.KafkaAction;
 import io.narayana.lra.coordinator.domain.service.LRAService;
+import io.narayana.lra.coordinator.domain.service.ParticipantActions;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
 import io.quarkus.arc.properties.IfBuildProperty;
 import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.ws.rs.core.Response;
 import java.net.URI;
 import java.util.concurrent.CompletionStage;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
@@ -151,12 +152,28 @@ public class KafkaLRAListener {
                     ? new StringBuilder(request.compensatorData)
                     : new StringBuilder();
 
-            String linkHeader = buildLinkHeader(request);
+            ParticipantActions actions = new ParticipantActions();
+            String lraUid = LRAConstants.getLRAUid(lraId);
+            if (request.compensateLink != null && !request.compensateLink.isEmpty()) {
+                actions.compensateAction = new KafkaAction(request.compensateLink, lraUid);
+            }
+            if (request.completeLink != null && !request.completeLink.isEmpty()) {
+                actions.completeAction = new KafkaAction(request.completeLink, lraUid);
+            }
+            if (request.statusLink != null && !request.statusLink.isEmpty()) {
+                actions.statusAction = new KafkaAction(request.statusLink, lraUid);
+            }
+            if (request.forgetLink != null && !request.forgetLink.isEmpty()) {
+                actions.forgetAction = new KafkaAction(request.forgetLink, lraUid);
+            }
+            if (request.afterLink != null && !request.afterLink.isEmpty()) {
+                actions.afterAction = new KafkaAction(request.afterLink, lraUid);
+            }
 
-            int status = lraService.joinLRA(recoveryUrl, lraId, request.timeLimit, null,
-                    linkHeader, recoveryUrlBase, compensatorData);
+            int status = lraService.joinLRA(recoveryUrl, lraId, request.timeLimit,
+                    actions, recoveryUrlBase, compensatorData);
 
-            if (status == Response.Status.OK.getStatusCode()) {
+            if (status == 200) {
                 reply = new JoinLRAKafka.Reply(request.getCorrelationId(), recoveryUrl.toString(),
                         compensatorData.toString(), null);
             } else {

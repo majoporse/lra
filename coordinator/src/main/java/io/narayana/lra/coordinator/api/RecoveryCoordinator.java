@@ -13,6 +13,7 @@ import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
 import io.narayana.lra.coordinator.domain.service.LRAService;
+import io.narayana.lra.coordinator.domain.service.ParticipantLinkParser;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.DELETE;
@@ -22,7 +23,6 @@ import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.ServiceUnavailableException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
@@ -44,9 +44,11 @@ import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 @Tag(name = "LRA Recovery")
 public class RecoveryCoordinator {
     private final LRAService lraService;
+    private final ParticipantLinkParser participantLinkParser;
 
-    public RecoveryCoordinator() {
+    public RecoveryCoordinator(ParticipantLinkParser participantLinkParser) {
         lraService = LRARecoveryModule.getService();
+        this.participantLinkParser = participantLinkParser;
     }
 
     // Performing a GET on the recovery URL (return from a join request) will return the original <participant URL>
@@ -112,9 +114,12 @@ public class RecoveryCoordinator {
                         .build());
             }
 
-            if (!lraService.updateRecoveryURI(lra, newCompensatorUrl, context, true)) {
-                throw new ServiceUnavailableException(
-                        LRALogger.i18nLogger.warn_saveState(LongRunningAction.DEACTIVATE_REASON));
+            if (!lraService.updateRecoveryURI(lra, participantLinkParser.parse(newCompensatorUrl), context, true)) {
+                throw new WebApplicationException(
+                        LRALogger.i18nLogger.warn_saveState(LongRunningAction.DEACTIVATE_REASON),
+                        Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                                .entity(LRALogger.i18nLogger.warn_saveState(LongRunningAction.DEACTIVATE_REASON))
+                                .build());
             }
 
             return context;
