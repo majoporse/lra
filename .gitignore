@@ -26,3 +26,5 @@ audit.log
 *.json
 .cache
 *.log
+kafka/
+kafka1/

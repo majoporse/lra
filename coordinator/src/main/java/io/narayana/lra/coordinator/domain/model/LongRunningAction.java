@@ -32,6 +32,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -53,8 +54,9 @@ public class LongRunningAction extends BasicAction {
     public static final String DEACTIVATE_REASON = "deactivate failed";
     private static final long participantEnlistTimeout = initParticipantEnlistTimeout();
 
-    private URI id;
-    private URI parentId;
+    private UUID id;
+    private UUID parentId;
+    private String coordinatorUrl;
     private String clientId;
     private List<LRAParticipantRecord> pending;
     private LRAStatus status;
@@ -400,7 +402,7 @@ public class LongRunningAction extends BasicAction {
         return getType();
     }
 
-    public URI getId() {
+    public UUID getId() {
         return id;
     }
 
@@ -1281,7 +1283,7 @@ public class LongRunningAction extends BasicAction {
         return true;
     }
 
-    public URI getParentId() {
+    public UUID getParentId() {
         return parentId;
     }
 
