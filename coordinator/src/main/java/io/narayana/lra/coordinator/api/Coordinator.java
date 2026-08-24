@@ -35,6 +35,7 @@ import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
+import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.coordinator.security.JwtTokenContext;
@@ -110,11 +111,13 @@ public class Coordinator extends Application {
     private static final boolean allowParticipantData = initAllowParticipantData();
 
     private final LRAService lraService;
+    private final HttpLRAService httpLraService;
     private final RecoveryCoordinator recoveryCoordinator;
     private final NestedCoordinator nestedCoordinator;
 
     public Coordinator() {
         lraService = LRARecoveryModule.getService();
+        httpLraService = LRARecoveryModule.getHttpService();
         recoveryCoordinator = new RecoveryCoordinator();
         nestedCoordinator = new NestedCoordinator();
     }
@@ -217,7 +220,7 @@ public class Coordinator extends Application {
                     "to be an id which will be declared to exist at URL where coordinator is deployed at.", required = true) @PathParam("LraId") String lraId,
             @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version) {
-        LongRunningAction transaction = lraService.getTransaction(toURI(lraId));
+        LongRunningAction transaction = httpLraService.getTransaction(toURI(lraId));
         LRAStatus status = transaction.getLRAStatus();
 
         if (status == null) {
@@ -252,7 +255,7 @@ public class Coordinator extends Application {
             @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version) {
         URI lraIdURI = toURI(lraId);
-        LRAData lraData = lraService.getLRA(lraIdURI);
+        LRAData lraData = httpLraService.getLRA(lraIdURI);
         return Response.status(OK).entity(lraData)
                 .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version).build();
     }
@@ -297,15 +300,19 @@ public class Coordinator extends Application {
 
         URI parentId = (parentLRA == null || parentLRA.trim().isEmpty()) ? null : toURI(parentLRA);
         String coordinatorUrl = String.format("%s%s", context.getBaseUri(), COORDINATOR_PATH_NAME);
-        LongRunningAction lra = lraService.startLRA(coordinatorUrl, parentId, clientId, timelimit);
-        URI lraId = lra.getId();
+        LongRunningAction lra = httpLraService.startLRA(coordinatorUrl, parentId, clientId, timelimit);
+        String hierarchy = lra.getParentHierarchy();
+        URI lraId = hierarchy != null
+                ? URI.create(coordinatorUrl + "/" + lra.getId().toString() + "?" + LRAConstants.PARENT_LRA_PARAM_NAME + "="
+                        + hierarchy)
+                : URI.create(coordinatorUrl + "/" + lra.getId().toString());
 
         if (parentId != null) {
             // the startLRA call will have imported the parent LRA
             String compensatorUrl = String.format("%s/%s/%s", coordinatorUrl, LRAConstants.NESTED_COORDINATOR_PATH_NAME,
                     LRAConstants.getLRAUid(lraId));
 
-            if (!lraService.hasTransaction(parentId)) {
+            if (!httpLraService.hasTransaction(parentId)) {
 
                 try (Client client = JwtTokenContext.newClient()) {
                     try (Response response = client.target(parentId)
@@ -370,7 +377,7 @@ public class Coordinator extends Application {
             @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") String lraId,
             @Parameter(name = TIMELIMIT_PARAM_NAME, description = "The new time limit for the LRA", required = true) @QueryParam(TIMELIMIT_PARAM_NAME) @DefaultValue("0") Long timeLimit,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version) {
-        return Response.status(lraService.renewTimeLimit(toURI(lraId), timeLimit))
+        return Response.status(httpLraService.renewTimeLimit(toURI(lraId), timeLimit))
                 .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
                 .entity(lraId)
                 .build();
@@ -420,7 +427,7 @@ public class Coordinator extends Application {
 
         try {
             URI lraURI = toURI(lraId);
-            LRAData lraData = lraService.endLRA(lraURI, false, false, compensator, userData);
+            LRAData lraData = httpLraService.endLRA(lraURI, false, false, compensator, userData);
 
             return buildResponse(lraData.getStatus(), version, mediaType, lraURI);
         } catch (WebApplicationException e) {
@@ -471,7 +478,7 @@ public class Coordinator extends Application {
 
         try {
             URI lraURI = toURI(lraId);
-            LRAData lraData = lraService.endLRA(lraURI, true, false, compensator, userData);
+            LRAData lraData = httpLraService.endLRA(lraURI, true, false, compensator, userData);
 
             return buildResponse(lraData.getStatus(), version, mediaType, lraURI);
         } catch (WebApplicationException e) {
@@ -618,7 +625,8 @@ public class Coordinator extends Application {
         int status;
 
         try {
-            status = lraService.joinLRA(recoveryUrl, lraId, timeLimit, null, linkHeader, recoveryUrlBase, userData, version);
+            status = httpLraService.joinLRA(recoveryUrl, lraId, timeLimit, null, linkHeader, recoveryUrlBase, userData,
+                    version);
         } catch (ServiceUnavailableException e) {
             return Response.status(Response.Status.SERVICE_UNAVAILABLE.getStatusCode()).entity(e.getMessage()).build();
         }
@@ -669,7 +677,7 @@ public class Coordinator extends Application {
             @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version,
             String participantCompensatorUrl) {
-        int status = lraService.leave(toURI(lraId), participantCompensatorUrl);
+        int status = httpLraService.leave(toURI(lraId), participantCompensatorUrl);
 
         return Response.status(status)
                 .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)

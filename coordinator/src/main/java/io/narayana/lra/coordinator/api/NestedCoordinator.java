@@ -13,7 +13,7 @@ import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
-import io.narayana.lra.coordinator.domain.service.LRAService;
+import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.json.Json;
@@ -53,10 +53,10 @@ import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 @Tag(name = "Nested LRA Participant", description = "Implements the MicroProfile LRA participant contract (@Complete, @Compensate, @Status, @Forget)"
         + " for nested LRAs. These endpoints are called by the parent LRA coordinator.")
 public class NestedCoordinator {
-    private final LRAService lraService;
+    private final HttpLRAService httpLraService;
 
     public NestedCoordinator() {
-        lraService = LRARecoveryModule.getService();
+        httpLraService = LRARecoveryModule.getHttpService();
     }
 
     @GET
@@ -74,7 +74,7 @@ public class NestedCoordinator {
             @PathParam("NestedLraId") String nestedLraId,
             @Context UriInfo uriInfo) {
         try {
-            LRAStatus status = lraService.getTransaction(toURI(nestedLraId, uriInfo)).getLRAStatus();
+            LRAStatus status = httpLraService.getTransaction(toURI(nestedLraId, uriInfo)).getLRAStatus();
 
             if (status == null) {
                 throw new WebApplicationException(
@@ -110,7 +110,7 @@ public class NestedCoordinator {
             @Context UriInfo uriInfo) {
 
         try {
-            LRAData lraData = lraService.endLRA(toURI(nestedLraId, uriInfo), false, false, null, null);
+            LRAData lraData = httpLraService.endLRA(toURI(nestedLraId, uriInfo), false, false, null, null);
             ParticipantStatus pStatus = mapToParticipantStatus(lraData.getStatus());
             return buildNestedResponse(pStatus, version, mediaType);
         } catch (NotFoundException e) {
@@ -142,7 +142,7 @@ public class NestedCoordinator {
             @Context UriInfo uriInfo) {
 
         try {
-            LRAData lraData = lraService.endLRA(toURI(nestedLraId, uriInfo), true, true, null, null);
+            LRAData lraData = httpLraService.endLRA(toURI(nestedLraId, uriInfo), true, true, null, null);
             ParticipantStatus pStatus = mapToParticipantStatus(lraData.getStatus());
             return buildNestedResponse(pStatus, version, mediaType);
         } catch (NotFoundException e) {
@@ -164,12 +164,12 @@ public class NestedCoordinator {
             @PathParam("NestedLraId") String nestedLraId,
             @Context UriInfo uriInfo) {
         try {
-            lraService.getTransaction(toURI(nestedLraId, uriInfo));
+            httpLraService.getTransaction(toURI(nestedLraId, uriInfo));
         } catch (NotFoundException e) {
             return Response.status(Response.Status.GONE).build();
         }
 
-        lraService.remove(toURI(nestedLraId, uriInfo));
+        httpLraService.remove(toURI(nestedLraId, uriInfo));
 
         return Response.ok().build();
     }

@@ -12,6 +12,7 @@ import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
 
 import io.narayana.lra.LRAData;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
+import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
@@ -44,9 +45,11 @@ import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 @Tag(name = "LRA Recovery")
 public class RecoveryCoordinator {
     private final LRAService lraService;
+    private final HttpLRAService httpLraService;
 
     public RecoveryCoordinator() {
         lraService = LRARecoveryModule.getService();
+        httpLraService = LRARecoveryModule.getHttpService();
     }
 
     // Performing a GET on the recovery URL (return from a join request) will return the original <participant URL>
@@ -112,7 +115,7 @@ public class RecoveryCoordinator {
                         .build());
             }
 
-            if (!lraService.updateRecoveryURI(lra, newCompensatorUrl, context, true)) {
+            if (!httpLraService.updateRecoveryURI(lra, newCompensatorUrl, context, true)) {
                 throw new ServiceUnavailableException(
                         LRALogger.i18nLogger.warn_saveState(LongRunningAction.DEACTIVATE_REASON));
             }
@@ -168,7 +171,7 @@ public class RecoveryCoordinator {
 
             // verify that the LRA is not still being processed
             // will throw NotFoundException if it's unknown (to be caught and processed in the catch block)
-            LRAData lraData = lraService.getLRA(lra);
+            LRAData lraData = httpLraService.getLRA(lra);
             LRAStatus status = lraData.getStatus();
 
             // 412 the LRA is not in an end state (return 412 and the actual status of the LRA)

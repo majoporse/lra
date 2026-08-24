@@ -18,7 +18,6 @@ import com.arjuna.ats.arjuna.coordinator.RecordListIterator;
 import com.arjuna.ats.arjuna.coordinator.RecordType;
 import com.arjuna.ats.arjuna.state.InputObjectState;
 import com.arjuna.ats.arjuna.state.OutputObjectState;
-import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.coordinator.domain.service.LRAService;
@@ -32,13 +31,13 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.UUID;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -88,16 +87,13 @@ public class LongRunningAction extends BasicAction {
         }
 
         this.lraService = lraService;
+        this.coordinatorUrl = baseUrl;
 
         if (parent != null) {
             this.parentId = parent.getId();
-            // encode the parent in the child URI (by rights we'd use LRA_HTTP_PARENT_CONTEXT_HEADER)
-            // the parent is used by children to contact parents in certain scenarios
-            // BTW  this technique is historical and needs to be changed to use the header
-            this.id = Current.buildFullLRAUrl(String.format("%s/%s", baseUrl, get_uid().fileStringForm()), parent.getId());
-        } else {
-            this.id = new URI(String.format("%s/%s", baseUrl, get_uid().fileStringForm()));
         }
+
+        this.id = UUID.randomUUID();
 
         this.clientId = clientId;
         this.finishTime = null;
@@ -123,6 +119,7 @@ public class LongRunningAction extends BasicAction {
         this.id = null;
         this.parentId = null;
         this.clientId = null;
+        this.coordinatorUrl = null;
         this.finishTime = null;
         this.status = LRAStatus.Active;
 
@@ -143,7 +140,8 @@ public class LongRunningAction extends BasicAction {
      * @return immutable {@link LRAData} representing the current state of the LRA transaction
      */
     public LRAData getLRAData() {
-        return new LRAData(id, clientId, status, isTopLevel(), isRecovering(),
+        // URI is constructed in service layer from config
+        return new LRAData(null, clientId, status, isTopLevel(), isRecovering(),
                 startTime.toInstant(ZoneOffset.UTC).toEpochMilli(),
                 finishTime == null ? 0L : finishTime.toInstant(ZoneOffset.UTC).toEpochMilli(),
                 getHttpStatus());
@@ -160,6 +158,7 @@ public class LongRunningAction extends BasicAction {
             os.packString(id == null ? null : id.toString());
             os.packString(parentId == null ? null : parentId.toString());
             os.packString(clientId);
+            os.packString(coordinatorUrl);
 
             if (startTime == null) {
                 os.packBoolean(false);
@@ -291,12 +290,12 @@ public class LongRunningAction extends BasicAction {
 
         try {
             String s = os.unpackString();
-            id = s == null ? null : new URI(s);
+            id = s == null ? null : UUID.fromString(s);
             s = os.unpackString();
             if (s == null) {
                 parentId = null;
             } else {
-                parentId = new URI(s);
+                parentId = UUID.fromString(s);
 
                 LongRunningAction localParent = lraService.lookupTransaction(parentId);
 
@@ -317,6 +316,7 @@ public class LongRunningAction extends BasicAction {
                 }
             }
             clientId = os.unpackString();
+            coordinatorUrl = os.unpackString();
             startTime = os.unpackBoolean() ? LocalDateTime.ofInstant(Instant.ofEpochMilli(os.unpackLong()), ZoneOffset.UTC)
                     : null;
             finishTime = os.unpackBoolean() ? LocalDateTime.ofInstant(Instant.ofEpochMilli(os.unpackLong()), ZoneOffset.UTC)
@@ -352,7 +352,7 @@ public class LongRunningAction extends BasicAction {
             }
 
             return true;
-        } catch (IOException | URISyntaxException e) {
+        } catch (IOException | IllegalArgumentException e) {
             if (LRALogger.logger.isDebugEnabled()) {
                 LRALogger.logger.debugf(e, "Cannot restore state of object type '%s'", ot);
             }
@@ -408,6 +408,10 @@ public class LongRunningAction extends BasicAction {
 
     public String getClientId() {
         return clientId;
+    }
+
+    public String getCoordinatorUrl() {
+        return coordinatorUrl;
     }
 
     protected LRAService getLraService() {
@@ -494,7 +498,7 @@ public class LongRunningAction extends BasicAction {
             if (lock == null) {
                 if (LRALogger.logger.isInfoEnabled()) {
                     LRALogger.logger.debugf("LongRunningAction.endLRA Some other thread is finishing LRA %s",
-                            getId().toASCIIString());
+                            getId().toString());
                 }
 
                 return status();
@@ -890,14 +894,14 @@ public class LongRunningAction extends BasicAction {
             p.setRecoveryURI(recoveryUrlBase, txId, pid);
         } else {
             // use the shiny new working method
-            p.setRecoveryURI(recoveryUrlBase, this.get_uid().fileStringForm(), pid);
+            p.setRecoveryURI(recoveryUrlBase, getId().toString(), pid);
         }
 
         endStateCheck();
 
         if (isFinished()) {
             throw new WebApplicationException(Response.status(Response.Status.GONE)
-                    .entity(LRALogger.i18nLogger.error_tooLateToJoin(id.toASCIIString(), "finished"))
+                    .entity(LRALogger.i18nLogger.error_tooLateToJoin(id.toString(), "finished"))
                     .build());
         }
 
@@ -1285,6 +1289,30 @@ public class LongRunningAction extends BasicAction {
 
     public UUID getParentId() {
         return parentId;
+    }
+
+    /**
+     * Build the full parent hierarchy as a comma-separated string of UUIDs.
+     * Walks up the parent chain via lraService.lookupTransaction.
+     * Returns null if there is no parent.
+     */
+    public String getParentHierarchy() {
+        if (parentId == null) {
+            return null;
+        }
+        StringBuilder hierarchy = new StringBuilder();
+        hierarchy.append(parentId.toString());
+        UUID current = parentId;
+        while (current != null) {
+            LongRunningAction parent = lraService.lookupTransaction(current);
+            if (parent != null && parent.getParentId() != null) {
+                hierarchy.append(",").append(parent.getParentId().toString());
+                current = parent.getParentId();
+            } else {
+                break;
+            }
+        }
+        return hierarchy.toString();
     }
 
     private boolean hasElements(RecordList list) {

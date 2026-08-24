@@ -397,7 +397,7 @@ public class LRAFaultToleranceTest extends LRATestBase {
      */
     @Test
     @BMRules(rules = {
-            @BMRule(name = "fail lock acquisition", targetClass = "io.narayana.lra.coordinator.domain.service.LRAService", targetMethod = "tryLockTransaction(java.net.URI)", targetLocation = "AT ENTRY", condition = "io.narayana.lra.coordinator.domain.model.BytemanHelper.isFlagSet(\"fail-lock\")", action = "RETURN null")
+            @BMRule(name = "fail lock acquisition", targetClass = "io.narayana.lra.coordinator.domain.service.LRAService", targetMethod = "tryLockTransaction(java.util.UUID)", targetLocation = "AT ENTRY", condition = "io.narayana.lra.coordinator.domain.model.BytemanHelper.isFlagSet(\"fail-lock\")", action = "RETURN null")
     })
     public void testLockAcquisitionFailureDuringClose() {
         URI lraId = lraClient.startLRA(testName);
@@ -431,7 +431,7 @@ public class LRAFaultToleranceTest extends LRATestBase {
      */
     @Test
     @BMRules(rules = {
-            @BMRule(name = "fail lock acquisition", targetClass = "io.narayana.lra.coordinator.domain.service.LRAService", targetMethod = "tryLockTransaction(java.net.URI)", targetLocation = "AT ENTRY", condition = "io.narayana.lra.coordinator.domain.model.BytemanHelper.isFlagSet(\"fail-lock\")", action = "RETURN null")
+            @BMRule(name = "fail lock acquisition", targetClass = "io.narayana.lra.coordinator.domain.service.LRAService", targetMethod = "tryLockTransaction(java.util.UUID)", targetLocation = "AT ENTRY", condition = "io.narayana.lra.coordinator.domain.model.BytemanHelper.isFlagSet(\"fail-lock\")", action = "RETURN null")
     })
     public void testLockAcquisitionFailureDuringCancel() {
         URI lraId = lraClient.startLRA(testName);

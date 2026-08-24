@@ -22,6 +22,7 @@ import com.arjuna.ats.arjuna.state.OutputObjectState;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.security.JwtTokenContext;
 import io.narayana.lra.logging.LRALogger;
@@ -46,6 +47,7 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
@@ -58,8 +60,8 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     private static final String COMPENSATE_REL = "compensate";
     private static final String COMPLETE_REL = "complete";
 
-    private URI lraId;
-    private URI parentId;
+    private UUID lraId;
+    private UUID parentId;
     private URI recoveryURI;
     private String participantPath;
 
@@ -98,7 +100,8 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                 });
 
                 if (parseException[0] != null) {
-                    String errorMsg = LRALogger.i18nLogger.error_invalidCompensator(lra.getId(), parseException[0].getMessage(),
+                    String errorMsg = LRALogger.i18nLogger.error_invalidCompensator(URI.create("urn:uuid:" + lra.getId()),
+                            parseException[0].getMessage(),
                             linkURI);
                     LRALogger.logger.error(errorMsg);
                     if (LRALogger.logger.isTraceEnabled()) {
@@ -108,7 +111,8 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                             .entity(errorMsg)
                             .build());
                 } else if (compensateURI == null && afterURI == null) {
-                    String errorMsg = LRALogger.i18nLogger.error_missingCompensator(lra.getId(), linkURI);
+                    String errorMsg = LRALogger.i18nLogger.error_missingCompensator(URI.create("urn:uuid:" + lra.getId()),
+                            linkURI);
                     LRALogger.logger.error(errorMsg);
                     if (LRALogger.logger.isTraceEnabled()) {
                         trace_progress(errorMsg);
@@ -139,7 +143,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                 trace_progress("created");
             }
         } catch (URISyntaxException e) {
-            String logMsg = LRALogger.i18nLogger.error_invalidFormatToCreateLRAParticipantRecord(lraId.toASCIIString(), linkURI,
+            String logMsg = LRALogger.i18nLogger.error_invalidFormatToCreateLRAParticipantRecord(lraId.toString(), linkURI,
                     e.getMessage());
             LRALogger.logger.error(logMsg);
             if (LRALogger.logger.isTraceEnabled()) {
@@ -345,8 +349,11 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                 client = JwtTokenContext.newClient();
                 Response response = client.target(endPath)
                         .request()
-                        .header(LRA_HTTP_CONTEXT_HEADER, lraId.toASCIIString())
-                        .header(LRA_HTTP_PARENT_CONTEXT_HEADER, parentId) // make the context available to participants
+                        .header(LRA_HTTP_CONTEXT_HEADER,
+                                HttpLRAService.toURI(lra).toASCIIString())
+                        .header(LRA_HTTP_PARENT_CONTEXT_HEADER,
+                                parentId == null ? null
+                                        : HttpLRAService.toURI(lra.getCoordinatorUrl(), parentId, null).toASCIIString()) // make the context available to participants
                         .header(LRA_HTTP_RECOVERY_HEADER, recoveryURI.toASCIIString())
                         .header(NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME, compensatorData)
                         .async()
@@ -456,12 +463,15 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                     .header(NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME, compensatorData);
 
             if (target.equals(afterURI)) {
-                builder.header(LRA.LRA_HTTP_ENDED_CONTEXT_HEADER, lra.getId().toASCIIString());
+                builder.header(LRA.LRA_HTTP_ENDED_CONTEXT_HEADER,
+                        HttpLRAService.toURI(lra).toASCIIString());
                 if (lra.getParentId() != null) {
-                    builder.header(LRA_HTTP_PARENT_CONTEXT_HEADER, lra.getParentId().toASCIIString());
+                    builder.header(LRA_HTTP_PARENT_CONTEXT_HEADER,
+                            HttpLRAService.toURI(lra.getCoordinatorUrl(), lra.getParentId(), null).toASCIIString());
                 }
             } else {
-                builder.header(LRA.LRA_HTTP_CONTEXT_HEADER, lra.getId().toASCIIString());
+                builder.header(LRA.LRA_HTTP_CONTEXT_HEADER,
+                        HttpLRAService.toURI(lra).toASCIIString());
             }
 
             Future<Response> responseFuture = target.equals(forgetURI) ? builder.async().delete()
@@ -574,7 +584,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         // must be valid - try that first for the status
 
         // first check that this isn't a nested coordinator running locally
-        URI nestedLraId = extractParentLRA(endPath);
+        UUID nestedLraId = extractParentLRA(endPath);
 
         if (LRALogger.logger.isTraceEnabled()) {
             trace_progress("retryGetEndStatus");
@@ -619,9 +629,12 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                 // since this method is called from the recovery thread do not block
                 response = client.target(statusURI)//.path(getLRAId(lraId))
                         .request()
-                        .header(LRA_HTTP_CONTEXT_HEADER, lraId.toASCIIString())
+                        .header(LRA_HTTP_CONTEXT_HEADER,
+                                HttpLRAService.toURI(lra).toASCIIString())
                         .header(LRA_HTTP_RECOVERY_HEADER, recoveryURI.toASCIIString())
-                        .header(LRA_HTTP_PARENT_CONTEXT_HEADER, parentId)
+                        .header(LRA_HTTP_PARENT_CONTEXT_HEADER,
+                                parentId == null ? null
+                                        : HttpLRAService.toURI(lra.getCoordinatorUrl(), parentId, null).toASCIIString())
                         .header(NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME, compensatorData)
                         .async()
                         .get()
@@ -737,7 +750,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     }
 
     // see if the participant is an LRA in the same VM as the coordinator
-    private URI extractParentLRA(URI endPath) {
+    private UUID extractParentLRA(URI endPath) {
         if (lraService != null) {
             String[] segments = endPath.getPath().split("/");
             int pCnt = segments.length;
@@ -747,9 +760,10 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
 
                 try {
                     cId = URLDecoder.decode(segments[pCnt - 2], StandardCharsets.UTF_8);
+                    UUID uuid = UUID.fromString(cId);
 
-                    return lraService.hasTransaction(cId) ? new URI(cId) : null;
-                } catch (URISyntaxException ignore) {
+                    return lraService.hasTransaction(uuid) ? uuid : null;
+                } catch (IllegalArgumentException ignore) {
                 }
             }
 
@@ -762,9 +776,9 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     }
 
     private int tryLocalEndInvocation(URI endPath) {
-        URI cId = extractParentLRA(endPath);
+        UUID nestedLraId = extractParentLRA(endPath);
 
-        if (cId != null) {
+        if (nestedLraId != null) {
             String[] segments = endPath.getPath().split("/");
             int pCnt = segments.length;
 
@@ -782,7 +796,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
 
                 httpStatus = BAD_REQUEST.getStatusCode();
             } else {
-                LRAData inVMStatus = lraService.endLRA(cId, isCompensate, true);
+                LRAData inVMStatus = lraService.endLRA(nestedLraId, isCompensate, true);
 
                 httpStatus = inVMStatus.getHttpStatus();
             }
@@ -803,9 +817,11 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                 client = JwtTokenContext.newClient();
                 Response response = client.target(forgetURI)//.path(getLRAId(lraId))
                         .request()
-                        .header(LRA_HTTP_CONTEXT_HEADER, lraId)
+                        .header(LRA_HTTP_CONTEXT_HEADER, HttpLRAService.toURI(lra).toASCIIString())
                         .header(LRA_HTTP_RECOVERY_HEADER, recoveryURI)
-                        .header(LRA_HTTP_PARENT_CONTEXT_HEADER, parentId)
+                        .header(LRA_HTTP_PARENT_CONTEXT_HEADER,
+                                parentId == null ? null
+                                        : HttpLRAService.toURI(lra.getCoordinatorUrl(), parentId, null).toASCIIString())
                         .header(NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME, compensatorData)
                         .async()
                         .delete()
@@ -855,7 +871,8 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     public boolean save_state(OutputObjectState os, int t) {
         if (super.save_state(os, t)) {
             try {
-                packURI(os, lraId);
+                packUUID(os, lraId);
+                packUUID(os, parentId);
                 packURI(os, compensateURI);
                 packURI(os, recoveryURI);
                 packURI(os, completeURI);
@@ -883,7 +900,8 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     public boolean restore_state(InputObjectState os, int t) {
         if (super.restore_state(os, t)) {
             try {
-                lraId = unpackURI(os);
+                lraId = unpackUUID(os);
+                parentId = unpackUUID(os);
                 compensateURI = unpackURI(os);
                 recoveryURI = unpackURI(os);
                 completeURI = unpackURI(os);
@@ -894,7 +912,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                 participantPath = os.unpackString();
                 compensatorData = os.unpackString();
                 accepted = status == ParticipantStatus.Completing || status == ParticipantStatus.Compensating;
-            } catch (IOException | URISyntaxException e) {
+            } catch (IOException | URISyntaxException | IllegalArgumentException e) {
                 LRALogger.i18nLogger.warn_restoreState(e.getMessage());
                 return false;
             } finally {
@@ -929,8 +947,21 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         }
     }
 
+    private void packUUID(OutputObjectState os, UUID uuid) throws IOException {
+        if (uuid == null) {
+            os.packBoolean(false);
+        } else {
+            os.packBoolean(true);
+            os.packString(uuid.toString());
+        }
+    }
+
     private URI unpackURI(InputObjectState os) throws IOException, URISyntaxException {
         return os.unpackBoolean() ? new URI(Objects.requireNonNull(os.unpackString())) : null;
+    }
+
+    private UUID unpackUUID(InputObjectState os) throws IOException {
+        return os.unpackBoolean() ? UUID.fromString(Objects.requireNonNull(os.unpackString())) : null;
     }
 
     private static int getTypeId() {
@@ -1033,7 +1064,8 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         try {
             this.recoveryURI = new URI(recoveryURI);
         } catch (URISyntaxException e) {
-            String errorMsg = LRALogger.i18nLogger.error_invalidRecoveryUrlToJoinLRAURI(recoveryURI, lraId);
+            String errorMsg = LRALogger.i18nLogger.error_invalidRecoveryUrlToJoinLRAURI(recoveryURI,
+                    URI.create("urn:uuid:" + lraId));
 
             throw new WebApplicationException(Response.status(BAD_REQUEST)
                     .entity(errorMsg)

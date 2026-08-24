@@ -761,7 +761,7 @@ public class LRATest extends LRATestBase {
         }
 
         try {
-            service.getLRA(lraId);
+            LRARecoveryModule.getHttpService().getLRA(lraId);
         } catch (NotFoundException e) {
             fail("testReplay: LRA should still have been completing: " + e.getMessage());
         }

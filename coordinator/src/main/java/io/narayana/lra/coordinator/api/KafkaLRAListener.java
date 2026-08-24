@@ -13,6 +13,7 @@ import io.narayana.lra.contracts.kafka.LeaveLRAKafka;
 import io.narayana.lra.contracts.kafka.StartLRAKafka;
 import io.narayana.lra.contracts.kafka.StatusLRAKafka;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
+import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
@@ -33,6 +34,7 @@ import org.eclipse.microprofile.reactive.messaging.Message;
 public class KafkaLRAListener {
 
     private final LRAService lraService;
+    private final HttpLRAService httpLraService;
     private final ObjectMapper objectMapper;
 
     @Channel(LRAKafkaConstants.TOPIC_REPLY)
@@ -40,6 +42,7 @@ public class KafkaLRAListener {
 
     public KafkaLRAListener() {
         this.lraService = LRARecoveryModule.getService();
+        this.httpLraService = LRARecoveryModule.getHttpService();
         this.objectMapper = new ObjectMapper();
     }
 
@@ -88,8 +91,8 @@ public class KafkaLRAListener {
             URI parentId = request.parentLRA != null && !request.parentLRA.isEmpty()
                     ? URI.create(request.parentLRA)
                     : null;
-            LongRunningAction lra = lraService.startLRA(coordinatorUrl, parentId, request.clientId, request.timeout);
-            reply = new StartLRAKafka.Reply(request.getCorrelationId(), lra.getId().toASCIIString(), null);
+            LongRunningAction lra = httpLraService.startLRA(coordinatorUrl, parentId, request.clientId, request.timeout);
+            reply = new StartLRAKafka.Reply(request.getCorrelationId(), lra.getId().toString(), null);
         } catch (Exception e) {
             reply = new StartLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
         }
@@ -102,7 +105,7 @@ public class KafkaLRAListener {
 
         try {
             URI lraId = URI.create(request.lraId);
-            LRAData lraData = lraService.endLRA(lraId, false, false, request.compensator, request.userData);
+            LRAData lraData = httpLraService.endLRA(lraId, false, false, request.compensator, request.userData);
             reply = new CloseLRAKafka.Reply(request.getCorrelationId(), lraData.getStatus().name(), null);
         } catch (Exception e) {
             reply = new CloseLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
@@ -116,7 +119,7 @@ public class KafkaLRAListener {
 
         try {
             URI lraId = URI.create(request.lraId);
-            LRAData lraData = lraService.endLRA(lraId, true, false, request.compensator, request.userData);
+            LRAData lraData = httpLraService.endLRA(lraId, true, false, request.compensator, request.userData);
             reply = new CancelLRAKafka.Reply(request.getCorrelationId(), lraData.getStatus().name(), null);
         } catch (Exception e) {
             reply = new CancelLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
@@ -130,7 +133,7 @@ public class KafkaLRAListener {
 
         try {
             URI lraId = URI.create(request.lraId);
-            lraService.leave(lraId, request.body);
+            httpLraService.leave(lraId, request.body);
             reply = new LeaveLRAKafka.Reply(request.getCorrelationId(), null);
         } catch (Exception e) {
             reply = new LeaveLRAKafka.Reply(request.getCorrelationId(), e.getMessage());
@@ -153,7 +156,7 @@ public class KafkaLRAListener {
 
             String linkHeader = buildLinkHeader(request);
 
-            int status = lraService.joinLRA(recoveryUrl, lraId, request.timeLimit, null,
+            int status = httpLraService.joinLRA(recoveryUrl, lraId, request.timeLimit, null,
                     linkHeader, recoveryUrlBase, compensatorData);
 
             if (status == Response.Status.OK.getStatusCode()) {
@@ -175,7 +178,7 @@ public class KafkaLRAListener {
 
         try {
             URI lraId = URI.create(request.lraId);
-            LongRunningAction lra = lraService.getTransaction(lraId);
+            LongRunningAction lra = httpLraService.getTransaction(lraId);
             LRAStatus status = lra.getLRAStatus();
             if (status == null) {
                 status = LRAStatus.Active;

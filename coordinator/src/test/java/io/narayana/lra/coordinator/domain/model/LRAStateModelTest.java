@@ -898,7 +898,7 @@ public class LRAStateModelTest extends LRATestBase {
 
         // the first compensate returned Compensating so the LRA should still be recovering
         try {
-            service.getLRA(lraId);
+            LRARecoveryModule.getHttpService().getLRA(lraId);
         } catch (NotFoundException e) {
             org.junit.jupiter.api.Assertions.fail(
                     "LRA should still be in Cancelling state after first compensate returned Compensating: "
