@@ -44,7 +44,6 @@ public class LRAService {
     private final Map<LongRunningAction, Map<String, String>> lraParticipants = new ConcurrentHashMap<>();
     private LRARecoveryModule recoveryModule;
 
-
     public LongRunningAction getTransaction(UUID lraId) throws NotFoundException {
         LongRunningAction lra = lras.get(lraId);
         if (lra != null) {
@@ -122,6 +121,15 @@ public class LRAService {
         return allByStatus;
     }
 
+    /**
+     * Getting all the LRA managed by recovery manager. This means all LRAs which are not mapped
+     * only in memory but that were already saved in object store.
+     *
+     * @param scan defines if there is run recovery manager scanning before returning the collection,
+     *        when the recovery is run then the object store is touched and the returned
+     *        list may be updated with the new loaded objects
+     * @return list of the {@link LRAData} which define the recovering LRAs
+     */
     public List<LRAData> getAllRecovering(boolean scan) {
         if (scan) {
             RecoveryManager.manager().scan();
@@ -161,12 +169,21 @@ public class LRAService {
         if (transaction.isRecovering()) {
             recoveringLRAs.put(transaction.getId(), transaction);
         } else if (fromHierarchy || transaction.isTopLevel()) {
+            // the LRA is top level or it's a nested LRA that was closed by a
+            // parent LRA (ie when fromHierarchy is true) then it's okay to forget about the LRA
             if (!transaction.hasPendingActions()) {
+                // this call is only required to clean up cached LRAs (JBTM-3250 will remove this cache).
                 remove(transaction);
             }
         }
     }
 
+    /**
+     * Remove a log corresponding to an LRA record
+     *
+     * @param lraId the id of the LRA
+     * @return true if the record was either removed or was not present
+     */
     public boolean removeLog(String lraId) {
         String uid = LRAConstants.getLRAUid(lraId);
         try {
@@ -181,14 +198,10 @@ public class LRAService {
         if (lra.isFailed()) {
             lra.deactivate();
         }
-        removeByUUID(lra.getId());
+        remove(lra.getId());
     }
 
-    public void remove(UUID lraId) {
-        removeByUUID(lraId);
-    }
-
-    private void removeByUUID(UUID uuid) {
+    public void remove(UUID uuid) {
         LongRunningAction lra = lras.remove(uuid);
         if (lra != null) {
             lraParticipants.remove(lra);
@@ -201,8 +214,9 @@ public class LRAService {
         getRM().recover();
     }
 
+    // perform a recovery scan to load any recovering LRAs from the store
     public void scan() {
-        getRM().periodicWorkSecondPass();
+        getRM().periodicWorkSecondPass(); // periodicWorkFirstPass is a no-op
     }
 
     public boolean updateRecoveryURI(UUID lraId, String compensatorUrl, String recoveryURI, boolean persist) {
@@ -211,6 +225,9 @@ public class LRAService {
         LongRunningAction transaction = getTransaction(lraId);
         Map<String, String> participants = lraParticipants.get(transaction);
 
+        // the <participants> collection should be thread safe against update requests, even though such concurrent
+        // updates are improbable because only LRAService.joinLRA and RecoveryCoordinator.replaceCompensator
+        // do updates but those are sequential operations anyway
         if (participants == null) {
             participants = new ConcurrentHashMap<>();
             participants.put(recoveryURI, compensatorUrl);
@@ -294,6 +311,10 @@ public class LRAService {
             }
         }
 
+        // Only call finished() if finishLRA actually processed the LRA.
+        // If the LRA is still Active it means the lock could not be acquired
+        // (another thread is already finishing it) and we must not call finished()
+        // because that could prematurely remove an Active LRA from the map.
         if (transaction.getLRAStatus() != LRAStatus.Active) {
             finished(transaction, fromHierarchy);
         }
@@ -342,7 +363,10 @@ public class LRAService {
             timeLimit = 0;
         }
 
+        // the tx must be either Active (for participants with the @Compensate methods) or
+        // Closing/Canceling (for the AfterLRA listeners)
         if (transaction.getLRAStatus() != LRAStatus.Active && !transaction.isRecovering()) {
+            // validate that the party wanting to join with this LRA is a listener only:
             if (linkHeader != null) {
                 Matcher relMatcher = LINK_REL_PATTERN.matcher(linkHeader);
 
@@ -353,8 +377,10 @@ public class LRAService {
                         String rel = relMatcher.group(2) == null ? relMatcher.group(3) : relMatcher.group(2);
 
                         if (!LRAConstants.AFTER.equals(rel)) {
+                            // participants are not allowed to join inactive LRAs
                             return Response.Status.PRECONDITION_FAILED.getStatusCode();
                         } else if (!transaction.isRecovering()) {
+                            // listeners cannot be notified if the LRA has already ended
                             return Response.Status.PRECONDITION_FAILED.getStatusCode();
                         }
                     }
@@ -369,6 +395,7 @@ public class LRAService {
                 participant = transaction.enlistParticipant(HttpLRAService.toURI(transaction),
                         linkHeader != null ? linkHeader : compensatorUrl, recoveryUrlBase,
                         timeLimit, compensatorData.toString(), version);
+                // return any previously registered data
                 compensatorData.setLength(0);
 
                 if (participant != null && participant.getPreviousCompensatorData() != null) {
@@ -384,6 +411,7 @@ public class LRAService {
         }
 
         if (participant == null || participant.getRecoveryURI() == null) {
+            // probably already closing or cancelling
             return Response.Status.PRECONDITION_FAILED.getStatusCode();
         }
 
@@ -412,6 +440,7 @@ public class LRAService {
     }
 
     private LRARecoveryModule getRM() {
+        // since this method is reentrant we do not need any synchronization
         if (recoveryModule == null) {
             recoveryModule = LRARecoveryModule.getInstance();
         }
