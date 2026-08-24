@@ -79,10 +79,6 @@ public class LRAService {
         return toLRAData(lra);
     }
 
-    public boolean hasTransaction(UUID id) {
-        return id != null && (lras.containsKey(id) || recoveringLRAs.containsKey(id));
-    }
-
     public synchronized ReentrantLock lockTransaction(UUID lraId) {
         ReentrantLock lock = locks.computeIfAbsent(lraId, k -> new ReentrantLock());
         lock.lock();
@@ -141,11 +137,6 @@ public class LRAService {
         return getAllRecovering(false);
     }
 
-    public List<LRAData> getFailedLRAs() {
-        Map<UUID, LongRunningAction> failedLRAs = new ConcurrentHashMap<>();
-        getRM().getFailedLRAs(failedLRAs);
-        return failedLRAs.values().stream().map(this::toLRAData).collect(toList());
-    }
 
     private LRAData toLRAData(LongRunningAction lra) {
         LRAData data = lra.getLRAData();
@@ -429,6 +420,16 @@ public class LRAService {
         return Response.Status.OK.getStatusCode();
     }
 
+    public boolean hasTransaction(UUID id) {
+        return id != null && (lras.containsKey(id) || recoveringLRAs.containsKey(id));
+    }
+
+    private void lraTrace(String lraId, String reason) {
+        if (LRALogger.logger.isTraceEnabled()) {
+            LRALogger.logger.tracef("LRAService: '%s', id: %s%n", reason, lraId);
+        }
+    }
+
     public int renewTimeLimit(UUID lraId, Long timelimit) {
         LongRunningAction lra = lras.get(lraId);
 
@@ -439,6 +440,13 @@ public class LRAService {
         return lra.setTimeLimit(timelimit, true);
     }
 
+
+    public List<LRAData> getFailedLRAs() {
+        Map<UUID, LongRunningAction> failedLRAs = new ConcurrentHashMap<>();
+        getRM().getFailedLRAs(failedLRAs);
+        return failedLRAs.values().stream().map(this::toLRAData).collect(toList());
+    }
+
     private LRARecoveryModule getRM() {
         // since this method is reentrant we do not need any synchronization
         if (recoveryModule == null) {
@@ -447,9 +455,5 @@ public class LRAService {
         return recoveryModule;
     }
 
-    private void lraTrace(String lraId, String reason) {
-        if (LRALogger.logger.isTraceEnabled()) {
-            LRALogger.logger.tracef("LRAService: '%s', id: %s%n", reason, lraId);
-        }
-    }
+
 }
