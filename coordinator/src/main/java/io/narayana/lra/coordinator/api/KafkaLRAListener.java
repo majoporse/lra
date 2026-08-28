@@ -133,7 +133,7 @@ public class KafkaLRAListener {
 
         try {
             URI lraId = URI.create(request.lraId);
-            httpLraService.leave(lraId, request.body);
+            //            httpLraService.leave(lraId, equest.body);
             reply = new LeaveLRAKafka.Reply(request.getCorrelationId(), null);
         } catch (Exception e) {
             reply = new LeaveLRAKafka.Reply(request.getCorrelationId(), e.getMessage());
@@ -155,9 +155,10 @@ public class KafkaLRAListener {
                     : new StringBuilder();
 
             String linkHeader = buildLinkHeader(request);
+            String partId = "";
 
             int status = httpLraService.joinLRA(recoveryUrl, lraId, request.timeLimit, null,
-                    linkHeader, recoveryUrlBase, compensatorData);
+                    linkHeader, recoveryUrlBase, compensatorData, partId);
 
             if (status == Response.Status.OK.getStatusCode()) {
                 reply = new JoinLRAKafka.Reply(request.getCorrelationId(), recoveryUrl.toString(),

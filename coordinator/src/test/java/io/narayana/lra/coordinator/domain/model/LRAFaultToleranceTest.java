@@ -309,7 +309,7 @@ public class LRAFaultToleranceTest extends LRATestBase {
                 makeLink(prefix, "complete"),
                 makeLink(prefix, "compensate"));
 
-        try (Response response = client.target(lraUrl).request().put(Entity.text(linkHeader))) {
+        try (Response response = client.target(lraUrl).request().header("partId", "/base/test").put(Entity.text(linkHeader))) {
             assertEquals(200, response.getStatus(),
                     "Unexpected status enlisting participant: " + response.readEntity(String.class));
             String recoveryId = response.getHeaderString(LRA_HTTP_RECOVERY_HEADER);

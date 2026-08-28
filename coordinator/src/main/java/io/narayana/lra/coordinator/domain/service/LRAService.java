@@ -313,7 +313,7 @@ public class LRAService {
         return toLRAData(transaction);
     }
 
-    public int leave(UUID lraId, String compensatorUrl) {
+    public int leave(UUID lraId, String participantId) {
         LongRunningAction transaction = getTransaction(lraId);
 
         if (transaction.getLRAStatus() != LRAStatus.Active) {
@@ -322,9 +322,9 @@ public class LRAService {
 
         boolean wasForgotten;
         try {
-            wasForgotten = transaction.forgetParticipant(compensatorUrl);
+            wasForgotten = transaction.forgetParticipant(participantId);
         } catch (Exception e) {
-            String errorMsg = String.format("LRAService.forget %s failed on finding participant '%s'", lraId, compensatorUrl);
+            String errorMsg = String.format("LRAService.forget %s failed on finding participant '%s'", lraId, participantId);
             throw new WebApplicationException(errorMsg, e, Response.status(Response.Status.BAD_REQUEST)
                     .entity(errorMsg).build());
         }
@@ -333,7 +333,7 @@ public class LRAService {
         } else {
             String errorMsg = String.format(
                     "LRAService.forget %s failed as the participant was not found, compensator url '%s'",
-                    lraId, compensatorUrl);
+                    lraId, participantId);
             throw new WebApplicationException(errorMsg, Response.status(Response.Status.BAD_REQUEST)
                     .entity(errorMsg).build());
         }
@@ -341,13 +341,14 @@ public class LRAService {
 
     public int joinLRA(StringBuilder recoveryUrl, UUID lraId, long timeLimit,
             String compensatorUrl, String linkHeader, String recoveryUrlBase,
-            StringBuilder compensatorData) {
-        return joinLRA(recoveryUrl, lraId, timeLimit, compensatorUrl, linkHeader, recoveryUrlBase, compensatorData, null);
+            StringBuilder compensatorData, String partId) {
+        return joinLRA(recoveryUrl, lraId, timeLimit, compensatorUrl, linkHeader, recoveryUrlBase, compensatorData, null,
+                partId);
     }
 
     public int joinLRA(StringBuilder recoveryUrl, UUID lraId, long timeLimit,
             String compensatorUrl, String linkHeader, String recoveryUrlBase,
-            StringBuilder compensatorData, String version) {
+            StringBuilder compensatorData, String version, String partId) {
         LongRunningAction transaction = getTransaction(lraId);
 
         if (timeLimit < 0) {
@@ -385,7 +386,7 @@ public class LRAService {
             if (compensatorData != null) {
                 participant = transaction.enlistParticipant(HttpLRAService.toURI(transaction),
                         linkHeader != null ? linkHeader : compensatorUrl, recoveryUrlBase,
-                        timeLimit, compensatorData.toString(), version);
+                        timeLimit, compensatorData.toString(), version, partId);
                 // return any previously registered data
                 compensatorData.setLength(0);
 
@@ -395,7 +396,7 @@ public class LRAService {
             } else {
                 participant = transaction.enlistParticipant(HttpLRAService.toURI(transaction),
                         linkHeader != null ? linkHeader : compensatorUrl, recoveryUrlBase,
-                        timeLimit, null, version);
+                        timeLimit, null, version, partId);
             }
         } catch (UnsupportedEncodingException e) {
             return Response.Status.PRECONDITION_FAILED.getStatusCode();

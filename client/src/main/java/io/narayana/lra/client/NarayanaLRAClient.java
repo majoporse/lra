@@ -96,7 +96,7 @@ import org.eclipse.microprofile.rest.client.RestClientBuilder;
  * See {@link RestClientConfig} for details on available configuration options.
  */
 @RequestScoped
-public class NarayanaLRAClient implements LRAClient {
+public class NarayanaLRAClient implements AutoCloseable {
     /**
      * The config property key for configuring the URL of a Narayana LRA coordinator
      */
@@ -536,20 +536,20 @@ public class NarayanaLRAClient implements LRAClient {
      */
     public URI joinLRA(URI lraId, Long timeLimit,
             URI compensateUri, URI completeUri, URI forgetUri, URI leaveUri, URI afterUri, URI statusUri,
-            String compensatorData) throws WebApplicationException {
+            String compensatorData, String partId) throws WebApplicationException {
         return enlistCompensator(lraId, timeLimit, "",
                 compensateUri, completeUri,
                 forgetUri, leaveUri, afterUri, statusUri,
-                null);
+                null, partId);
     }
 
     public URI joinLRA(URI lraId, Long timeLimit,
             URI compensateUri, URI completeUri, URI forgetUri, URI leaveUri, URI afterUri, URI statusUri,
-            StringBuilder compensatorData) throws WebApplicationException {
+            StringBuilder compensatorData, String partId) throws WebApplicationException {
         return enlistCompensator(lraId, timeLimit, "",
                 compensateUri, completeUri,
                 forgetUri, leaveUri, afterUri, statusUri,
-                compensatorData);
+                compensatorData, partId);
     }
 
     /**
@@ -563,11 +563,11 @@ public class NarayanaLRAClient implements LRAClient {
      * @throws WebApplicationException if the LRA coordinator failed to enlist the participant
      */
     public URI joinLRA(URI lraId, Long timeLimit,
-            URI participantUri, StringBuilder compensatorData) throws WebApplicationException {
+            URI participantUri, StringBuilder compensatorData, String partId) throws WebApplicationException {
         validateURI(participantUri, false, "Invalid participant URL: %s");
         StringBuilder linkHeaderValue = makeLink(new StringBuilder(), null, "participant", participantUri.toASCIIString());
 
-        return enlistCompensator(lraId, timeLimit, linkHeaderValue.toString(), compensatorData);
+        return enlistCompensator(lraId, timeLimit, linkHeaderValue.toString(), compensatorData, partId);
     }
 
     public void leaveLRA(URI lraId, String body) throws WebApplicationException {
@@ -1054,7 +1054,7 @@ public class NarayanaLRAClient implements LRAClient {
     private URI enlistCompensator(URI lraUri, Long timelimit, String uriPrefix,
             URI compensateUri, URI completeUri,
             URI forgetUri, URI leaveUri, URI afterUri, URI statusUri,
-            StringBuilder compensatorData) {
+            StringBuilder compensatorData, String partId) {
         validateURI(completeUri, true, "Invalid complete URL: %s");
         validateURI(compensateUri, true, "Invalid compensate URL: %s");
         validateURI(leaveUri, true, "Invalid status URL: %s");
@@ -1077,10 +1077,10 @@ public class NarayanaLRAClient implements LRAClient {
 
         terminateURIs.forEach((k, v) -> makeLink(linkHeaderValue, uriPrefix, k, v == null ? null : v.toASCIIString()));
 
-        return enlistCompensator(lraUri, timelimit, linkHeaderValue.toString(), compensatorData);
+        return enlistCompensator(lraUri, timelimit, linkHeaderValue.toString(), compensatorData, partId);
     }
 
-    public URI enlistCompensator(URI uri, Long timelimit, String linkHeader, StringBuilder compensatorData) {
+    public URI enlistCompensator(URI uri, Long timelimit, String linkHeader, StringBuilder compensatorData, String partId) {
         // register with the coordinator
         URL lraId = null;
         String data = compensatorData == null ? null : compensatorData.toString();
@@ -1109,6 +1109,7 @@ public class NarayanaLRAClient implements LRAClient {
                     MediaType.TEXT_PLAIN,
                     LRAConstants.CURRENT_API_VERSION_STRING,
                     data == null ? "" : data,
+                    partId,
                     compensatorData == null ? linkHeader : data)
                     .toCompletableFuture().get(JOIN_TIMEOUT, TimeUnit.SECONDS);
 

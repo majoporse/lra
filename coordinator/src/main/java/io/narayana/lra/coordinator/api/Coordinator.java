@@ -522,6 +522,7 @@ public class Coordinator extends Application {
             @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version,
             @HeaderParam(LRAConstants.NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME) @DefaultValue("") String userData,
+            @HeaderParam("partId") String partId,
             @RequestBody(name = "Compensator data", description = "A compensator can also register with an LRA by putting the compensator end "
                     + "points in the body of request as a link header. This feature is deprecated and undocumented "
                     + "and will be removed in a later version of the protocol") String compensatorURL) {
@@ -547,7 +548,7 @@ public class Coordinator extends Application {
                 sb.append(userData);
             }
 
-            return joinLRA(toURI(lraId), mediaType, timeLimit, compensatorLink, sb, version);
+            return joinLRA(toURI(lraId), mediaType, timeLimit, compensatorLink, sb, version, partId);
         }
 
         if (!isLink && !compensatorURL.isEmpty()) {
@@ -584,7 +585,7 @@ public class Coordinator extends Application {
             compensatorURL = linkHeaderValue.toString();
         }
 
-        return joinLRA(toURI(lraId), mediaType, timeLimit, compensatorURL, null, version);
+        return joinLRA(toURI(lraId), mediaType, timeLimit, compensatorURL, null, version, partId);
     }
 
     private static void makeLink(StringBuilder b, String key, String value) {
@@ -612,7 +613,7 @@ public class Coordinator extends Application {
     }
 
     private Response joinLRA(URI lraId, String acceptMediaType, long timeLimit, String linkHeader,
-            StringBuilder userData, String version) {
+            StringBuilder userData, String version, String participantId) {
         final String recoveryUrlBase = String.format("%s%s/%s",
                 context.getBaseUri().toASCIIString(), COORDINATOR_PATH_NAME, RECOVERY_COORDINATOR_PATH_NAME);
 
@@ -626,7 +627,7 @@ public class Coordinator extends Application {
 
         try {
             status = httpLraService.joinLRA(recoveryUrl, lraId, timeLimit, null, linkHeader, recoveryUrlBase, userData,
-                    version);
+                    version, participantId);
         } catch (ServiceUnavailableException e) {
             return Response.status(Response.Status.SERVICE_UNAVAILABLE.getStatusCode()).entity(e.getMessage()).build();
         }
@@ -676,8 +677,8 @@ public class Coordinator extends Application {
             @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") String lraId,
             @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version,
-            String participantCompensatorUrl) {
-        int status = httpLraService.leave(toURI(lraId), participantCompensatorUrl);
+            String participantId) {
+        int status = httpLraService.leave(toURI(lraId), participantId);
 
         return Response.status(status)
                 .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)

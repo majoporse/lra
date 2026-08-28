@@ -137,22 +137,22 @@ public class HttpLRAService {
         return lraService.endLRA(extractUUID(lraId), compensate, fromHierarchy, compensator, userData);
     }
 
-    public int leave(URI lraId, String compensatorUrl) {
-        return lraService.leave(extractUUID(lraId), compensatorUrl);
+    public int leave(URI lraId, String id) {
+        return lraService.leave(extractUUID(lraId), id);
     }
 
     public int joinLRA(StringBuilder recoveryUrl, URI lra, long timeLimit,
             String compensatorUrl, String linkHeader, String recoveryUrlBase,
-            StringBuilder compensatorData) {
+            StringBuilder compensatorData, String partId) {
         return lraService.joinLRA(recoveryUrl, extractUUID(lra), timeLimit,
-                compensatorUrl, linkHeader, recoveryUrlBase, compensatorData);
+                compensatorUrl, linkHeader, recoveryUrlBase, compensatorData, partId);
     }
 
     public int joinLRA(StringBuilder recoveryUrl, URI lra, long timeLimit,
             String compensatorUrl, String linkHeader, String recoveryUrlBase,
-            StringBuilder compensatorData, String version) {
+            StringBuilder compensatorData, String version, String partId) {
         return lraService.joinLRA(recoveryUrl, extractUUID(lra), timeLimit,
-                compensatorUrl, linkHeader, recoveryUrlBase, compensatorData, version);
+                compensatorUrl, linkHeader, recoveryUrlBase, compensatorData, version, partId);
     }
 
     public int renewTimeLimit(URI lraId, Long timelimit) {

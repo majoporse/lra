@@ -144,6 +144,7 @@ public interface CoordinatorClient {
             @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String accept,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version,
             @HeaderParam(LRAConstants.NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME) @DefaultValue("") String participantData,
+            @HeaderParam("partId") String clientId,
             String compensatorBody);
 
     /**

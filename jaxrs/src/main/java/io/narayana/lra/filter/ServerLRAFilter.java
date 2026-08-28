@@ -201,6 +201,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                         resourceInfo.getResourceClass(),
                         createUriPrefix(containerRequestContext, resourceInfo.getResourceClass()), timeout);
                 String compensatorId = terminateURIs.get("Link");
+                var body = resourceInfo.getResourceClass().getName();
 
                 if (compensatorId == null) {
                     abortWith(containerRequestContext, incomingLRA.toASCIIString(),
@@ -212,7 +213,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                 progress = new ArrayList<>();
 
                 try {
-                    getLRAClient().leaveLRA(incomingLRA, compensatorId);
+                    getLRAClient().leaveLRA(incomingLRA, body);
                     progress.add(new Progress(ProgressStep.Left, null)); // leave succeeded
                 } catch (WebApplicationException e) {
                     progress.add(new Progress(ProgressStep.LeaveFailed, e.getMessage())); // leave may have failed
@@ -437,7 +438,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                     for (int i = 0;; i++) {
                         try {
                             recoveryUrl = getLRAClient().enlistCompensator(lraId, timeLimit, compensatorLink,
-                                    previousParticipantData);
+                                    previousParticipantData, resourceInfo.getResourceClass().getName());
                             break;
                         } catch (WebApplicationException e) {
 
@@ -612,7 +613,8 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                     }
                 }
             } else if (current != null && compensator != null && userData != null) {
-                getLRAClient().enlistCompensator(current, 0L, compensator, new StringBuilder(userData));
+                getLRAClient().enlistCompensator(current, 0L, compensator, new StringBuilder(userData),
+                        resourceInfo.getResourceClass().getName());
             }
 
             if (responseContext.getStatus() == Response.Status.OK.getStatusCode()

@@ -60,6 +60,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     private static final String COMPENSATE_REL = "compensate";
     private static final String COMPLETE_REL = "complete";
 
+    private String participantId;
     private UUID lraId;
     private UUID parentId;
     private URI recoveryURI;
@@ -82,9 +83,10 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     public LRAParticipantRecord() {
     }
 
-    LRAParticipantRecord(LongRunningAction lra, LRAService lraService, String linkURI, String compensatorData) {
+    LRAParticipantRecord(LongRunningAction lra, LRAService lraService, String linkURI, String compensatorData, String partId) {
         super(new Uid());
 
+        this.participantId = partId;
         this.lra = lra;
 
         try {
@@ -871,6 +873,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     public boolean save_state(OutputObjectState os, int t) {
         if (super.save_state(os, t)) {
             try {
+                os.packString(participantId);
                 packUUID(os, lraId);
                 packUUID(os, parentId);
                 packURI(os, compensateURI);
@@ -900,6 +903,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     public boolean restore_state(InputObjectState os, int t) {
         if (super.restore_state(os, t)) {
             try {
+                participantId = os.unpackString();
                 lraId = unpackUUID(os);
                 parentId = unpackUUID(os);
                 compensateURI = unpackURI(os);
@@ -1114,5 +1118,9 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                 reason,
                 status,
                 accepted);
+    }
+
+    public String getParticipantId() {
+        return participantId;
     }
 }

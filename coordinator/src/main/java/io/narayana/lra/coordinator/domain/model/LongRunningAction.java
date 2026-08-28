@@ -834,7 +834,7 @@ public class LongRunningAction extends BasicAction {
     }
 
     public LRAParticipantRecord enlistParticipant(URI coordinatorUrl, String participantUrl, String recoveryUrlBase,
-            long timeLimit, String compensatorData, String version)
+            long timeLimit, String compensatorData, String version, String partId)
             throws UnsupportedEncodingException {
         ReentrantLock lock = tryTimedLockTransaction(participantEnlistTimeout);
         if (lock == null) {
@@ -843,13 +843,13 @@ public class LongRunningAction extends BasicAction {
             throw new ServiceUnavailableException(reason);
         } else {
             try {
-                LRAParticipantRecord participant = findLRAParticipant(participantUrl, false);
+                LRAParticipantRecord participant = findLRAParticipantById(partId, false);
                 if (participant != null) {
                     participant.setCompensatorData(compensatorData);
                     return participant; // must have already been enlisted
                 }
                 participant = doEnlistParticipant(coordinatorUrl, participantUrl, recoveryUrlBase, timeLimit,
-                        compensatorData, version);
+                        compensatorData, version, partId);
                 if (participant != null) {
                     // need to remember that there is a new participant
                     if (deactivate()) { // if it fails the superclass will have logged a warning
@@ -869,8 +869,8 @@ public class LongRunningAction extends BasicAction {
     }
 
     private LRAParticipantRecord doEnlistParticipant(URI coordinatorUrl, String participantUrl, String recoveryUrlBase,
-            long timeLimit, String compensatorData, String version) {
-        LRAParticipantRecord p = new LRAParticipantRecord(this, lraService, participantUrl, compensatorData);
+            long timeLimit, String compensatorData, String version, String partId) {
+        LRAParticipantRecord p = new LRAParticipantRecord(this, lraService, participantUrl, compensatorData, partId);
         String pid = p.get_uid().fileStringForm();
 
         /*
@@ -940,8 +940,8 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
-    public boolean forgetParticipant(String participantUrl) {
-        return findLRAParticipant(participantUrl, true) != null;
+    public boolean forgetParticipant(String uuid) {
+        return findLRAParticipantById(uuid, true) != null;
     }
 
     public boolean forgetAllParticipants() {
@@ -974,6 +974,32 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
+    private LRAParticipantRecord findLRAParticipantById(String participantId, boolean remove) {
+        var lists = new RecordList[] { pendingList, preparedList, heuristicList, failedList };
+        for (RecordList list : lists) {
+            if (list != null) {
+                RecordListIterator i = new RecordListIterator(list);
+                AbstractRecord r;
+
+                while ((r = i.iterate()) != null) {
+                    if (r instanceof LRAParticipantRecord) {
+                        LRAParticipantRecord rr = (LRAParticipantRecord) r;
+                        // can't use == because this may be a recovery scenario
+                        if (rr.getParticipantId().equals(participantId)) {
+                            if (remove) {
+                                list.remove(rr);
+                            }
+
+                            return rr;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
     private LRAParticipantRecord findLRAParticipant(String participantUrl, boolean remove) {
         LRAParticipantRecord rec;
 
@@ -992,13 +1018,14 @@ public class LongRunningAction extends BasicAction {
 
                 return null;
             }
-            rec = findLRAParticipant(pUrl, remove, pendingList, preparedList, heuristicList, failedList);
+            rec = findLRAParticipantByCompensatorLink(pUrl, remove, pendingList, preparedList, heuristicList, failedList);
         }
 
         return rec;
     }
 
-    private LRAParticipantRecord findLRAParticipant(String participantUrl, boolean remove, RecordList... lists) {
+    private LRAParticipantRecord findLRAParticipantByCompensatorLink(String participantUrl, boolean remove,
+            RecordList... lists) {
         for (RecordList list : lists) {
             if (list != null) {
                 RecordListIterator i = new RecordListIterator(list);
