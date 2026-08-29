@@ -7,6 +7,7 @@ package io.narayana.lra.client;
 
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
 import jakarta.ws.rs.Consumes;
@@ -120,27 +121,17 @@ public interface CoordinatorClient {
      * Join a participant to an LRA
      *
      * @param lraId LRA identifier
-     * @param timeLimit Time limit for participant compensation
-     * @param compensatorLink Link header containing participant endpoints
-     * @param accept Media type for response
      * @param version API version header
-     * @param participantData Participant-specific data
-     * @param compensatorBody Compensator URL in body (deprecated)
      * @return Response with recovery URL in header
      */
     @PUT
     @Path("{LraId}")
-    @Consumes(MediaType.TEXT_PLAIN)
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
-    CompletionStage<Response> joinLRA(
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces({ MediaType.APPLICATION_JSON })
+    CompletionStage<JoinLRAHttp.Reply> joinLRA(
             @PathParam("LraId") String lraId,
-            @QueryParam(LRAConstants.TIMELIMIT_PARAM_NAME) @DefaultValue("0") long timeLimit,
-            @HeaderParam("Link") @DefaultValue("") String compensatorLink,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String accept,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME) @DefaultValue("") String participantData,
-            @HeaderParam("partId") String clientId,
-            String compensatorBody);
+            JoinLRAHttp.Request body);
 
     /**
      * Remove a participant from an LRA

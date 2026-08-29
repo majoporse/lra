@@ -12,13 +12,13 @@ import static io.narayana.lra.LRAConstants.FORGET;
 import static io.narayana.lra.LRAConstants.NESTED_COORDINATOR_PATH_NAME;
 import static io.narayana.lra.LRAConstants.STATUS;
 import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
-import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVERY_HEADER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.client.NarayanaLRAClient;
+import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.coordinator.api.Coordinator;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
@@ -223,11 +223,15 @@ public class LRAStateModelTest extends LRATestBase {
         String linkHeader = String.join(",",
                 makeLink(prefix, COMPLETE),
                 makeLink(prefix, COMPENSATE));
+        var request = new JoinLRAHttp.Request();
+        request.compensatorURL = linkHeader;
+        request.partId = "/base/failing-test";
 
-        try (Response response = client.target(lraUid).request().put(Entity.text(linkHeader))) {
+        try (Response response = client.target(lraUid).request().put(Entity.json(request))) {
+            var responseEntity = response.readEntity(JoinLRAHttp.Reply.class);
             assertEquals(200, response.getStatus(),
-                    "Unexpected status enlisting failing participant: " + response.readEntity(String.class));
-            String recoveryId = response.getHeaderString(LRA_HTTP_RECOVERY_HEADER);
+                    "Unexpected status enlisting failing participant: " + response);
+            String recoveryId = responseEntity.recoveryUrl;
             assertNotNull(recoveryId, "recovery id was null for failing participant");
         }
     }
@@ -1251,8 +1255,11 @@ public class LRAStateModelTest extends LRATestBase {
         String linkHeader = String.join(",",
                 makeLink(prefix, COMPLETE),
                 makeLink(prefix, COMPENSATE));
+        var body = new JoinLRAHttp.Request();
+        body.compensatorURL = linkHeader;
+        body.partId = "unreachable";
 
-        try (Response response = client.target(lraUrl).request().put(Entity.text(linkHeader))) {
+        try (Response response = client.target(lraUrl).request().put(Entity.json(body))) {
             assertEquals(200, response.getStatus(),
                     "Unexpected status enlisting unreachable participant: " + response.readEntity(String.class));
         }

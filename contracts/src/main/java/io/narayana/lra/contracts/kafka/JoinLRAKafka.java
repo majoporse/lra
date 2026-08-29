@@ -1,5 +1,8 @@
 package io.narayana.lra.contracts.kafka;
 
+import io.narayana.lra.contracts.http.ParticipantLinks;
+import java.net.URI;
+
 public class JoinLRAKafka {
     public static class Request extends io.narayana.lra.contracts.common.JoinLRA.Request implements LRAKafkaRequest {
         public String correlationId = "";
@@ -8,12 +11,10 @@ public class JoinLRAKafka {
         public Request() {
         }
 
-        public Request(String correlationId, String replyTopic, String lraId, Long timeLimit,
-                String compensateLink, String completeLink, String forgetLink,
-                String leaveLink, String afterLink, String statusLink,
-                String compensatorData) {
-            super(lraId, timeLimit, compensateLink, completeLink, forgetLink,
-                    leaveLink, afterLink, statusLink, compensatorData);
+        public Request(String correlationId, String replyTopic, URI lraId, Long timeLimit,
+                ParticipantLinks links,
+                String compensatorData, String userData, String partId) {
+            super(lraId, timeLimit, links, compensatorData, userData, partId);
             this.correlationId = correlationId;
             this.replyTopic = replyTopic;
         }

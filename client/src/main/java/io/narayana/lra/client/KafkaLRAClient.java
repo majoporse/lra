@@ -2,6 +2,7 @@ package io.narayana.lra.client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.contracts.kafka.CancelLRAKafka;
 import io.narayana.lra.contracts.kafka.CloseLRAKafka;
 import io.narayana.lra.contracts.kafka.JoinLRAKafka;
@@ -182,12 +183,11 @@ public class KafkaLRAClient implements LRAClient {
             URI forgetUri, URI leaveUri, URI afterUri, URI statusUri,
             StringBuilder compensatorData) {
         String data = compensatorData != null ? compensatorData.toString() : null;
+        var links = new ParticipantLinks(); // TODO FIX
 
         JoinLRAKafka.Request request = new JoinLRAKafka.Request(
-                nextCorrelationId(), replyTopic, lraId.toASCIIString(), timeLimit,
-                uriToString(compensateUri), uriToString(completeUri), uriToString(forgetUri),
-                uriToString(leaveUri), uriToString(afterUri), uriToString(statusUri),
-                data);
+                nextCorrelationId(), replyTopic, lraId, timeLimit, links,
+                data, "fixme2", "fixme");
 
         JoinLRAKafka.Reply reply = send(LRAKafkaConstants.TYPE_JOIN, request, JoinLRAKafka.Reply.class,
                 !FIRE_AND_FORGET);

@@ -14,7 +14,6 @@ import static io.narayana.lra.LRAConstants.COMPLETE;
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
 import static io.narayana.lra.LRAConstants.CURRENT_API_VERSION_STRING;
 import static io.narayana.lra.LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME;
-import static io.narayana.lra.LRAConstants.NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME;
 import static io.narayana.lra.LRAConstants.PARTICIPANT_TIMEOUT;
 import static io.narayana.lra.LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
 import static io.narayana.lra.LRAConstants.STATUS;
@@ -24,6 +23,7 @@ import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST;
 import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 import static jakarta.ws.rs.core.Response.Status.OK;
 import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
+import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVERY_HEADER;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -31,6 +31,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
@@ -482,24 +483,17 @@ public class Coordinator extends Application {
             @APIResponse(responseCode = "417", description = "The requested version provided in HTTP Header is not supported by this end point", content = @Content(schema = @Schema(implementation = String.class))),
             @APIResponse(responseCode = "500", description = "Format of the compensator data (e.g. Link format) could not be processed", content = @Content(schema = @Schema(implementation = String.class))),
     })
-    public Response joinLRAViaBody(
+    public JoinLRAHttp.Reply joinLRAViaBody(
             @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") String lraId,
-            @Parameter(name = TIMELIMIT_PARAM_NAME, description = "The time limit in milliseconds that the Compensator can guarantee that it can compensate "
-                    + "the work performed by the service. After this time period has elapsed, it may no longer be "
-                    + "possible to undo the work within the scope of this (or any enclosing) LRA. It may therefore "
-                    + "be necessary for the application or service to start other activities to explicitly try to "
-                    + "compensate this work. The application or coordinator may use this information to control the "
-                    + "lifecycle of an LRA.") @QueryParam(TIMELIMIT_PARAM_NAME) @DefaultValue("0") long timeLimit,
-            @Parameter(name = "Link", description = "The resource paths that the coordinator will use to complete or compensate and to request"
-                    + " the status of the participant. The link rel names are"
-                    + " complete, compensate and status.") @HeaderParam("Link") @DefaultValue("") String compensatorLink,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME) @DefaultValue("") String userData,
-            @HeaderParam("partId") String partId,
-            @RequestBody(name = "Compensator data", description = "A compensator can also register with an LRA by putting the compensator end "
-                    + "points in the body of request as a link header. This feature is deprecated and undocumented "
-                    + "and will be removed in a later version of the protocol") String compensatorURL) {
+            @RequestBody JoinLRAHttp.Request body) {
+
+        var timeLimit = body.timeLimit == null ? 0 : body.timeLimit;
+        var userData = body.userData == null ? "" : body.userData;
+        var compensatorLink = body.compensatorLink == null ? "" : body.compensatorLink;
+
+        var partId = body.partId;
+        var compensatorURL = body.compensatorURL;
 
         // test to see if the join request contains any participant specific data
         if (userData != null && !userData.isEmpty() && !isAllowParticipantData(version)) {
@@ -522,7 +516,7 @@ public class Coordinator extends Application {
                 sb.append(userData);
             }
 
-            return joinLRA(toURI(lraId), mediaType, timeLimit, compensatorLink, sb, version, partId);
+            return joinLRA(toURI(lraId), timeLimit, compensatorLink, sb, version, partId);
         }
 
         if (!isLink && !compensatorURL.isEmpty()) {
@@ -545,10 +539,7 @@ public class Coordinator extends Application {
                     LRALogger.logger.trace(errorMsg, e);
                 }
 
-                return Response.status(PRECONDITION_FAILED)
-                        .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                        .entity(errorMsg)
-                        .build();
+                throw new WebApplicationException(errorMsg, Response.status(PRECONDITION_FAILED).build());
             }
 
             // register with the coordinator, put the lra id in an HTTP header
@@ -559,7 +550,7 @@ public class Coordinator extends Application {
             compensatorURL = linkHeaderValue.toString();
         }
 
-        return joinLRA(toURI(lraId), mediaType, timeLimit, compensatorURL, null, version, partId);
+        return joinLRA(toURI(lraId), timeLimit, compensatorURL, null, version, partId);
     }
 
     private static void makeLink(StringBuilder b, String key, String value) {
@@ -586,7 +577,7 @@ public class Coordinator extends Application {
         }
     }
 
-    private Response joinLRA(URI lraId, String acceptMediaType, long timeLimit, String linkHeader,
+    private JoinLRAHttp.Reply joinLRA(URI lraId, long timeLimit, String linkHeader,
             StringBuilder userData, String version, String participantId) {
         final String recoveryUrlBase = String.format("%s%s/%s",
                 context.getBaseUri().toASCIIString(), COORDINATOR_PATH_NAME, RECOVERY_COORDINATOR_PATH_NAME);
@@ -602,33 +593,19 @@ public class Coordinator extends Application {
         try {
             status = httpLraService.joinLRA(recoveryUrl, lraId, timeLimit, null, linkHeader, recoveryUrlBase, userData,
                     version, participantId);
+            if (status < 200 || status >= 300) {
+                String errMessage = String.format(
+                        "Failed to join LRA '%s'. Coordinator returned status: %d", lraId, status);
+                throw new WebApplicationException(errMessage, Response.status(status).build());
+            }
         } catch (ServiceUnavailableException e) {
-            return Response.status(Response.Status.SERVICE_UNAVAILABLE.getStatusCode()).entity(e.getMessage()).build();
+            throw new WebApplicationException(e.getMessage(),
+                    Response.status(SERVICE_UNAVAILABLE).entity(e.getMessage()).build());
         }
 
-        if (acceptMediaType.equals(MediaType.APPLICATION_JSON)) {
-            JsonObject model = Json.createObjectBuilder().add("recoveryUrl", recoveryUrl.toString()).build();
-            recoveryUrlValue = model.toString();
-        } else {
-            recoveryUrlValue = recoveryUrl.toString();
-        }
-
-        try {
-            return Response.status(status)
-                    .entity(recoveryUrlValue)
-                    .location(new URI(recoveryUrl.toString()))
-                    .header(LRA_HTTP_RECOVERY_HEADER, recoveryUrl)
-                    .header(NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME, userData)
-                    .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                    .build();
-        } catch (URISyntaxException e) {
-            String errMsg = LRALogger.i18nLogger.error_invalidRecoveryUrlToJoinLRAURI(recoveryUrl.toString(), lraId);
-            LRALogger.logger.info(errMsg);
-            throw new WebApplicationException(errMsg, Response.status(BAD_REQUEST)
-                    .entity(errMsg)
-                    .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                    .build());
-        }
+        return new JoinLRAHttp.Reply(
+                recoveryUrl.toString(),
+                userData.toString());
     }
 
     /**

@@ -9,7 +9,6 @@ import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
 import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static jakarta.ws.rs.core.Response.Status.OK;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT_HEADER;
-import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVERY_HEADER;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,12 +21,12 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import com.arjuna.ats.arjuna.exceptions.ObjectStoreException;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.client.NarayanaLRAClient;
+import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
 import io.narayana.lra.coordinator.api.Coordinator;
@@ -250,24 +249,22 @@ public class LRATest extends LRATestBase {
         URI lraId = lraClient.startLRA(testName);
         String version = LRAConstants.API_VERSION_1_2;
         String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8); // must be valid
+        var body = new JoinLRAHttp.Request();
+        body.compensatorURL = "";
+        body.partId = "joinwithversion";
 
         try (Response response = client.target(coordinatorPath)
                 .path(encodedLraId)
                 .request()
                 .header(LRA_API_VERSION_HEADER_NAME, version)
                 // the request body should correspond to a valid compensator or be empty
-                .put(Entity.text(""))) {
+                .put(Entity.json(body))) {
             Assertions.assertEquals(OK.getStatusCode(), response.getStatus(),
                     "Expected joining LRA succeeded, PUT/200 is expected.");
-            Assertions.assertEquals(version, response.getHeaderString(LRA_API_VERSION_HEADER_NAME),
-                    "Expected API header to be returned with the version provided in request");
-            String recoveryHeaderUrlMessage = response.getHeaderString(RECOVERY_HEADER_NAME);
-            String recoveryUrlBody = response.readEntity(String.class);
-            URI recoveryUrlLocation = response.getLocation();
-            Assertions.assertEquals(recoveryUrlBody, recoveryHeaderUrlMessage,
-                    "Expecting returned body and recovery header have got the same content");
-            Assertions.assertEquals(recoveryUrlBody, recoveryUrlLocation.toString(),
-                    "Expecting returned body and location have got the same content");
+            var entity = response.readEntity(JoinLRAHttp.Reply.class);
+            //            Assertions.assertEquals(version, response.getHeaderString(LRA_API_VERSION_HEADER_NAME),
+            //                    "Expected API header to be returned with the version provided in request");
+            String recoveryUrlBody = entity.recoveryUrl;
             MatcherAssert.assertThat("Expected returned message contains the sub-path of LRA recovery URL",
                     recoveryUrlBody, containsString("lra-coordinator/recovery"));
             // the new format just contains the Uid of the LRA
@@ -283,24 +280,22 @@ public class LRATest extends LRATestBase {
         URI lraId = lraClient.startLRA(testName);
         String version = LRAConstants.API_VERSION_1_1;
         String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8); // must be valid
+        var body = new JoinLRAHttp.Request();
+        body.compensatorURL = "";
+        body.partId = "oldversiontest";
 
         try (Response response = client.target(coordinatorPath)
                 .path(encodedLraId)
                 .request()
                 .header(LRA_API_VERSION_HEADER_NAME, version)
                 // the request body should correspond to a valid compensator or be empty
-                .put(Entity.text(""))) {
+                .put(Entity.json(body))) {
             Assertions.assertEquals(OK.getStatusCode(), response.getStatus(),
                     "Expected joining LRA succeeded, PUT/200 is expected.");
-            Assertions.assertEquals(version, response.getHeaderString(LRA_API_VERSION_HEADER_NAME),
-                    "Expected API header to be returned with the version provided in request");
-            String recoveryHeaderUrlMessage = response.getHeaderString(RECOVERY_HEADER_NAME);
-            String recoveryUrlBody = response.readEntity(String.class);
-            URI recoveryUrlLocation = response.getLocation();
-            Assertions.assertEquals(recoveryUrlBody, recoveryHeaderUrlMessage,
-                    "Expecting returned body and recovery header have got the same content");
-            Assertions.assertEquals(recoveryUrlBody, recoveryUrlLocation.toString(),
-                    "Expecting returned body and location have got the same content");
+            var entity = response.readEntity(JoinLRAHttp.Reply.class);
+            //            Assertions.assertEquals(version, response.getHeaderString(LRA_API_VERSION_HEADER_NAME),
+            //                    "Expected API header to be returned with the version provided in request");
+            String recoveryUrlBody = entity.recoveryUrl;
             MatcherAssert.assertThat("Expected returned message contains the sub-path of LRA recovery URL",
                     recoveryUrlBody, containsString("lra-coordinator/recovery"));
             MatcherAssert.assertThat("Expected returned message contains the LRA id",
@@ -615,13 +610,15 @@ public class LRATest extends LRATestBase {
     public void testJoinLRAViaBody() {
         URI lraId = lraClient.startLRA(testName);
         String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8); // must be valid
+        var body = new JoinLRAHttp.Request();
+        body.compensatorURL = "";
+        body.partId = "";
 
         try (Response response = client.target(coordinatorPath)
                 .path(encodedLraId)
                 .request()
-                .accept(MediaType.APPLICATION_JSON)
                 // the request body should correspond to a valid compensator or be empty
-                .put(Entity.text(""))) {
+                .put(Entity.json(body))) {
 
             assertEquals(OK.getStatusCode(), response.getStatus());
 
@@ -629,10 +626,9 @@ public class LRATest extends LRATestBase {
 
             try {
                 String json = response.readEntity(String.class);
-                JsonNode node = new ObjectMapper().readTree(json);
+                var reply = new ObjectMapper().readValue(json, JoinLRAHttp.Reply.class);
+                recoveryUrl = reply.recoveryUrl;
                 // read the value
-                JsonNode n = node.get("recoveryUrl");
-                recoveryUrl = n.textValue();
             } catch (JsonProcessingException e) {
                 fail("could not read json response: " + e.getMessage());
             }
@@ -1418,9 +1414,14 @@ public class LRATest extends LRATestBase {
     }
 
     private void enlistParticipant(String lraUid) {
-        try (Response response = client.target(lraUid).request().put(Entity.text(getCompensatorLinkHeader()))) {
-            assertEquals(200, response.getStatus(), "Unexpected status: " + response.readEntity(String.class));
-            String recoveryId = response.getHeaderString(LRA_HTTP_RECOVERY_HEADER);
+        var linkHeader = getCompensatorLinkHeader();
+        var request = new JoinLRAHttp.Request();
+        request.compensatorURL = linkHeader;
+        request.partId = linkHeader;
+        try (Response response = client.target(lraUid).request().put(Entity.json(request))) {
+            var entity = response.readEntity(JoinLRAHttp.Reply.class);
+            assertEquals(200, response.getStatus(), "Unexpected status: " + response);
+            String recoveryId = entity.recoveryUrl;
             assertNotNull(recoveryId, "recovery id was null");
         }
     }

@@ -144,12 +144,12 @@ public class KafkaLRAListener {
         JoinLRAKafka.Reply reply;
 
         try {
-            URI lraId = URI.create(request.lraId);
+            URI lraId = request.lraId;
             String recoveryUrlBase = "http://localhost:8080/" + LRAConstants.COORDINATOR_PATH_NAME + "/"
                     + LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
             StringBuilder recoveryUrl = new StringBuilder();
-            StringBuilder compensatorData = request.compensatorData != null
-                    ? new StringBuilder(request.compensatorData)
+            StringBuilder compensatorData = request.compensatorURL != null
+                    ? new StringBuilder(request.compensatorURL)
                     : new StringBuilder();
 
             String linkHeader = buildLinkHeader(request);
@@ -192,12 +192,12 @@ public class KafkaLRAListener {
 
     private String buildLinkHeader(JoinLRAKafka.Request request) {
         StringBuilder sb = new StringBuilder();
-        appendLink(sb, "compensate", request.compensateLink);
-        appendLink(sb, "complete", request.completeLink);
-        appendLink(sb, "forget", request.forgetLink);
-        appendLink(sb, "leave", request.leaveLink);
-        appendLink(sb, "after", request.afterLink);
-        appendLink(sb, "status", request.statusLink);
+        appendLink(sb, "compensate", request.links.compensateLink);
+        appendLink(sb, "complete", request.links.completeLink);
+        appendLink(sb, "forget", request.links.forgetLink);
+        appendLink(sb, "leave", request.links.leaveLink);
+        appendLink(sb, "after", request.links.afterLink);
+        appendLink(sb, "status", request.links.statusLink);
         return sb.toString();
     }
 

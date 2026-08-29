@@ -7,7 +7,6 @@ package io.narayana.lra.coordinator.domain.model;
 
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
 import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
-import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVERY_HEADER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -19,6 +18,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.client.NarayanaLRAClient;
+import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
 import io.narayana.lra.coordinator.api.Coordinator;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
@@ -311,11 +311,15 @@ public class LRAFaultToleranceTest extends LRATestBase {
         String linkHeader = String.join(",",
                 makeLink(prefix, "complete"),
                 makeLink(prefix, "compensate"));
+        var request = new JoinLRAHttp.Request();
+        request.compensatorURL = linkHeader;
+        request.partId = "/test/base";
 
-        try (Response response = client.target(lraUrl).request().header("partId", "/base/test").put(Entity.text(linkHeader))) {
+        try (Response response = client.target(lraUrl).request().put(Entity.json(request))) {
             assertEquals(200, response.getStatus(),
-                    "Unexpected status enlisting participant: " + response.readEntity(String.class));
-            String recoveryId = response.getHeaderString(LRA_HTTP_RECOVERY_HEADER);
+                    "Unexpected status enlisting participant: " + response);
+            var responseEntity = response.readEntity(JoinLRAHttp.Reply.class);
+            String recoveryId = responseEntity.recoveryUrl;
             assertNotNull(recoveryId, "recovery id was null");
         }
     }
@@ -327,9 +331,13 @@ public class LRAFaultToleranceTest extends LRATestBase {
                 makeLink(prefix, "complete"),
                 makeLink(prefix, "compensate"));
 
-        try (Response response = client.target(lraUrl).request().put(Entity.text(linkHeader))) {
+        var request = new JoinLRAHttp.Request();
+        request.compensatorURL = linkHeader;
+
+        try (Response response = client.target(lraUrl).request().put(Entity.json(request))) {
+            var resEntity = response.readEntity(JoinLRAHttp.Reply.class);
             assertEquals(200, response.getStatus(),
-                    "Unexpected status enlisting unreachable participant: " + response.readEntity(String.class));
+                    "Unexpected status enlisting unreachable participant: " + resEntity.toString());
         }
     }
 
