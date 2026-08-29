@@ -1,5 +1,7 @@
 package io.narayana.lra.contracts.common;
 
+import org.eclipse.microprofile.lra.annotation.LRAStatus;
+
 public class StatusLRA {
     public static class Request {
         public String lraId;
@@ -17,17 +19,13 @@ public class StatusLRA {
     }
 
     public static class Reply {
-        public String status;
+        public LRAStatus status;
 
         public Reply() {
         }
 
-        public Reply(String status, String error) {
+        public Reply(LRAStatus status, String error) {
             this.status = status;
-        }
-
-        public Reply(String correlationId, String status, String error) {
-            this(status, error);
         }
     }
 }

@@ -966,7 +966,8 @@ public class CoordinatorApiIT extends TestBase {
         URI lraId = lraClient.startLRA(testName);
         lrasToAfterFinish.add(lraId);
         try {
-            URI recoveryUri = lraClient.joinLRA(lraId, 0L, URI.create("http://localhost:8080"), new StringBuilder(), "CoordinatorApiT");
+            URI recoveryUri = lraClient.joinLRA(lraId, 0L, URI.create("http://localhost:8080"), new StringBuilder(),
+                    "CoordinatorApiT");
 
             String encodedLRAId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8);
             try (Response response = client.target(coordinatorUrl)

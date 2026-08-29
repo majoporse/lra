@@ -6,6 +6,8 @@
 package io.narayana.lra.client;
 
 import io.narayana.lra.LRAConstants;
+import io.narayana.lra.LRAData;
+import io.narayana.lra.contracts.http.StatusLRAHttp;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
@@ -20,6 +22,7 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.util.List;
 import java.util.concurrent.CompletionStage;
 
 /**
@@ -49,7 +52,7 @@ public interface CoordinatorClient {
     @GET
     @Path("/")
     @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
-    CompletionStage<Response> getAllLRAs(
+    CompletionStage<List<LRAData>> getAllLRAs(
             @QueryParam(LRAConstants.STATUS_PARAM_NAME) @DefaultValue("") String status,
             @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String accept,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
@@ -58,16 +61,14 @@ public interface CoordinatorClient {
      * Get the status of a specific LRA
      *
      * @param lraId LRA identifier
-     * @param accept Media type for response
      * @param version API version header
      * @return Response containing LRA status
      */
     @GET
     @Path("{LraId}/status")
     @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
-    CompletionStage<Response> getLRAStatus(
+    CompletionStage<StatusLRAHttp.Reply> getLRAStatus(
             @PathParam("LraId") String lraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String accept,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
 
     /**

@@ -137,7 +137,6 @@ public class LRAService {
         return getAllRecovering(false);
     }
 
-
     private LRAData toLRAData(LongRunningAction lra) {
         LRAData data = lra.getLRAData();
         data.setLraId(HttpLRAService.toURI(lra));
@@ -441,7 +440,6 @@ public class LRAService {
         return lra.setTimeLimit(timelimit, true);
     }
 
-
     public List<LRAData> getFailedLRAs() {
         Map<UUID, LongRunningAction> failedLRAs = new ConcurrentHashMap<>();
         getRM().getFailedLRAs(failedLRAs);
@@ -455,6 +453,5 @@ public class LRAService {
         }
         return recoveryModule;
     }
-
 
 }

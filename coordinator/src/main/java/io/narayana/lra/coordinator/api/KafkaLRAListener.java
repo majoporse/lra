@@ -184,7 +184,7 @@ public class KafkaLRAListener {
             if (status == null) {
                 status = LRAStatus.Active;
             }
-            reply = new StatusLRAKafka.Reply(request.getCorrelationId(), status.name(), null);
+            reply = new StatusLRAKafka.Reply(request.getCorrelationId(), status, null);
         } catch (Exception e) {
             reply = new StatusLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
         }

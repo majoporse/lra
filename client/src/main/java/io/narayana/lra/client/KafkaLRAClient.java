@@ -215,7 +215,7 @@ public class KafkaLRAClient implements LRAClient {
                 !FIRE_AND_FORGET);
 
         checkError(reply);
-        return LRAStatus.valueOf(reply.status);
+        return reply.status;
     }
 
     @Override

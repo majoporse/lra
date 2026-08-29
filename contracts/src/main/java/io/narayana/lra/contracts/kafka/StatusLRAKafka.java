@@ -1,5 +1,7 @@
 package io.narayana.lra.contracts.kafka;
 
+import org.eclipse.microprofile.lra.annotation.LRAStatus;
+
 public class StatusLRAKafka {
     public static class Request extends io.narayana.lra.contracts.common.StatusLRA.Request implements LRAKafkaRequest {
         public String correlationId = "";
@@ -32,7 +34,7 @@ public class StatusLRAKafka {
         public Reply() {
         }
 
-        public Reply(String correlationId, String status, String error) {
+        public Reply(String correlationId, LRAStatus status, String error) {
             super(status, error);
             this.correlationId = correlationId;
             this.error = error;

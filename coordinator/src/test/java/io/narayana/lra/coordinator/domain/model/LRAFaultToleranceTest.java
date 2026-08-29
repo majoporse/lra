@@ -15,8 +15,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.client.NarayanaLRAClient;
+import io.narayana.lra.contracts.http.StatusLRAHttp;
 import io.narayana.lra.coordinator.api.Coordinator;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.filter.ServerLRAFilter;
@@ -533,10 +536,14 @@ public class LRAFaultToleranceTest extends LRATestBase {
                 assertEquals(200, statusResponse.getStatus(),
                         "GET on Location URL should return 200");
                 String statusBody = statusResponse.readEntity(String.class);
+                ObjectMapper mapper = new ObjectMapper();
+                StatusLRAHttp.Reply reply = mapper.readValue(statusBody, StatusLRAHttp.Reply.class);
                 assertNotNull(statusBody, "Status response body should not be null");
-                LRAStatus polledStatus = LRAStatus.valueOf(statusBody);
+                LRAStatus polledStatus = reply.status;
                 assertTrue(polledStatus == LRAStatus.Closing || polledStatus == LRAStatus.FailedToClose,
                         "Polled status should be Closing or FailedToClose, but was " + polledStatus);
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
             }
         }
     }
@@ -563,10 +570,14 @@ public class LRAFaultToleranceTest extends LRATestBase {
                 assertEquals(200, statusResponse.getStatus(),
                         "GET on Location URL should return 200");
                 String statusBody = statusResponse.readEntity(String.class);
+                ObjectMapper mapper = new ObjectMapper();
+                StatusLRAHttp.Reply reply = mapper.readValue(statusBody, StatusLRAHttp.Reply.class);
                 assertNotNull(statusBody, "Status response body should not be null");
-                LRAStatus polledStatus = LRAStatus.valueOf(statusBody);
+                LRAStatus polledStatus = reply.status;
                 assertTrue(polledStatus == LRAStatus.Cancelling || polledStatus == LRAStatus.FailedToCancel,
                         "Polled status should be Cancelling or FailedToCancel, but was " + polledStatus);
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
             }
         }
     }

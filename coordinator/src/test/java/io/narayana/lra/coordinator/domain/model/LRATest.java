@@ -28,6 +28,7 @@ import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.client.NarayanaLRAClient;
+import io.narayana.lra.contracts.http.StatusLRAHttp;
 import io.narayana.lra.coordinator.api.Coordinator;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
@@ -555,14 +556,11 @@ public class LRATest extends LRATestBase {
             String json = r.readEntity(String.class); // the entity body should be a Json representation of the LRA
 
             try {
-                JsonNode node = new ObjectMapper().readTree(json);
-                // read the value
-                JsonNode n = node.get("status").get("string");
-                String v = n.textValue();
-                // or Json.createReader(new StringReader(info)).readObject(); for the raw Json
+                var mapper = new ObjectMapper();
+                var result = mapper.readValue(json, StatusLRAHttp.Reply.class);
 
                 // validate the LRA status
-                assertEquals(LRAStatus.Active.name(), v);
+                assertEquals(LRAStatus.Active, result.status);
 
             } catch (JsonProcessingException e) {
                 fail("Unable to parse JSON response: " + json);

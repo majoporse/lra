@@ -20,7 +20,6 @@ import static jakarta.ws.rs.core.Response.Status.GONE;
 import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 import static jakarta.ws.rs.core.Response.Status.NOT_ACCEPTABLE;
 import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
-import static jakarta.ws.rs.core.Response.Status.NO_CONTENT;
 import static jakarta.ws.rs.core.Response.Status.OK;
 import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
 import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
@@ -46,7 +45,6 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.ServiceUnavailableException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.container.Suspended;
-import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.Link;
 import jakarta.ws.rs.core.MediaType;
@@ -312,20 +310,15 @@ public class NarayanaLRAClient implements AutoCloseable {
             // Build the CoordinatorClient using the base coordinator URL
             CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
 
-            Response response = client.getAllLRAs(
+            return client.getAllLRAs(
                     "", // status filter (empty for all)
                     MediaType.TEXT_PLAIN,
                     LRAConstants.CURRENT_API_VERSION_STRING)
                     .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS);
-
-            if (response.getStatus() != OK.getStatusCode()) {
-                LRALogger.logger.debugf("Error getting all LRAs from the coordinator, response status: %d",
-                        response.getStatus());
-                throw new WebApplicationException(response);
-            }
-
-            return response.readEntity(new GenericType<List<LRAData>>() {
-            });
+        } catch (WebApplicationException e) {
+            LRALogger.logger.debugf("Error getting all LRAs from the coordinator, response status: %d",
+                    e.getResponse().getStatus());
+            throw e;
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             rethrowIfUnauthorized(e);
             throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
@@ -749,44 +742,22 @@ public class NarayanaLRAClient implements AutoCloseable {
             // Extract the LRA UID
             String lraUid = LRAConstants.getLRAUid(uri);
 
-            Response response = client.getLRAStatus(
+            var response = client.getLRAStatus(
                     lraUid,
-                    MediaType.TEXT_PLAIN,
                     LRAConstants.CURRENT_API_VERSION_STRING)
                     .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS);
 
-            // TODO add tests for each of these checks
-            if (response.getStatus() == NOT_FOUND.getStatusCode()) {
-                throw new NotFoundException(response);
-            }
-
-            if (response.getStatus() == NO_CONTENT.getStatusCode()) {
-                return LRAStatus.Active;
-            }
-
-            if (response.getStatus() != OK.getStatusCode()) {
-                String logMsg = LRALogger.i18nLogger.error_invalidStatusCode(coordinatorUrl, response.getStatus(), lraId);
-                LRALogger.logger.error(logMsg);
-                throw new WebApplicationException(response);
-            }
-
+            return response.status;
+        } catch (WebApplicationException e) {
+            var response = e.getResponse();
+            String logMsg = LRALogger.i18nLogger.error_invalidStatusCode(coordinatorUrl, response.getStatus(), lraId);
             if (!response.hasEntity()) {
-                // can't happen since the coordinator returned OK
-                String logMsg = LRALogger.i18nLogger.error_noContentOnGetStatus(coordinatorUrl, lraId);
-                LRALogger.logger.error(logMsg);
-                throw new WebApplicationException(
-                        Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(logMsg).build());
+                String Msg = LRALogger.i18nLogger.error_noContentOnGetStatus(coordinatorUrl, lraId);
+                LRALogger.logger.error(Msg);
             }
 
-            // convert the returned String into a status
-            try {
-                return LRAStatus.valueOf(response.readEntity(String.class));
-            } catch (IllegalArgumentException e) {
-                String logMsg = LRALogger.i18nLogger.error_invalidArgumentOnStatusFromCoordinator(coordinatorUrl,
-                        lraId, e);
-                LRALogger.logger.error(logMsg);
-                throw new WebApplicationException(Response.status(INTERNAL_SERVER_ERROR).entity(logMsg).build());
-            }
+            LRALogger.logger.error(logMsg);
+            throw e;
         } catch (ExecutionException e) {
             rethrowIfUnauthorized(e);
             throw new NotFoundException(e.getMessage());

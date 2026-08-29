@@ -34,6 +34,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.contracts.http.StatusLRAHttp;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
 import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.domain.service.LRAService;
@@ -213,12 +214,11 @@ public class Coordinator extends Application {
             @APIResponse(responseCode = "404", description = "The coordinator has no knowledge of this LRA", content = @Content(schema = @Schema(implementation = String.class))),
             @APIResponse(responseCode = "417", description = "The requested version provided in HTTP Header is not supported by this end point", content = @Content(schema = @Schema(implementation = String.class))),
     })
-    public Response getLRAStatus(
+    public StatusLRAHttp.Reply getLRAStatus(
             @Parameter(name = "LraId", description = "The unique identifier of the LRA." +
                     "Expecting to be a valid URL where the participant can be contacted at. If not in URL format it will be considered "
                     +
                     "to be an id which will be declared to exist at URL where coordinator is deployed at.", required = true) @PathParam("LraId") String lraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version) {
         LongRunningAction transaction = httpLraService.getTransaction(toURI(lraId));
         LRAStatus status = transaction.getLRAStatus();
@@ -227,17 +227,7 @@ public class Coordinator extends Application {
             status = LRAStatus.Active;
         }
 
-        if (mediaType.equals(MediaType.APPLICATION_JSON)) {
-            JsonObject model = Json.createObjectBuilder().add("status", status.name()).build();
-
-            return Response.ok()
-                    .entity(model)
-                    .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version).build();
-        }
-
-        return Response.ok()
-                .entity(status.name())
-                .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version).build();
+        return new StatusLRAHttp.Reply(status);
     }
 
     @GET
