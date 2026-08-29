@@ -7,6 +7,7 @@ package io.narayana.lra.client;
 
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
@@ -90,22 +91,15 @@ public interface CoordinatorClient {
     /**
      * Start a new LRA
      *
-     * @param clientId Client identifier
-     * @param timeLimit Time limit in milliseconds
-     * @param parentLRA Parent LRA identifier (for nested LRAs)
-     * @param accept Media type for response
      * @param version API version header
      * @return Response with new LRA ID in Location header
      */
     @POST
     @Path("start")
     @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
-    CompletionStage<Response> startLRA(
-            @QueryParam(LRAConstants.CLIENT_ID_PARAM_NAME) @DefaultValue("") String clientId,
-            @QueryParam(LRAConstants.TIMELIMIT_PARAM_NAME) @DefaultValue("0") Long timeLimit,
-            @QueryParam(LRAConstants.PARENT_LRA_PARAM_NAME) @DefaultValue("") String parentLRA,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String accept,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
+    CompletionStage<StartLRAHttp.Reply> startLRA(
+            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version,
+            StartLRAHttp.Request body);
 
     /**
      * Renew the time limit for an existing LRA

@@ -144,16 +144,15 @@ public class KafkaLRAClient implements LRAClient {
     @Override
     public URI startLRA(URI parentLRA, String clientID, Long timeout, ChronoUnit unit, boolean verbose) {
         Long timeoutMillis = timeout != null ? java.time.Duration.of(timeout, unit).toMillis() : 0L;
-        String parentStr = parentLRA != null ? parentLRA.toASCIIString() : null;
 
         StartLRAKafka.Request request = new StartLRAKafka.Request(nextCorrelationId(), replyTopic, clientID,
                 timeoutMillis,
-                parentStr);
+                parentLRA);
         StartLRAKafka.Reply reply = send(LRAKafkaConstants.TYPE_START, request, StartLRAKafka.Reply.class,
                 !FIRE_AND_FORGET);
 
         checkError(reply);
-        return URI.create(reply.lraId);
+        return reply.lraId;
     }
 
     @Override

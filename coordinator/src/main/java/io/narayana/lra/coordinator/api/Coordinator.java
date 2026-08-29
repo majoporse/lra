@@ -9,14 +9,12 @@ import static io.narayana.lra.LRAConstants.API_VERSION_1_0;
 import static io.narayana.lra.LRAConstants.API_VERSION_1_1;
 import static io.narayana.lra.LRAConstants.API_VERSION_1_2;
 import static io.narayana.lra.LRAConstants.API_VERSION_1_3;
-import static io.narayana.lra.LRAConstants.CLIENT_ID_PARAM_NAME;
 import static io.narayana.lra.LRAConstants.COMPENSATE;
 import static io.narayana.lra.LRAConstants.COMPLETE;
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
 import static io.narayana.lra.LRAConstants.CURRENT_API_VERSION_STRING;
 import static io.narayana.lra.LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME;
 import static io.narayana.lra.LRAConstants.NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME;
-import static io.narayana.lra.LRAConstants.PARENT_LRA_PARAM_NAME;
 import static io.narayana.lra.LRAConstants.PARTICIPANT_TIMEOUT;
 import static io.narayana.lra.LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
 import static io.narayana.lra.LRAConstants.STATUS;
@@ -26,7 +24,6 @@ import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST;
 import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 import static jakarta.ws.rs.core.Response.Status.OK;
 import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
-import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT_HEADER;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVERY_HEADER;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -34,6 +31,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
 import io.narayana.lra.coordinator.domain.service.HttpLRAService;
@@ -74,7 +72,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.faulttolerance.Bulkhead;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
@@ -278,17 +278,13 @@ public class Coordinator extends Application {
             @APIResponse(responseCode = "417", description = "The requested version provided in HTTP Header is not supported by this end point", content = @Content(schema = @Schema(implementation = String.class))),
             @APIResponse(responseCode = "500", description = "A new LRA could not be started. Coordinator internal error.", content = @Content(schema = @Schema(implementation = String.class)))
     })
-    public Response startLRA(
-            @Parameter(name = CLIENT_ID_PARAM_NAME, description = "Each client is expected to have a unique identity (which can be a URL).", required = true) @QueryParam(CLIENT_ID_PARAM_NAME) @DefaultValue("") String clientId,
-            @Parameter(name = TIMELIMIT_PARAM_NAME, description = "Specifies the maximum time in milli seconds that the LRA will exist for.\n"
-                    + "If the LRA is terminated because of a timeout, the LRA URL is deleted.\n"
-                    + "All further invocations on the URL will return 404.\n"
-                    + "The invoker can assume this was equivalent to a compensate operation.") @QueryParam(TIMELIMIT_PARAM_NAME) @DefaultValue("0") Long timelimit,
-            @Parameter(name = PARENT_LRA_PARAM_NAME, description = "The enclosing LRA if this new LRA is nested") @QueryParam(PARENT_LRA_PARAM_NAME) @DefaultValue("") String parentLRA,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
+    public StartLRAHttp.Reply startLRA(
+            @RequestBody StartLRAHttp.Request body,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version) {
 
-        URI parentId = (parentLRA == null || parentLRA.trim().isEmpty()) ? null : toURI(parentLRA);
+        URI parentId = body.parentLRA;
+        var timelimit = body.timeout == null ? 0 : body.timeout;
+        var clientId = body.clientId == null ? "" : body.clientId;
         String coordinatorUrl = String.format("%s%s", context.getBaseUri(), COORDINATOR_PATH_NAME);
         LongRunningAction lra = httpLraService.startLRA(coordinatorUrl, parentId, clientId, timelimit);
         String hierarchy = lra.getParentHierarchy();
@@ -315,14 +311,14 @@ public class Coordinator extends Application {
                         if (response.getStatus() != Response.Status.OK.getStatusCode()) {
                             String errMessage = String.format("The coordinator at %s returned an unexpected response: %d"
                                     + "when the LRA '%s' tried to join the parent LRA '%s'", parentId, response.getStatus(),
-                                    lraId, parentLRA);
-                            return Response.status(response.getStatus()).entity(errMessage).build();
+                                    lraId, parentId);
+                            throw new WebApplicationException(errMessage, response.getStatus());
                         }
                     }
-                } catch (Exception e) {
+                } catch (InterruptedException | ExecutionException | TimeoutException e) {
                     String errMsg = String.format(
                             "Cannot contact the LRA Coordinator at '%s' for LRA '%s' joining parent LRA '%s'",
-                            parentId, lraId, parentLRA);
+                            parentId, lraId, parentId);
                     LRALogger.logger.info(errMsg);
                     // don't include the root exception (it should already be in the server side logs):
                     throw new WebApplicationException(errMsg, Response.status(INTERNAL_SERVER_ERROR)
@@ -335,19 +331,7 @@ public class Coordinator extends Application {
 
         Current.push(lraId);
 
-        if (mediaType.equals(MediaType.APPLICATION_JSON)) {
-            JsonObject model = Json.createObjectBuilder().add("lraId", lraId.toASCIIString()).build();
-
-            return Response.ok()
-                    .entity(model)
-                    .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version).build();
-        }
-
-        return Response.created(lraId)
-                .entity(lraId.toASCIIString())
-                .header(LRA_HTTP_CONTEXT_HEADER, Current.getContexts())
-                .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                .build();
+        return new StartLRAHttp.Reply(lraId, Current.getContexts());
     }
 
     @PUT

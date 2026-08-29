@@ -28,6 +28,7 @@ import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.client.NarayanaLRAClient;
+import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
 import io.narayana.lra.coordinator.api.Coordinator;
 import io.narayana.lra.coordinator.domain.service.LRAService;
@@ -375,9 +376,10 @@ public class LRATest extends LRATestBase {
         assertEquals(Response.Status.NOT_FOUND.getStatusCode(), r1.getStatus(), "LRA id xyz should not exist");
 
         // start a new LRA
-        Response r2 = client.target(coordinatorPath + "/start").request().post(null);
-        assertEquals(Response.Status.CREATED.getStatusCode(), r2.getStatus(), "Expected 201");
-        String lraId = r2.getHeaderString(LRA_HTTP_CONTEXT_HEADER);
+        var request = new StartLRAHttp.Request();
+        Response r2 = client.target(coordinatorPath + "/start").request().post(Entity.json(request));
+        assertEquals(Response.Status.OK.getStatusCode(), r2.getStatus(), "Expected 201");
+        String lraId = r2.readEntity(StartLRAHttp.Reply.class).lraId.toString();
         Assertions.assertNotNull(lraId, "missing context header");
         // RestEasy adds brackets and , to delimit multiple values for a particular header key
         lraId = new StringTokenizer(lraId, "[,]").nextToken();
@@ -581,7 +583,7 @@ public class LRATest extends LRATestBase {
                 .request()
                 .header(LRA_API_VERSION_HEADER_NAME, LRAConstants.CURRENT_API_VERSION_STRING)
                 .accept(MediaType.APPLICATION_JSON)
-                .post(null)) {
+                .post(Entity.json(new StartLRAHttp.Request()))) {
             if (response.getStatus() != OK.getStatusCode()) {
                 LRALogger.logger.debugf("Error getting all LRAs from the coordinator, response status: %d",
                         response.getStatus());
@@ -594,16 +596,14 @@ public class LRATest extends LRATestBase {
             try {
                 json = response.readEntity(String.class);
 
-                JsonNode node = new ObjectMapper().readTree(json);
+                var mapper = new ObjectMapper();
                 // read the value
-                JsonNode n = node.get("lraId").get("string");
-                String v = n.textValue();
-                lraId = new URI(v);
-                // or Json.createReader(new StringReader(info)).readObject(); for the raw Json
+                var v = mapper.readValue(json, StartLRAHttp.Reply.class);
 
+                lraId = v.lraId;
                 // clean up
                 lraClient.closeLRA(lraId);
-            } catch (JsonProcessingException | URISyntaxException e) {
+            } catch (JsonProcessingException e) {
                 fail("Unable to parse JSON response: " + json);
             } catch (WebApplicationException e) {
                 fail("Unable to close lra: " + lraId);

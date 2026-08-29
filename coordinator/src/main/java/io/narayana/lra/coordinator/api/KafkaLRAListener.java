@@ -88,11 +88,9 @@ public class KafkaLRAListener {
 
         try {
             String coordinatorUrl = "http://localhost:8080/" + LRAConstants.COORDINATOR_PATH_NAME;
-            URI parentId = request.parentLRA != null && !request.parentLRA.isEmpty()
-                    ? URI.create(request.parentLRA)
-                    : null;
+            URI parentId = request.parentLRA;
             LongRunningAction lra = httpLraService.startLRA(coordinatorUrl, parentId, request.clientId, request.timeout);
-            reply = new StartLRAKafka.Reply(request.getCorrelationId(), lra.getId().toString(), null);
+            reply = new StartLRAKafka.Reply(request.getCorrelationId(), HttpLRAService.toURI(lra), null);
         } catch (Exception e) {
             reply = new StartLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
         }

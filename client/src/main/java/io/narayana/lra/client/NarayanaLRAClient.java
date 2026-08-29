@@ -28,6 +28,7 @@ import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVER
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.logging.LRALogger;
 import io.smallrye.stork.Stork;
 import io.smallrye.stork.api.Service;
@@ -45,7 +46,6 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.ServiceUnavailableException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.container.Suspended;
-import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.Link;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -427,26 +427,16 @@ public class NarayanaLRAClient implements AutoCloseable {
                 // Build the CoordinatorClient using the selected coordinator instance
                 CoordinatorClient client = createCoordinatorClient(coordinatorInstance);
 
-                Response response = client.startLRA(
+                var request = new StartLRAHttp.Request(
                         clientID,
-                        Duration.of(timeout, unit).toMillis(),
-                        encodedParentLRA,
-                        MediaType.TEXT_PLAIN,
-                        LRAConstants.CURRENT_API_VERSION_STRING)
+                        timeout,
+                        parentLRA);
+                var response = client.startLRA(
+                        LRAConstants.CURRENT_API_VERSION_STRING,
+                        request)
                         .toCompletableFuture().get(START_TIMEOUT, TimeUnit.SECONDS);
 
-                // validate the HTTP status code says an LRA resource was created
-                if (isUnexpectedResponseStatus(response, Response.Status.CREATED)) {
-                    if (verbose) {
-                        // remark we don't read the entity here since that would close it but the client needs to read it
-                        LRALogger.logger.error(
-                                LRALogger.i18nLogger.error_lraCreationUnexpectedStatus(response.getStatus(), ""));
-                    }
-                    // let the client know the reason for the failure (it's in the entity body of the response object)
-                    throw new WebApplicationException(response);
-                }
-
-                URI lra = URI.create(response.getHeaderString(HttpHeaders.LOCATION));
+                URI lra = response.lraId;
                 lraTrace(lra, "startLRA returned");
 
                 Current.push(lra);
@@ -454,6 +444,13 @@ public class NarayanaLRAClient implements AutoCloseable {
 
                 return lra;
 
+            } catch (WebApplicationException e) {
+                if (verbose) {
+                    // remark we don't read the entity here since that would close it but the client needs to read it
+                    LRALogger.logger.error(
+                            LRALogger.i18nLogger.error_lraCreationUnexpectedStatus(e.getResponse().getStatus(), ""));
+                }
+                throw e;
             } catch (InterruptedException | ExecutionException | TimeoutException e) {
                 rethrowIfUnauthorized(e);
                 Throwable t = e.getCause();
