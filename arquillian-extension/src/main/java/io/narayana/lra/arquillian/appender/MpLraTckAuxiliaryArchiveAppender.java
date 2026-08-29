@@ -71,6 +71,7 @@ public class MpLraTckAuxiliaryArchiveAppender implements AuxiliaryArchiveAppende
                         "org.eclipse.microprofile.lra")
                 .addPackages(true,
                         "io.narayana.lra.client.internal.proxy",
+                        "io.narayana.lra.contracts",
                         "org.eclipse.microprofile.lra.annotation",
                         "io.smallrye.stork",
                         "io.smallrye.mutiny.helpers")
