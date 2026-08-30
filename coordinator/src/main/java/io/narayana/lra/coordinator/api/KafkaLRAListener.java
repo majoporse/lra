@@ -116,7 +116,7 @@ public class KafkaLRAListener {
         CancelLRAKafka.Reply reply;
 
         try {
-            URI lraId = URI.create(request.lraId);
+            URI lraId = request.lraId;
             LRAData lraData = httpLraService.endLRA(lraId, true, false, request.compensator, request.userData);
             reply = new CancelLRAKafka.Reply(request.getCorrelationId(), lraData.getStatus().name(), null);
         } catch (Exception e) {

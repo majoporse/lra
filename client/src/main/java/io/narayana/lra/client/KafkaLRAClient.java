@@ -166,7 +166,7 @@ public class KafkaLRAClient implements LRAClient {
     @Override
     public void cancelLRA(URI lraId, String compensator, String userData) {
         CancelLRAKafka.Request request = new CancelLRAKafka.Request(nextCorrelationId(), replyTopic,
-                lraId.toASCIIString(), compensator, userData);
+                lraId, compensator, userData);
         send(LRAKafkaConstants.TYPE_CANCEL, request, CancelLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 

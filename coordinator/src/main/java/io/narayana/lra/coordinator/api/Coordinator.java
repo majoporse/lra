@@ -31,6 +31,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -444,24 +445,31 @@ public class Coordinator extends Application {
                     + " (storage unavailable or lock contention with another close/cancel in progress)."
                     + " The client should retry the request.", content = @Content(schema = @Schema(implementation = String.class))),
     })
-    public Response cancelLRA(
+    public CancelLRAHttp.Reply cancelLRA(
             @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") String lraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_PARTICIPANT_LINK_HEADER_NAME) @DefaultValue("") String compensator,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME) @DefaultValue("") String userData) {
+            @RequestBody CancelLRAHttp.Request body) {
+
+        var compensator = body.compensator == null ? "" : body.compensator;
+        var userData = body.userData == null ? "" : body.userData;
 
         try {
             URI lraURI = toURI(lraId);
             LRAData lraData = httpLraService.endLRA(lraURI, true, false, compensator, userData);
+            var lraStatus = lraData.getStatus();
 
-            return buildResponse(lraData.getStatus(), version, mediaType, lraURI);
+            if (!isTerminal(lraStatus) && !(lraStatus == LRAStatus.Closing || lraStatus == LRAStatus.Cancelling)) {
+                throw new WebApplicationException(SERVICE_UNAVAILABLE);
+            }
+
+            return new CancelLRAHttp.Reply(
+                    lraData.getStatus().name());
         } catch (WebApplicationException e) {
             LRALogger.logger.debug(e.getMessage());
-            return Response.status(e.getResponse().getStatus())
+            throw new WebApplicationException(Response.status(e.getResponse().getStatus())
                     .entity(e.getMessage())
                     .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                    .build();
+                    .build());
         }
     }
 

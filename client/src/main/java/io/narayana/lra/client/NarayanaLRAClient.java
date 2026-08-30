@@ -26,6 +26,7 @@ import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.contracts.http.StartLRAHttp;
@@ -1193,24 +1194,28 @@ public class NarayanaLRAClient implements AutoCloseable {
                         compensator == null ? "" : compensator,
                         userData == null ? "" : userData)
                         .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
+
+                if (isUnexpectedResponseStatus(response, OK, Response.Status.ACCEPTED, NOT_FOUND)) {
+                    // let the client know the reason for the failure (it's in the entity body of the response object)
+                    throw new WebApplicationException(response);
+                }
+
+                if (response.getStatus() == NOT_FOUND.getStatusCode()) {
+                    throw new WebApplicationException(response);
+                }
+
             } else {
-                response = client.cancelLRA(
-                        lraId,
-                        MediaType.TEXT_PLAIN,
-                        LRAConstants.CURRENT_API_VERSION_STRING,
+                var req = new CancelLRAHttp.Request(
+                        lra,
                         compensator == null ? "" : compensator,
-                        userData == null ? "" : userData)
+                        userData == null ? "" : userData);
+                var _reply = client.cancelLRA(
+                        lraId,
+                        LRAConstants.CURRENT_API_VERSION_STRING,
+                        req)
                         .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
             }
 
-            if (isUnexpectedResponseStatus(response, OK, Response.Status.ACCEPTED, NOT_FOUND)) {
-                // let the client know the reason for the failure (it's in the entity body of the response object)
-                throw new WebApplicationException(response);
-            }
-
-            if (response.getStatus() == NOT_FOUND.getStatusCode()) {
-                throw new WebApplicationException(response);
-            }
         } catch (ExecutionException e) {
             rethrowIfUnauthorized(e);
             Throwable t = e.getCause();
@@ -1218,15 +1223,15 @@ public class NarayanaLRAClient implements AutoCloseable {
                 throw (NotFoundException) t;
             }
             if (t instanceof ServiceUnavailableException) {
-                t = (ServiceUnavailableException) t;
-                String msg = ((ServiceUnavailableException) t).getResponse().readEntity(String.class);
-                int status = ((ServiceUnavailableException) t).getResponse().getStatus();
+                var response = ((ServiceUnavailableException) t).getResponse();
+                String msg = response.readEntity(String.class);
+                int status = response.getStatus();
                 throw new WebApplicationException(Response.status(status).entity(msg).build());
             }
             if (t instanceof ClientErrorException) {
-                t = (ClientErrorException) t;
-                String msg = ((ClientErrorException) t).getResponse().readEntity(String.class);
-                int status = ((ClientErrorException) t).getResponse().getStatus();
+                var response = ((ClientErrorException) t).getResponse();
+                String msg = response.readEntity(String.class);
+                int status = response.getStatus();
                 throw new WebApplicationException(Response.status(status).entity(msg).build());
             }
             throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE).entity(t.getMessage()).build());
