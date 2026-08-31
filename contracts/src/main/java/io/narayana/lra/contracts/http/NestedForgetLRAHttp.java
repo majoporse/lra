@@ -1,18 +1,22 @@
 package io.narayana.lra.contracts.http;
 
-public class NestedForgetLRAHttp {
-    public static class Request {
-        public String nestedLraId;
+import io.narayana.lra.contracts.common.CloseLRA;
+import io.narayana.lra.contracts.common.NestedForgetLRA;
+import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
+import java.net.URI;
+
+public class NestedForgetLRAHttp {
+    public static class Request extends NestedForgetLRA.Request {
         public Request() {
         }
 
-        public Request(String nestedLraId) {
-            this.nestedLraId = nestedLraId;
+        public Request(URI nestedLRAId) {
+            super(nestedLRAId);
         }
     }
 
-    public static class Reply {
+    public static class Reply extends NestedForgetLRA.Reply {
         public Reply() {
         }
     }
