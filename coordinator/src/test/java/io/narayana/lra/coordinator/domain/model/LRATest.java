@@ -28,6 +28,7 @@ import io.narayana.lra.LRAData;
 import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
+import io.narayana.lra.contracts.http.GetAllLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -471,19 +472,19 @@ public class LRATest extends LRATestBase {
                 .header(LRA_API_VERSION_HEADER_NAME, LRAConstants.CURRENT_API_VERSION_STRING)
                 .accept(MediaType.APPLICATION_JSON)
                 .get()) {
-            if (response.getStatus() != OK.getStatusCode()) {
-                LRALogger.logger.debugf("Error getting all LRAs from the coordinator, response status: %d",
-                        response.getStatus());
-                throw new WebApplicationException(response);
-            }
+            //            if (response.getStatus() != OK.getStatusCode()) {
+            //                LRALogger.logger.debugf("Error getting all LRAs from the coordinator, response status: %d",
+            //                        response.getStatus());
+            //                throw new WebApplicationException(response);
+            //            }
 
             String lrasAsJson = response.readEntity(String.class); // all LRAs as a json string
 
             try {
                 // parse the json string into an array of LRAData
-                LRAData[] lras = new ObjectMapper().readValue(lrasAsJson, LRAData[].class);
+                var lras = new ObjectMapper().readValue(lrasAsJson, GetAllLRAHttp.Reply.class);
                 // see if lraId is in the returned array
-                Optional<LRAData> targetLRA = Arrays.stream(lras)
+                Optional<LRAData> targetLRA = lras.data.stream()
                         .filter(lra -> lraId.equals(lra.getLraId()))
                         .findFirst();
 

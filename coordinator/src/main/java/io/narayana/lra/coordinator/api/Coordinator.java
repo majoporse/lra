@@ -26,13 +26,12 @@ import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
 import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVERY_HEADER;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
+import io.narayana.lra.contracts.http.GetAllLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -154,7 +153,7 @@ public class Coordinator extends Application {
 
     @GET
     @Path("/")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Returns all LRAs", description = "Gets both active and recovering LRAs")
     @APIResponses({
             @APIResponse(responseCode = "200", description = "The LRAData json array which is known to coordinator", content = @Content(schema = @Schema(type = SchemaType.ARRAY, implementation = LRAData.class)), headers = {
@@ -163,46 +162,11 @@ public class Coordinator extends Application {
                     @Header(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) }),
             @APIResponse(responseCode = "417", description = "The requested version provided in HTTP Header is not supported by this end point", content = @Content(schema = @Schema(implementation = String.class))),
     })
-    public Response getAllLRAs(
-            @Parameter(name = STATUS_PARAM_NAME, description = "Filter the returned LRAs to only those in the give state (see CompensatorStatus)") @QueryParam(STATUS_PARAM_NAME) @DefaultValue("") String state,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
+    public GetAllLRAHttp.Reply getAllLRAs(
+            @Parameter(name = STATUS_PARAM_NAME, description = "Filter the returned LRAs to only those in the give state (see CompensatorStatus)") @QueryParam(STATUS_PARAM_NAME) LRAStatus status,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version) {
-        LRAStatus requestedLRAStatus = null;
-        if (!state.isEmpty()) {
-            try {
-                requestedLRAStatus = LRAStatus.valueOf(state);
-            } catch (IllegalArgumentException e) {
-                String errMsg = "Status " + state + " is not a valid LRAStatus value";
-                LRALogger.logger.info(errMsg);
-                throw new WebApplicationException(errMsg, Response.status(BAD_REQUEST)
-                        .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                        .entity(errMsg)
-                        .build());
-            }
-        }
-
-        List<LRAData> lras = lraService.getAll(requestedLRAStatus);
-
-        if (mediaType.equals(MediaType.APPLICATION_JSON)) {
-            try {
-                String jsonArray = new ObjectMapper().writeValueAsString(lras);
-
-                return Response.ok()
-                        .entity(jsonArray)
-                        .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                        .build();
-            } catch (JsonProcessingException e) {
-                return Response.status(INTERNAL_SERVER_ERROR)
-                        .entity(e.getMessage())
-                        .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                        .build();
-            }
-        } else { // produce MediaType.TEXT_PLAIN
-            return Response.ok()
-                    .entity(lras)
-                    .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                    .build();
-        }
+        List<LRAData> lras = lraService.getAll(status);
+        return new GetAllLRAHttp.Reply(lras);
     }
 
     @GET

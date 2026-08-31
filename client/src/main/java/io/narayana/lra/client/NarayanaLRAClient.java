@@ -316,9 +316,9 @@ public class NarayanaLRAClient implements AutoCloseable {
             CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
 
             return client.getAllLRAs(
-                    "", // status filter (empty for all)
+                    null, // status filter (empty for all)
                     LRAConstants.CURRENT_API_VERSION_STRING)
-                    .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS);
+                    .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS).data;
         } catch (WebApplicationException e) {
             LRALogger.logger.debugf("Error getting all LRAs from the coordinator, response status: %d",
                     e.getResponse().getStatus());

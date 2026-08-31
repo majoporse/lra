@@ -6,9 +6,9 @@
 package io.narayana.lra.client;
 
 import io.narayana.lra.LRAConstants;
-import io.narayana.lra.LRAData;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
+import io.narayana.lra.contracts.http.GetAllLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -26,8 +26,8 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.util.List;
 import java.util.concurrent.CompletionStage;
+import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 /**
  * MicroProfile REST Client interface for LRA Coordinator operations with asynchronous support.
@@ -48,15 +48,14 @@ public interface CoordinatorClient {
     /**
      * Get all LRAs known to the coordinator
      *
-     * @param status Filter LRAs by status (optional)
      * @param version API version header
      * @return Response containing list of LRAs
      */
     @GET
     @Path("/")
     @Produces({ MediaType.APPLICATION_JSON })
-    CompletionStage<List<LRAData>> getAllLRAs(
-            @QueryParam(LRAConstants.STATUS_PARAM_NAME) @DefaultValue("") String status,
+    CompletionStage<GetAllLRAHttp.Reply> getAllLRAs(
+            @QueryParam(LRAConstants.STATUS_PARAM_NAME) LRAStatus status,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
 
     /**
