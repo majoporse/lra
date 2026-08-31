@@ -615,7 +615,7 @@ public class Coordinator extends Application {
             throw new WebApplicationException(status);
         }
 
-        return new LeaveLRAHttp.Reply();
+        return new LeaveLRAHttp.Reply("ok");
     }
 
     private Response buildResponse(LRAStatus lraStatus, String apiVersion, String mediaType, URI lraId) {

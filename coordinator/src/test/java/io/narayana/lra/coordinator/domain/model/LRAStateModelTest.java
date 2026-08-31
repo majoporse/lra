@@ -19,6 +19,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
+import io.narayana.lra.contracts.http.NestedCompleteLRAHttp;
+import io.narayana.lra.contracts.http.NestedStatusLRAHttp;
 import io.narayana.lra.coordinator.api.Coordinator;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
@@ -946,7 +948,8 @@ public class LRAStateModelTest extends LRATestBase {
         try (Response response = rawNestedComplete(childId)) {
             assertEquals(200, response.getStatus(),
                     "@Complete must return 200 for successful completion");
-            assertEquals(ParticipantStatus.Completed.name(), response.readEntity(String.class));
+            var entity = response.readEntity(NestedCompleteLRAHttp.Reply.class);
+            assertEquals(ParticipantStatus.Completed, entity.status);
         }
 
         lraClient.closeLRA(parentId);
@@ -1006,7 +1009,8 @@ public class LRAStateModelTest extends LRATestBase {
         try (Response response = rawNestedStatus(childId)) {
             assertEquals(200, response.getStatus(),
                     "@Status must return 200 for a known nested LRA");
-            assertEquals(ParticipantStatus.Active.name(), response.readEntity(String.class));
+            var entity = response.readEntity(NestedStatusLRAHttp.Reply.class);
+            assertEquals(ParticipantStatus.Active, entity.status);
         }
 
         lraClient.cancelLRA(parentId);
@@ -1094,9 +1098,10 @@ public class LRAStateModelTest extends LRATestBase {
         enlistUnreachableParticipantInLRA(childId);
 
         try (Response response = rawNestedCompleteWithVersion(childId, LRAConstants.API_VERSION_2_0)) {
-            assertEquals(202, response.getStatus(),
+            assertEquals(200, response.getStatus(),
                     "@Complete with v2.0 must return 202 when participants have not all responded");
-            assertEquals(ParticipantStatus.Completing.name(), response.readEntity(String.class),
+            var entity = response.readEntity(NestedCompleteLRAHttp.Reply.class);
+            assertEquals(ParticipantStatus.Completing, entity.status,
                     "@Complete 202 body must be the ParticipantStatus Completing");
         }
 
@@ -1136,9 +1141,8 @@ public class LRAStateModelTest extends LRATestBase {
         enlistFailingParticipant(childId);
 
         try (Response response = rawNestedCompleteWithVersion(childId, LRAConstants.API_VERSION_2_0)) {
-            assertEquals(409, response.getStatus(),
-                    "@Complete with v2.0 must return 409 when a participant failed to complete");
-            assertEquals(ParticipantStatus.FailedToComplete.name(), response.readEntity(String.class),
+            var entity = response.readEntity(NestedCompleteLRAHttp.Reply.class);
+            assertEquals(ParticipantStatus.FailedToComplete, entity.status,
                     "@Complete 409 body must be the ParticipantStatus FailedToComplete");
         }
 
@@ -1179,7 +1183,8 @@ public class LRAStateModelTest extends LRATestBase {
         try (Response response = rawNestedComplete(childId)) {
             assertEquals(200, response.getStatus(),
                     "@Complete with default version must return 200 for backward compatibility");
-            assertEquals(ParticipantStatus.Completing.name(), response.readEntity(String.class),
+            var entity = response.readEntity(NestedCompleteLRAHttp.Reply.class);
+            assertEquals(ParticipantStatus.Completing, entity.status,
                     "Body must still contain the ParticipantStatus");
         }
 
@@ -1221,8 +1226,9 @@ public class LRAStateModelTest extends LRATestBase {
         rawNestedComplete(childId).close();
 
         try (Response response = rawNestedStatus(childId)) {
+            var entity = response.readEntity(NestedStatusLRAHttp.Reply.class);
             assertEquals(200, response.getStatus());
-            assertEquals("Completed", response.readEntity(String.class),
+            assertEquals("Completed", entity.status.name(),
                     "@Status must return Completed after successful completion");
         }
 

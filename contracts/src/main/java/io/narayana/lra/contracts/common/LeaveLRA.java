@@ -18,10 +18,13 @@ public class LeaveLRA {
 
     public static class Reply {
 
+        public String status;
+
         public Reply() {
         }
 
-        public Reply(String error) {
+        public Reply(String status) {
+            this.status = status;
         }
     }
 }

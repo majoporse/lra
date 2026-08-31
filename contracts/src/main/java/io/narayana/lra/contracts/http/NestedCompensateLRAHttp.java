@@ -1,9 +1,6 @@
 package io.narayana.lra.contracts.http;
 
-import io.narayana.lra.contracts.common.CloseLRA;
 import io.narayana.lra.contracts.common.NestedCompensateLRA;
-import org.eclipse.microprofile.lra.annotation.LRAStatus;
-
 import java.net.URI;
 
 public class NestedCompensateLRAHttp {

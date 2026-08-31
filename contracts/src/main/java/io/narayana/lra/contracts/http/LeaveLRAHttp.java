@@ -15,7 +15,11 @@ public class LeaveLRAHttp {
 
     public static class Reply extends LeaveLRA.Reply {
         public Reply() {
-            super();
+
+        }
+
+        public Reply(String status) {
+            super(status);
         }
     }
 }

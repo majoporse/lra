@@ -1,10 +1,8 @@
 package io.narayana.lra.contracts.http;
 
-import io.narayana.lra.contracts.common.CloseLRA;
 import io.narayana.lra.contracts.common.NestedCompleteLRA;
-import org.eclipse.microprofile.lra.annotation.LRAStatus;
-
 import java.net.URI;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 
 public class NestedCompleteLRAHttp {
     public static class Request extends NestedCompleteLRA.Request {
@@ -17,9 +15,12 @@ public class NestedCompleteLRAHttp {
     }
 
     public static class Reply extends NestedCompleteLRA.Reply {
-
         public Reply() {
             super();
+        }
+
+        public Reply(ParticipantStatus status) {
+            super(status);
         }
     }
 }

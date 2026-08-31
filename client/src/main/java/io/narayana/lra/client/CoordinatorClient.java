@@ -12,10 +12,11 @@ import io.narayana.lra.contracts.http.GetAllLRAHttp;
 import io.narayana.lra.contracts.http.GetLRAInfoLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.LeaveLRAHttp;
+import io.narayana.lra.contracts.http.NestedCompleteLRAHttp;
+import io.narayana.lra.contracts.http.NestedStatusLRAHttp;
 import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
-import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
@@ -125,7 +126,6 @@ public interface CoordinatorClient {
      */
     @PUT
     @Path("{LraId}")
-    @Consumes(MediaType.APPLICATION_JSON)
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<JoinLRAHttp.Reply> joinLRA(
             @PathParam("LraId") String lraId,
@@ -141,7 +141,6 @@ public interface CoordinatorClient {
      */
     @PUT
     @Path("{LraId}/remove")
-    @Consumes(MediaType.TEXT_PLAIN)
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<LeaveLRAHttp.Reply> leaveLRA(
             @PathParam("LraId") String lraId,
@@ -186,21 +185,20 @@ public interface CoordinatorClient {
      */
     @GET
     @Path("nested/{NestedLraId}/status")
-    CompletionStage<Response> getNestedLRAStatus(@PathParam("NestedLraId") String nestedLraId);
+    @Produces({ MediaType.APPLICATION_JSON })
+    CompletionStage<NestedStatusLRAHttp.Reply> getNestedLRAStatus(@PathParam("NestedLraId") String nestedLraId);
 
     /**
      * Complete a nested LRA
      *
      * @param nestedLraId Nested LRA identifier
-     * @param accept Media type for response
      * @param version API version header
      * @return Response with participant status
      */
     @PUT
     @Path("nested/{NestedLraId}/complete")
-    CompletionStage<Response> completeNestedLRA(
+    CompletionStage<NestedCompleteLRAHttp.Reply> completeNestedLRA(
             @PathParam("NestedLraId") String nestedLraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String accept,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
 
     /**

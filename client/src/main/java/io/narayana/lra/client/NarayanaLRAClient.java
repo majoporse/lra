@@ -837,25 +837,10 @@ public class NarayanaLRAClient implements AutoCloseable {
             CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
 
             String encodedLRA = URLEncoder.encode(nestedLraId.toString(), StandardCharsets.UTF_8);
-            Response response = client.getNestedLRAStatus(encodedLRA)
+            var response = client.getNestedLRAStatus(encodedLRA)
                     .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS);
 
-            if (response.getStatus() == Response.Status.GONE.getStatusCode()) {
-                throw new NotFoundException("Nested LRA is no longer known: " + nestedLraId);
-            }
-
-            if (response.getStatus() != OK.getStatusCode()) {
-                throw new WebApplicationException(response);
-            }
-
-            if (!response.hasEntity()) {
-                throw new WebApplicationException(
-                        Response.status(INTERNAL_SERVER_ERROR)
-                                .entity("No status returned for nested LRA").build());
-            }
-
-            String statusString = response.readEntity(String.class);
-            return ParticipantStatus.valueOf(statusString);
+            return response.status;
         } catch (ExecutionException e) {
             rethrowIfUnauthorized(e);
             throw new NotFoundException(e.getMessage());
@@ -880,13 +865,12 @@ public class NarayanaLRAClient implements AutoCloseable {
             CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
 
             String encodedLRA = URLEncoder.encode(nestedLraId.toString(), StandardCharsets.UTF_8);
-            Response response = client.completeNestedLRA(
+            var response = client.completeNestedLRA(
                     encodedLRA,
-                    MediaType.TEXT_PLAIN,
                     LRAConstants.CURRENT_API_VERSION_STRING)
                     .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
 
-            return handleNestedEndResponse(response, nestedLraId, "completion");
+            return response.status;
         } catch (ExecutionException e) {
             rethrowIfUnauthorized(e);
             throw new NotFoundException(e.getMessage());

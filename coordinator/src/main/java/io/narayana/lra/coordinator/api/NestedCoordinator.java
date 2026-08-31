@@ -13,6 +13,8 @@ import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.contracts.http.NestedCompleteLRAHttp;
+import io.narayana.lra.contracts.http.NestedStatusLRAHttp;
 import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
@@ -70,7 +72,7 @@ public class NestedCoordinator {
                     + " has reached a terminal state.", content = @Content(schema = @Schema(implementation = String.class))),
             @APIResponse(responseCode = "410", description = "The participant is no longer aware of this LRA.", content = @Content(schema = @Schema(implementation = String.class))),
     })
-    public Response getNestedLRAStatus(
+    public NestedStatusLRAHttp.Reply getNestedLRAStatus(
             @PathParam("NestedLraId") String nestedLraId,
             @Context UriInfo uriInfo) {
         try {
@@ -82,15 +84,15 @@ public class NestedCoordinator {
                         Response.status(INTERNAL_SERVER_ERROR).build());
             }
 
-            return Response.ok(mapToParticipantStatus(status).name()).build();
+            return new NestedStatusLRAHttp.Reply(mapToParticipantStatus(status));
         } catch (NotFoundException e) {
-            return Response.status(Response.Status.GONE).build();
+            throw new WebApplicationException(Response.Status.GONE);
         }
     }
 
     @PUT
     @Path("{NestedLraId}/complete")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Complete a nested LRA", description = "Implements the @Complete participant contract"
             + " for a nested LRA as defined by the MicroProfile LRA specification.")
     @APIResponses({
@@ -103,18 +105,19 @@ public class NestedCoordinator {
                     + " The caller should use @Forget to release the participant.", content = @Content(schema = @Schema(implementation = String.class))),
             @APIResponse(responseCode = "410", description = "The participant is no longer aware of this LRA.", content = @Content(schema = @Schema(implementation = String.class))),
     })
-    public Response completeNestedLRA(
+    public NestedCompleteLRAHttp.Reply completeNestedLRA(
             @Parameter(name = "NestedLraId", description = "The unique identifier of the nested LRA", required = true) @PathParam("NestedLraId") String nestedLraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version,
             @Context UriInfo uriInfo) {
 
         try {
             LRAData lraData = httpLraService.endLRA(toURI(nestedLraId, uriInfo), false, false, null, null);
             ParticipantStatus pStatus = mapToParticipantStatus(lraData.getStatus());
-            return buildNestedResponse(pStatus, version, mediaType);
+
+            return new NestedCompleteLRAHttp.Reply(pStatus);
+
         } catch (NotFoundException e) {
-            return Response.status(Response.Status.GONE).build();
+            throw new WebApplicationException(Response.Status.GONE);
         }
     }
 
