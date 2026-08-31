@@ -49,16 +49,14 @@ public interface CoordinatorClient {
      * Get all LRAs known to the coordinator
      *
      * @param status Filter LRAs by status (optional)
-     * @param accept Media type for response
      * @param version API version header
      * @return Response containing list of LRAs
      */
     @GET
     @Path("/")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<List<LRAData>> getAllLRAs(
             @QueryParam(LRAConstants.STATUS_PARAM_NAME) @DefaultValue("") String status,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String accept,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
 
     /**
@@ -70,7 +68,7 @@ public interface CoordinatorClient {
      */
     @GET
     @Path("{LraId}/status")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<StatusLRAHttp.Reply> getLRAStatus(
             @PathParam("LraId") String lraId,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
@@ -85,7 +83,7 @@ public interface CoordinatorClient {
      */
     @GET
     @Path("{LraId}")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<Response> getLRAInfo(
             @PathParam("LraId") String lraId,
             @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String accept,
@@ -99,7 +97,7 @@ public interface CoordinatorClient {
      */
     @POST
     @Path("start")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<StartLRAHttp.Reply> startLRA(
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version,
             StartLRAHttp.Request body);
@@ -147,7 +145,7 @@ public interface CoordinatorClient {
     @PUT
     @Path("{LraId}/remove")
     @Consumes(MediaType.TEXT_PLAIN)
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<Response> leaveLRA(
             @PathParam("LraId") String lraId,
             @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String accept,
@@ -163,7 +161,7 @@ public interface CoordinatorClient {
      */
     @PUT
     @Path("{LraId}/close")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<CloseLRAHttp.Reply> closeLRA(
             @PathParam("LraId") String lraId,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version,

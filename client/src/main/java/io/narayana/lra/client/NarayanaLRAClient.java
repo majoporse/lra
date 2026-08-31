@@ -317,7 +317,6 @@ public class NarayanaLRAClient implements AutoCloseable {
 
             return client.getAllLRAs(
                     "", // status filter (empty for all)
-                    MediaType.TEXT_PLAIN,
                     LRAConstants.CURRENT_API_VERSION_STRING)
                     .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS);
         } catch (WebApplicationException e) {
