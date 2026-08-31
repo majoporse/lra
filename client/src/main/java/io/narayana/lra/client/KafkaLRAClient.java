@@ -173,7 +173,7 @@ public class KafkaLRAClient implements LRAClient {
     @Override
     public void leaveLRA(URI lraId, String body) {
         LeaveLRAKafka.Request request = new LeaveLRAKafka.Request(nextCorrelationId(), replyTopic,
-                lraId.toASCIIString(), body);
+                lraId, body);
         send(LRAKafkaConstants.TYPE_LEAVE, request, LeaveLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 

@@ -11,6 +11,7 @@ import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.GetAllLRAHttp;
 import io.narayana.lra.contracts.http.GetLRAInfoLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
+import io.narayana.lra.contracts.http.LeaveLRAHttp;
 import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -135,20 +136,17 @@ public interface CoordinatorClient {
      * Remove a participant from an LRA
      *
      * @param lraId LRA identifier
-     * @param accept Media type for response
      * @param version API version header
-     * @param participantCompensatorUrl Participant compensator URL
      * @return Response indicating success or failure
      */
     @PUT
     @Path("{LraId}/remove")
     @Consumes(MediaType.TEXT_PLAIN)
     @Produces({ MediaType.APPLICATION_JSON })
-    CompletionStage<Response> leaveLRA(
+    CompletionStage<LeaveLRAHttp.Reply> leaveLRA(
             @PathParam("LraId") String lraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String accept,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version,
-            String participantCompensatorUrl);
+            LeaveLRAHttp.Request body);
 
     /**
      * Close (complete) an LRA

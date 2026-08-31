@@ -29,6 +29,7 @@ import io.narayana.lra.LRAData;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
+import io.narayana.lra.contracts.http.LeaveLRAHttp;
 import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
@@ -573,19 +574,13 @@ public class NarayanaLRAClient implements AutoCloseable {
             // Extract the LRA UID
             String lraUid = LRAConstants.getLRAUid(lraId);
 
-            Response response = client.leaveLRA(
+            var req = new LeaveLRAHttp.Request(lraId, body);
+            var _response = client.leaveLRA(
                     lraUid,
-                    MediaType.TEXT_PLAIN,
                     LRAConstants.CURRENT_API_VERSION_STRING,
-                    body == null ? "" : body)
+                    req)
                     .toCompletableFuture().get(LEAVE_TIMEOUT, TimeUnit.SECONDS);
 
-            if (OK.getStatusCode() != response.getStatus()) {
-                String logMsg = LRALogger.i18nLogger.error_lraLeaveUnexpectedStatus(lraId, response.getStatus(),
-                        response.hasEntity() ? response.readEntity(String.class) : "");
-                LRALogger.logger.error(logMsg);
-                throwGenericLRAException(null, response.getStatus(), logMsg, null);
-            }
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             rethrowIfUnauthorized(e);
             throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)

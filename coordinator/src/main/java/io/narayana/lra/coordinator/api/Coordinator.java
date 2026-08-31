@@ -32,6 +32,7 @@ import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.GetAllLRAHttp;
 import io.narayana.lra.contracts.http.GetLRAInfoLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
+import io.narayana.lra.contracts.http.LeaveLRAHttp;
 import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -60,7 +61,6 @@ import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Application;
 import jakarta.ws.rs.core.Context;
-import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.Link;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -596,7 +596,7 @@ public class Coordinator extends Application {
      */
     @PUT
     @Path("{LraId}/remove")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "A Compensator can resign from the LRA at any time prior to the completion of an activity")
     @APIResponses({
             @APIResponse(responseCode = "200", description = "If the participant was successfully removed from the LRA", headers = {
@@ -606,16 +606,16 @@ public class Coordinator extends Application {
             @APIResponse(responseCode = "412", description = "The LRA is not longer active (ie in the complete or compensate messages have been sent"),
             @APIResponse(responseCode = "417", description = "The requested version provided in HTTP Header is not supported by this end point", content = @Content(schema = @Schema(implementation = String.class))),
     })
-    public Response leaveLRA(
+    public LeaveLRAHttp.Reply leaveLRA(
             @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") String lraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version,
-            String participantId) {
-        int status = httpLraService.leave(toURI(lraId), participantId);
+            LeaveLRAHttp.Request body) {
+        int status = httpLraService.leave(toURI(lraId), body.participantId);
+        if (status < 200 || status >= 300) {
+            throw new WebApplicationException(status);
+        }
 
-        return Response.status(status)
-                .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                .build();
+        return new LeaveLRAHttp.Reply();
     }
 
     private Response buildResponse(LRAStatus lraStatus, String apiVersion, String mediaType, URI lraId) {

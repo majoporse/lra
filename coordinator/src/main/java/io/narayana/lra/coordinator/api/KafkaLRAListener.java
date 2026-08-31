@@ -130,7 +130,7 @@ public class KafkaLRAListener {
         LeaveLRAKafka.Reply reply;
 
         try {
-            URI lraId = URI.create(request.lraId);
+            URI lraId = request.lraId;
             //            httpLraService.leave(lraId, equest.body);
             reply = new LeaveLRAKafka.Reply(request.getCorrelationId(), null);
         } catch (Exception e) {

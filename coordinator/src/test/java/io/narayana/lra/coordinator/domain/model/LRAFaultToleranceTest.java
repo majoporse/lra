@@ -19,6 +19,7 @@ import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
+import io.narayana.lra.contracts.http.LeaveLRAHttp;
 import io.narayana.lra.coordinator.api.Coordinator;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.filter.ServerLRAFilter;
@@ -696,7 +697,7 @@ public class LRAFaultToleranceTest extends LRATestBase {
         // try to leave with a participant URL that was never enrolled
         try (Response response = client.target(String.format("%s/remove", lraUrl))
                 .request()
-                .put(Entity.text("http://nonexistent:99999/not-enrolled"))) {
+                .put(Entity.json(new LeaveLRAHttp.Request(lraId, "http://nonexistent:99999/not-enrolled")))) {
             assertEquals(400, response.getStatus(),
                     "Leave with unenrolled participant should return 400");
         }
@@ -728,7 +729,7 @@ public class LRAFaultToleranceTest extends LRATestBase {
         // try to leave from the now-closed LRA
         try (Response response = client.target(String.format("%s/remove", lraUrl))
                 .request()
-                .put(Entity.text("http://localhost/some-participant"))) {
+                .put(Entity.json(new LeaveLRAHttp.Request(lraId, "http://localhost/some-participant")))) {
             assertTrue(response.getStatus() == 404 || response.getStatus() == 412,
                     "Leave from non-active LRA should return 404 or 412, got " + response.getStatus());
         }
