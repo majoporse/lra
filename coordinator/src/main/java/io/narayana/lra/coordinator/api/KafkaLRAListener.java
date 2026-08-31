@@ -102,9 +102,9 @@ public class KafkaLRAListener {
         CloseLRAKafka.Reply reply;
 
         try {
-            URI lraId = URI.create(request.lraId);
+            URI lraId = request.lraId;
             LRAData lraData = httpLraService.endLRA(lraId, false, false, request.compensator, request.userData);
-            reply = new CloseLRAKafka.Reply(request.getCorrelationId(), lraData.getStatus().name(), null);
+            reply = new CloseLRAKafka.Reply(request.getCorrelationId(), lraData.getStatus(), null);
         } catch (Exception e) {
             reply = new CloseLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
         }

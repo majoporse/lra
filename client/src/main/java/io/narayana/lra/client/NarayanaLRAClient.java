@@ -27,6 +27,7 @@ import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
+import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.contracts.http.StartLRAHttp;
@@ -1185,24 +1186,16 @@ public class NarayanaLRAClient implements AutoCloseable {
             String lraId = LRAConstants.getLRAUid(lra);
 
             // Call the appropriate endpoint (close or cancel) asynchronously
-            Response response;
             if (confirm) {
-                response = client.closeLRA(
-                        lraId,
-                        MediaType.TEXT_PLAIN,
-                        LRAConstants.CURRENT_API_VERSION_STRING,
+                var body = new CloseLRAHttp.Request(
+                        lra,
                         compensator == null ? "" : compensator,
-                        userData == null ? "" : userData)
+                        userData == null ? "" : userData);
+                var _response = client.closeLRA(
+                        lraId,
+                        LRAConstants.CURRENT_API_VERSION_STRING,
+                        body)
                         .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
-
-                if (isUnexpectedResponseStatus(response, OK, Response.Status.ACCEPTED, NOT_FOUND)) {
-                    // let the client know the reason for the failure (it's in the entity body of the response object)
-                    throw new WebApplicationException(response);
-                }
-
-                if (response.getStatus() == NOT_FOUND.getStatusCode()) {
-                    throw new WebApplicationException(response);
-                }
 
             } else {
                 var req = new CancelLRAHttp.Request(

@@ -8,6 +8,7 @@ package io.narayana.lra.client;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
+import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -157,21 +158,16 @@ public interface CoordinatorClient {
      * Close (complete) an LRA
      *
      * @param lraId LRA identifier
-     * @param accept Media type for response
      * @param version API version header
-     * @param compensator Compensator link header
-     * @param userData User-specific data
      * @return Response containing LRA status
      */
     @PUT
     @Path("{LraId}/close")
     @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
-    CompletionStage<Response> closeLRA(
+    CompletionStage<CloseLRAHttp.Reply> closeLRA(
             @PathParam("LraId") String lraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String accept,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_PARTICIPANT_LINK_HEADER_NAME) @DefaultValue("") String compensator,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME) @DefaultValue("") String userData);
+            CloseLRAHttp.Request body);
 
     /**
      * Cancel (compensate) an LRA

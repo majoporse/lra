@@ -32,6 +32,7 @@ import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
+import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -394,28 +395,33 @@ public class Coordinator extends Application {
                     + " (storage unavailable or lock contention with another close/cancel in progress)."
                     + " The client should retry the request.", content = @Content(schema = @Schema(implementation = String.class))),
     })
-    public Response closeLRA(
+    public CloseLRAHttp.Reply closeLRA(
             @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") String lraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_PARTICIPANT_LINK_HEADER_NAME) @DefaultValue("") String compensator,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME) @DefaultValue("") String userData) {
+            CloseLRAHttp.Request body) {
 
+        var compensator = body.compensator;
+        var userData = body.userData;
         try {
             URI lraURI = toURI(lraId);
             LRAData lraData = httpLraService.endLRA(lraURI, false, false, compensator, userData);
 
-            return buildResponse(lraData.getStatus(), version, mediaType, lraURI);
+            var lraStatus = lraData.getStatus();
+            if (!isTerminal(lraStatus) && !(lraStatus == LRAStatus.Closing || lraStatus == LRAStatus.Cancelling)) {
+                throw new WebApplicationException(SERVICE_UNAVAILABLE);
+            }
+
+            return new CloseLRAHttp.Reply(lraData.getStatus());
         } catch (WebApplicationException e) {
             LRALogger.logger.debug(e.getMessage());
             // catch it otherwise the caller just sees a generic message corresponding to e.getResponse().getStatus()
             // eg for a 503 it would be "Service Unavailable"
             // and if we throw new WebApplicationException(e.getMessage(), e);
             // then the caller sees the generic 500 Internal Server Error code rather than the specific 503 code
-            return Response.status(e.getResponse().getStatus())
+            throw new WebApplicationException(Response.status(e.getResponse().getStatus())
                     .entity(e.getMessage())
                     .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                    .build();
+                    .build());
         }
     }
 

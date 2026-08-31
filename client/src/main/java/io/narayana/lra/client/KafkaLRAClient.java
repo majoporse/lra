@@ -159,7 +159,7 @@ public class KafkaLRAClient implements LRAClient {
     @Override
     public void closeLRA(URI lraId, String compensator, String userData) {
         CloseLRAKafka.Request request = new CloseLRAKafka.Request(nextCorrelationId(), replyTopic,
-                lraId.toASCIIString(), compensator, userData);
+                lraId, compensator, userData);
         send(LRAKafkaConstants.TYPE_CLOSE, request, CloseLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 

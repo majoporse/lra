@@ -27,6 +27,7 @@ import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
+import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -375,12 +376,18 @@ public class LRATest extends LRATestBase {
         var request = new StartLRAHttp.Request();
         Response r2 = client.target(coordinatorPath + "/start").request().post(Entity.json(request));
         assertEquals(Response.Status.OK.getStatusCode(), r2.getStatus(), "Expected 201");
-        String lraId = r2.readEntity(StartLRAHttp.Reply.class).lraId.toString();
+        var response = r2.readEntity(StartLRAHttp.Reply.class);
+        var lraId = response.lraId.toString();
         Assertions.assertNotNull(lraId, "missing context header");
+
         // RestEasy adds brackets and , to delimit multiple values for a particular header key
         lraId = new StringTokenizer(lraId, "[,]").nextToken();
+
         // close the LRA
-        Response r3 = client.target(String.format("%s/close", lraId)).request().put(null);
+        var closeBody = new CloseLRAHttp.Request();
+        closeBody.lraId = response.lraId;
+
+        Response r3 = client.target(String.format("%s/close", lraId)).request().put(Entity.json(closeBody));
         int status = r3.getStatus();
         assertTrue(status == OK.getStatusCode() || status == Response.Status.NOT_FOUND.getStatusCode(),
                 "Problem closing LRA: ");
