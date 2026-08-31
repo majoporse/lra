@@ -30,6 +30,7 @@ import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.ParticipantLinks;
+import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.logging.LRALogger;
 import io.smallrye.stork.Stork;
@@ -809,15 +810,14 @@ public class NarayanaLRAClient implements AutoCloseable {
             CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
             String lraUid = LRAConstants.getLRAUid(uri);
 
-            Response response = client.renewTimeLimit(
+            var body = new RenewTimeLimitLRAHttp.Request(
+                    uri,
+                    timeLimit == null ? 0L : timeLimit);
+            var _response = client.renewTimeLimit(
                     lraUid,
-                    timeLimit != null ? timeLimit : 0L,
-                    LRAConstants.CURRENT_API_VERSION_STRING)
+                    LRAConstants.CURRENT_API_VERSION_STRING,
+                    body)
                     .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS);
-
-            if (response.getStatus() != OK.getStatusCode()) {
-                throw new WebApplicationException(response);
-            }
         } catch (ExecutionException e) {
             rethrowIfUnauthorized(e);
             throw new NotFoundException(e.getMessage());

@@ -31,6 +31,7 @@ import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.GetAllLRAHttp;
 import io.narayana.lra.contracts.http.GetLRAInfoLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
+import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
 import io.narayana.lra.coordinator.api.Coordinator;
@@ -433,7 +434,6 @@ public class LRATest extends LRATestBase {
         try (Response r = client
                 .target(String.format("%s/cancel", lraId))
                 .request()
-                .accept(acceptMediaType)
                 .put(Entity.json(body))) {
 
             int res = r.getStatus();
@@ -1527,9 +1527,8 @@ public class LRATest extends LRATestBase {
             try (Response response = client.target(coordinatorPath)
                     .path(encodedLraId)
                     .path("renew")
-                    .queryParam(LRAConstants.TIMELIMIT_PARAM_NAME, 30000L)
                     .request()
-                    .put(Entity.text(""))) {
+                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 30000L)))) {
 
                 assertEquals(OK.getStatusCode(), response.getStatus(),
                         "Expected renewing LRA timeout to succeed when postponing");
@@ -1566,9 +1565,8 @@ public class LRATest extends LRATestBase {
             try (Response response = client.target(coordinatorPath)
                     .path(encodedLraId)
                     .path("renew")
-                    .queryParam(LRAConstants.TIMELIMIT_PARAM_NAME, 5000L)
                     .request()
-                    .put(Entity.text(""))) {
+                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 5000L)))) {
 
                 assertEquals(OK.getStatusCode(), response.getStatus(),
                         "Expected renewing LRA timeout to return OK even when shortening is ignored");
@@ -1606,9 +1604,8 @@ public class LRATest extends LRATestBase {
             try (Response response1 = client.target(coordinatorPath)
                     .path(encodedLraId)
                     .path("renew")
-                    .queryParam(LRAConstants.TIMELIMIT_PARAM_NAME, 25000L)
                     .request()
-                    .put(Entity.text(""))) {
+                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 25000L)))) {
 
                 assertEquals(OK.getStatusCode(), response1.getStatus(),
                         "First timeout extension should succeed");
@@ -1618,9 +1615,8 @@ public class LRATest extends LRATestBase {
             try (Response response2 = client.target(coordinatorPath)
                     .path(encodedLraId)
                     .path("renew")
-                    .queryParam(LRAConstants.TIMELIMIT_PARAM_NAME, 10000L)
                     .request()
-                    .put(Entity.text(""))) {
+                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 10000L)))) {
 
                 assertEquals(OK.getStatusCode(), response2.getStatus(),
                         "Shortening attempt should return OK but be ignored");
@@ -1630,9 +1626,8 @@ public class LRATest extends LRATestBase {
             try (Response response3 = client.target(coordinatorPath)
                     .path(encodedLraId)
                     .path("renew")
-                    .queryParam(LRAConstants.TIMELIMIT_PARAM_NAME, 40000L)
                     .request()
-                    .put(Entity.text(""))) {
+                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 40000L)))) {
 
                 assertEquals(OK.getStatusCode(), response3.getStatus(),
                         "Second timeout extension should succeed");
@@ -1664,7 +1659,7 @@ public class LRATest extends LRATestBase {
         try {
             // try to extend the timeout to 30 seconds (should succeed)
             try (Response response = client.target(coordinatorPath).path(encodedLraId).path("renew")
-                    .queryParam(LRAConstants.TIMELIMIT_PARAM_NAME, 30000L).request().put(Entity.text(""))) {
+                    .request().put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 30000L)))) {
                 assertEquals(OK.getStatusCode(), response.getStatus(),
                         "Expected renewing LRA timeout to succeed when postponing");
                 // verify LRA is still active after initial timelimit
@@ -1674,7 +1669,7 @@ public class LRATest extends LRATestBase {
             }
             // reducing timelimit should not take effect
             try (Response response = client.target(coordinatorPath).path(encodedLraId).path("renew")
-                    .queryParam(LRAConstants.TIMELIMIT_PARAM_NAME, 10L).request().put(Entity.text(""))) {
+                    .request().put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 10L)))) {
                 assertEquals(OK.getStatusCode(), response.getStatus(),
                         "Expected renewing LRA timeout to succeed but not having effect");
                 // verify LRA is still active after the call

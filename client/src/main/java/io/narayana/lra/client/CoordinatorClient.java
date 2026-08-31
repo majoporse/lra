@@ -11,6 +11,7 @@ import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.GetAllLRAHttp;
 import io.narayana.lra.contracts.http.GetLRAInfoLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
+import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
 import jakarta.ws.rs.Consumes;
@@ -104,16 +105,15 @@ public interface CoordinatorClient {
      * Renew the time limit for an existing LRA
      *
      * @param lraId LRA identifier
-     * @param timeLimit New time limit in milliseconds
      * @param version API version header
      * @return Response indicating success or failure
      */
     @PUT
     @Path("{LraId}/renew")
-    CompletionStage<Response> renewTimeLimit(
+    CompletionStage<RenewTimeLimitLRAHttp.Reply> renewTimeLimit(
             @PathParam("LraId") String lraId,
-            @QueryParam(LRAConstants.TIMELIMIT_PARAM_NAME) @DefaultValue("0") Long timeLimit,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
+            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version,
+            RenewTimeLimitLRAHttp.Request body);
 
     /**
      * Join a participant to an LRA

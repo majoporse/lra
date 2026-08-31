@@ -18,7 +18,6 @@ import static io.narayana.lra.LRAConstants.PARTICIPANT_TIMEOUT;
 import static io.narayana.lra.LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
 import static io.narayana.lra.LRAConstants.STATUS;
 import static io.narayana.lra.LRAConstants.STATUS_PARAM_NAME;
-import static io.narayana.lra.LRAConstants.TIMELIMIT_PARAM_NAME;
 import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST;
 import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
@@ -33,6 +32,7 @@ import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.GetAllLRAHttp;
 import io.narayana.lra.contracts.http.GetLRAInfoLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
+import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
@@ -227,7 +227,7 @@ public class Coordinator extends Application {
      */
     @POST
     @Path("start")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     @Bulkhead
     @Operation(summary = "Start a new LRA", description = "The LRA model uses a presumed nothing protocol: the coordinator must communicate "
             + "with participants in order to inform them of the LRA activity. Every time a "
@@ -301,6 +301,7 @@ public class Coordinator extends Application {
 
     @PUT
     @Path("{LraId}/renew")
+    @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Update the TimeLimit for an existing LRA", description = "LRAs can be automatically cancelled if they aren't closed or cancelled before the TimeLimit "
             + "specified at creation time is reached. The time limit can be updated to postpone (extend) the timeout, but cannot be shortened. "
             + "If the new timeout is earlier than the current one, the request will be ignored and return 200 OK without making any changes.")
@@ -312,14 +313,19 @@ public class Coordinator extends Application {
                             @Header(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) }),
             @APIResponse(responseCode = "417", description = "The requested version provided in HTTP Header is not supported by this end point", content = @Content(schema = @Schema(implementation = String.class))),
     })
-    public Response renewTimeLimit(
+    public RenewTimeLimitLRAHttp.Reply renewTimeLimit(
             @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") String lraId,
-            @Parameter(name = TIMELIMIT_PARAM_NAME, description = "The new time limit for the LRA", required = true) @QueryParam(TIMELIMIT_PARAM_NAME) @DefaultValue("0") Long timeLimit,
-            @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version) {
-        return Response.status(httpLraService.renewTimeLimit(toURI(lraId), timeLimit))
-                .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version)
-                .entity(lraId)
-                .build();
+            @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version,
+            @RequestBody RenewTimeLimitLRAHttp.Request body) {
+        try {
+            var status = httpLraService.renewTimeLimit(toURI(lraId), body.timeLimit);
+            if (status < 200 || status >= 300) {
+                throw new WebApplicationException(status);
+            }
+            return new RenewTimeLimitLRAHttp.Reply(lraId);
+        } catch (Exception e) {
+            throw e;
+        }
     }
 
     /**
@@ -331,7 +337,7 @@ public class Coordinator extends Application {
      */
     @PUT
     @Path("{LraId}/close")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Attempt to close an LRA", description = "Trigger the successful completion of the LRA. All"
             + " participants will be dropped by the coordinator."
             + " The complete message will be sent to the participants."
@@ -389,7 +395,7 @@ public class Coordinator extends Application {
 
     @PUT
     @Path("{LraId}/cancel")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Attempt to cancel an LRA", description = " Trigger the compensation of the LRA. All"
             + " participants will be triggered by the coordinator (ie the compensate message will be sent to each participants)."
             + " Upon termination, the URL is implicitly deleted."
@@ -443,7 +449,7 @@ public class Coordinator extends Application {
 
     @PUT
     @Path("{LraId}")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "A Compensator can join with the LRA at any time prior to the completion of an activity")
     @APIResponses({
             @APIResponse(responseCode = "200", description = "The participant was successfully registered with the LRA", content = @Content(schema = @Schema(description = "A URI representing the recovery id of this join request", implementation = String.class)), headers = {
