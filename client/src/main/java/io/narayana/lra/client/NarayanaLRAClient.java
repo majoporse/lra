@@ -895,13 +895,12 @@ public class NarayanaLRAClient implements AutoCloseable {
             CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
 
             String encodedLRA = URLEncoder.encode(nestedLraId.toString(), StandardCharsets.UTF_8);
-            Response response = client.compensateNestedLRA(
+            var response = client.compensateNestedLRA(
                     encodedLRA,
-                    MediaType.TEXT_PLAIN,
                     LRAConstants.CURRENT_API_VERSION_STRING)
                     .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
 
-            return handleNestedEndResponse(response, nestedLraId, "compensation");
+            return response.status;
         } catch (ExecutionException e) {
             rethrowIfUnauthorized(e);
             throw new NotFoundException(e.getMessage());

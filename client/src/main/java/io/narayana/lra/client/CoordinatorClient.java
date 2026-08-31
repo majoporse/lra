@@ -12,13 +12,13 @@ import io.narayana.lra.contracts.http.GetAllLRAHttp;
 import io.narayana.lra.contracts.http.GetLRAInfoLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.LeaveLRAHttp;
+import io.narayana.lra.contracts.http.NestedCompensateLRAHttp;
 import io.narayana.lra.contracts.http.NestedCompleteLRAHttp;
 import io.narayana.lra.contracts.http.NestedStatusLRAHttp;
 import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
 import jakarta.ws.rs.DELETE;
-import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
@@ -27,7 +27,6 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
-import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.concurrent.CompletionStage;
@@ -205,15 +204,13 @@ public interface CoordinatorClient {
      * Compensate a nested LRA
      *
      * @param nestedLraId Nested LRA identifier
-     * @param accept Media type for response
      * @param version API version header
      * @return Response with participant status
      */
     @PUT
     @Path("nested/{NestedLraId}/compensate")
-    CompletionStage<Response> compensateNestedLRA(
+    CompletionStage<NestedCompensateLRAHttp.Reply> compensateNestedLRA(
             @PathParam("NestedLraId") String nestedLraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String accept,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
 
     /**

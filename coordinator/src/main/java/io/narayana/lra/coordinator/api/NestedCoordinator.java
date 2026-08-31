@@ -13,6 +13,7 @@ import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.contracts.http.NestedCompensateLRAHttp;
 import io.narayana.lra.contracts.http.NestedCompleteLRAHttp;
 import io.narayana.lra.contracts.http.NestedStatusLRAHttp;
 import io.narayana.lra.coordinator.domain.service.HttpLRAService;
@@ -31,7 +32,6 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
-import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
@@ -123,7 +123,7 @@ public class NestedCoordinator {
 
     @PUT
     @Path("{NestedLraId}/compensate")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Compensate a nested LRA", description = "Implements the @Compensate participant contract"
             + " for a nested LRA as defined by the MicroProfile LRA specification."
             + " Per the spec, a nested LRA that has already closed can still be asked"
@@ -138,18 +138,17 @@ public class NestedCoordinator {
                     + " The caller should use @Forget to release the participant.", content = @Content(schema = @Schema(implementation = String.class))),
             @APIResponse(responseCode = "410", description = "The participant is no longer aware of this LRA.", content = @Content(schema = @Schema(implementation = String.class))),
     })
-    public Response compensateNestedLRA(
+    public NestedCompensateLRAHttp.Reply compensateNestedLRA(
             @Parameter(name = "NestedLraId", description = "The unique identifier of the nested LRA", required = true) @PathParam("NestedLraId") String nestedLraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version,
             @Context UriInfo uriInfo) {
 
         try {
             LRAData lraData = httpLraService.endLRA(toURI(nestedLraId, uriInfo), true, true, null, null);
             ParticipantStatus pStatus = mapToParticipantStatus(lraData.getStatus());
-            return buildNestedResponse(pStatus, version, mediaType);
+            return new NestedCompensateLRAHttp.Reply(pStatus);
         } catch (NotFoundException e) {
-            return Response.status(Response.Status.GONE).build();
+            throw new WebApplicationException(Response.Status.GONE);
         }
     }
 

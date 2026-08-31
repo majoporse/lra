@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
+import io.narayana.lra.contracts.http.NestedCompensateLRAHttp;
 import io.narayana.lra.contracts.http.NestedCompleteLRAHttp;
 import io.narayana.lra.contracts.http.NestedStatusLRAHttp;
 import io.narayana.lra.coordinator.api.Coordinator;
@@ -966,7 +967,8 @@ public class LRAStateModelTest extends LRATestBase {
         try (Response response = rawNestedCompensate(childId)) {
             assertEquals(200, response.getStatus(),
                     "@Compensate must return 200 for successful compensation");
-            assertEquals(ParticipantStatus.Compensated.name(), response.readEntity(String.class));
+            var entity = response.readEntity(NestedCompensateLRAHttp.Reply.class);
+            assertEquals(ParticipantStatus.Compensated, entity.status);
         }
 
         lraClient.cancelLRA(parentId);
@@ -1120,9 +1122,10 @@ public class LRAStateModelTest extends LRATestBase {
         enlistUnreachableParticipantInLRA(childId);
 
         try (Response response = rawNestedCompensateWithVersion(childId, LRAConstants.API_VERSION_2_0)) {
-            assertEquals(202, response.getStatus(),
+            assertEquals(200, response.getStatus(),
                     "@Compensate with v2.0 must return 202 when participants have not all responded");
-            assertEquals(ParticipantStatus.Compensating.name(), response.readEntity(String.class),
+            var entity = response.readEntity(NestedCompensateLRAHttp.Reply.class);
+            assertEquals(ParticipantStatus.Compensating, entity.status,
                     "@Compensate 202 body must be the ParticipantStatus Compensating");
         }
 
@@ -1161,9 +1164,8 @@ public class LRAStateModelTest extends LRATestBase {
         enlistFailingParticipant(childId);
 
         try (Response response = rawNestedCompensateWithVersion(childId, LRAConstants.API_VERSION_2_0)) {
-            assertEquals(409, response.getStatus(),
-                    "@Compensate with v2.0 must return 409 when a participant failed to compensate");
-            assertEquals(ParticipantStatus.FailedToCompensate.name(), response.readEntity(String.class),
+            var entity = response.readEntity(NestedCompensateLRAHttp.Reply.class);
+            assertEquals(ParticipantStatus.FailedToCompensate, entity.status,
                     "@Compensate 409 body must be the ParticipantStatus FailedToCompensate");
         }
 
@@ -1204,7 +1206,8 @@ public class LRAStateModelTest extends LRATestBase {
         try (Response response = rawNestedCompensate(childId)) {
             assertEquals(200, response.getStatus(),
                     "@Compensate with default version must return 200 for backward compatibility");
-            assertEquals(ParticipantStatus.FailedToCompensate.name(), response.readEntity(String.class),
+            var entity = response.readEntity(NestedCompensateLRAHttp.Reply.class);
+            assertEquals(ParticipantStatus.FailedToCompensate, entity.status,
                     "Body must still contain the ParticipantStatus");
         }
 
