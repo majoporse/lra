@@ -9,6 +9,7 @@ import io.narayana.lra.LRAConstants;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.GetAllLRAHttp;
+import io.narayana.lra.contracts.http.GetLRAInfoLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -76,16 +77,14 @@ public interface CoordinatorClient {
      * Get detailed information about a specific LRA
      *
      * @param lraId LRA identifier
-     * @param accept Media type for response
      * @param version API version header
      * @return Response containing LRA data
      */
     @GET
     @Path("{LraId}")
     @Produces({ MediaType.APPLICATION_JSON })
-    CompletionStage<Response> getLRAInfo(
+    CompletionStage<GetLRAInfoLRAHttp.Reply> getLRAInfo(
             @PathParam("LraId") String lraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String accept,
             @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
 
     /**

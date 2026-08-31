@@ -21,7 +21,6 @@ import static io.narayana.lra.LRAConstants.STATUS_PARAM_NAME;
 import static io.narayana.lra.LRAConstants.TIMELIMIT_PARAM_NAME;
 import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST;
 import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
-import static jakarta.ws.rs.core.Response.Status.OK;
 import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
 import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVERY_HEADER;
@@ -32,6 +31,7 @@ import io.narayana.lra.LRAData;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.GetAllLRAHttp;
+import io.narayana.lra.contracts.http.GetLRAInfoLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -199,7 +199,7 @@ public class Coordinator extends Application {
 
     @GET
     @Path("{LraId}")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Obtain the information about an LRA as a JSON structure")
     @APIResponses({
             @APIResponse(responseCode = "200", description = "The LRA exists and the information is packed as JSON in the content body.", content = @Content(schema = @Schema(implementation = LRAData.class)), headers = {
@@ -207,14 +207,12 @@ public class Coordinator extends Application {
             @APIResponse(responseCode = "404", description = "The coordinator has no knowledge of this LRA", content = @Content(schema = @Schema(implementation = String.class))),
             @APIResponse(responseCode = "417", description = "The requested version provided in HTTP Header is not supported by this end point", content = @Content(schema = @Schema(implementation = String.class))),
     })
-    public Response getLRAInfo(
+    public GetLRAInfoLRAHttp.Reply getLRAInfo(
             @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") String lraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version) {
         URI lraIdURI = toURI(lraId);
         LRAData lraData = httpLraService.getLRA(lraIdURI);
-        return Response.status(OK).entity(lraData)
-                .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, version).build();
+        return new GetLRAInfoLRAHttp.Reply(lraData);
     }
 
     /**

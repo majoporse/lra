@@ -29,6 +29,7 @@ import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.GetAllLRAHttp;
+import io.narayana.lra.contracts.http.GetLRAInfoLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -522,7 +523,8 @@ public class LRATest extends LRATestBase {
 
             try {
                 ObjectMapper objectMapper = new ObjectMapper();
-                LRAData data = objectMapper.readValue(info, LRAData.class);
+                var entity = objectMapper.readValue(info, GetLRAInfoLRAHttp.Reply.class);
+                var data = entity.data;
                 // or Json.createReader(new StringReader(info)).readObject(); for the raw Json
 
                 // validate the LRA id, the client id and the status
@@ -1890,14 +1892,9 @@ public class LRATest extends LRATestBase {
 
         try {
             // Get LRA info with JSON media type
-            LRAData lraInfoJson = lraClient.getLRAInfo(lraId, MediaType.APPLICATION_JSON);
+            LRAData lraInfoJson = lraClient.getLRAInfo(lraId);
             assertNotNull(lraInfoJson, "LRA info (JSON) should not be null");
             assertEquals(lraId, lraInfoJson.getLraId(), "LRA ID should match");
-
-            // Get LRA info with text/plain media type
-            LRAData lraInfoText = lraClient.getLRAInfo(lraId, MediaType.TEXT_PLAIN);
-            assertNotNull(lraInfoText, "LRA info (TEXT) should not be null");
-            assertEquals(lraId, lraInfoText.getLraId(), "LRA ID should match");
 
         } finally {
             lraClient.closeLRA(lraId);

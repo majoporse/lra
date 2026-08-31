@@ -776,40 +776,17 @@ public class NarayanaLRAClient implements AutoCloseable {
      * @throws WebApplicationException if the request fails
      */
     public LRAData getLRAInfo(URI uri) throws WebApplicationException {
-        return getLRAInfo(uri, MediaType.APPLICATION_JSON);
-    }
-
-    /**
-     * Get detailed information about a specific LRA.
-     *
-     * @param uri The LRA URI
-     * @param acceptMediaType Response content type preference
-     * @return LRAData containing detailed information about the LRA
-     * @throws WebApplicationException if the request fails
-     */
-    public LRAData getLRAInfo(URI uri, String acceptMediaType) throws WebApplicationException {
         try {
             URI uriWithoutQuery = UriBuilder.fromUri(uri).replaceQuery(null).build();
             CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
             String lraUid = LRAConstants.getLRAUid(uri);
 
-            Response response = client.getLRAInfo(
+            var response = client.getLRAInfo(
                     lraUid,
-                    acceptMediaType,
                     LRAConstants.CURRENT_API_VERSION_STRING)
                     .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS);
 
-            if (response.getStatus() != OK.getStatusCode()) {
-                throw new WebApplicationException(response);
-            }
-
-            if (!response.hasEntity()) {
-                throw new WebApplicationException(
-                        Response.status(INTERNAL_SERVER_ERROR)
-                                .entity("No LRA info returned").build());
-            }
-
-            return response.readEntity(LRAData.class);
+            return response.data;
         } catch (ExecutionException e) {
             rethrowIfUnauthorized(e);
             throw new NotFoundException(e.getMessage());
