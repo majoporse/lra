@@ -17,5 +17,9 @@ public class NestedForgetLRAHttp {
         public Reply() {
             super();
         }
+
+        public Reply(String status) {
+            super(status);
+        }
     }
 }

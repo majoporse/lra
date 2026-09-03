@@ -7,7 +7,6 @@ package io.narayana.lra.coordinator.api;
 
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
 import static io.narayana.lra.LRAConstants.CURRENT_API_VERSION_STRING;
-import static io.narayana.lra.LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME;
 import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST;
 import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 
@@ -15,12 +14,11 @@ import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.contracts.http.NestedCompensateLRAHttp;
 import io.narayana.lra.contracts.http.NestedCompleteLRAHttp;
+import io.narayana.lra.contracts.http.NestedForgetLRAHttp;
 import io.narayana.lra.contracts.http.NestedStatusLRAHttp;
 import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
-import jakarta.json.Json;
-import jakarta.json.JsonObject;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
@@ -154,6 +152,7 @@ public class NestedCoordinator {
 
     @DELETE
     @Path("{NestedLraId}/forget")
+    @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Forget a nested LRA participant", description = "Implements the @Forget participant contract"
             + " as defined by the MicroProfile LRA specification."
             + " Signals that the participant can clean up any resources associated with the LRA."
@@ -162,18 +161,17 @@ public class NestedCoordinator {
             @APIResponse(responseCode = "200", description = "The participant has been forgotten successfully."),
             @APIResponse(responseCode = "410", description = "The participant is no longer aware of this LRA."),
     })
-    public Response forgetNestedLRA(
+    public NestedForgetLRAHttp.Reply forgetNestedLRA(
             @PathParam("NestedLraId") String nestedLraId,
             @Context UriInfo uriInfo) {
         try {
             httpLraService.getTransaction(toURI(nestedLraId, uriInfo));
         } catch (NotFoundException e) {
-            return Response.status(Response.Status.GONE).build();
+            throw new WebApplicationException(Response.Status.GONE);
         }
 
         httpLraService.remove(toURI(nestedLraId, uriInfo));
-
-        return Response.ok().build();
+        return new NestedForgetLRAHttp.Reply("ok");
     }
 
     private ParticipantStatus mapToParticipantStatus(LRAStatus lraStatus) {
@@ -198,52 +196,6 @@ public class NestedCoordinator {
                 throw new WebApplicationException(errMsg, Response.status(INTERNAL_SERVER_ERROR)
                         .entity(errMsg)
                         .build());
-        }
-    }
-
-    /**
-     * Build a response following the participant contract.
-     * API version 2.0+ returns spec-compliant HTTP status codes:
-     * 200 — terminal success (Completed, Compensated)
-     * 202 — in progress (Completing, Compensating)
-     * 409 — failure (FailedToComplete, FailedToCompensate)
-     * Older versions always return 200 for backward compatibility.
-     */
-    private Response buildNestedResponse(ParticipantStatus pStatus, String apiVersion, String mediaType) {
-        int httpStatus;
-        if (!supportsParticipantStatusCodes(apiVersion)) {
-            httpStatus = Response.Status.OK.getStatusCode();
-        } else {
-            switch (pStatus) {
-                case Completed:
-                case Compensated:
-                    httpStatus = Response.Status.OK.getStatusCode();
-                    break;
-                case Completing:
-                case Compensating:
-                    httpStatus = Response.Status.ACCEPTED.getStatusCode();
-                    break;
-                case FailedToComplete:
-                case FailedToCompensate:
-                    httpStatus = Response.Status.CONFLICT.getStatusCode();
-                    break;
-                default:
-                    httpStatus = Response.Status.OK.getStatusCode();
-                    break;
-            }
-        }
-
-        String statusName = pStatus.name();
-        Response.ResponseBuilder builder = Response.status(httpStatus)
-                .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, apiVersion);
-
-        if (mediaType.equals(MediaType.APPLICATION_JSON)) {
-            JsonObject model = Json.createObjectBuilder()
-                    .add("status", statusName)
-                    .build();
-            return builder.entity(model.toString()).build();
-        } else {
-            return builder.entity(statusName).build();
         }
     }
 
@@ -275,13 +227,5 @@ public class NestedCoordinator {
                     .entity(errMsg)
                     .build());
         }
-    }
-
-    private static boolean supportsParticipantStatusCodes(String version) {
-        return version != null
-                && !version.equals(LRAConstants.API_VERSION_1_0)
-                && !version.equals(LRAConstants.API_VERSION_1_1)
-                && !version.equals(LRAConstants.API_VERSION_1_2)
-                && !version.equals(LRAConstants.API_VERSION_1_3);
     }
 }

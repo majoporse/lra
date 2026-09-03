@@ -14,6 +14,7 @@ import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.LeaveLRAHttp;
 import io.narayana.lra.contracts.http.NestedCompensateLRAHttp;
 import io.narayana.lra.contracts.http.NestedCompleteLRAHttp;
+import io.narayana.lra.contracts.http.NestedForgetLRAHttp;
 import io.narayana.lra.contracts.http.NestedStatusLRAHttp;
 import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
@@ -28,7 +29,6 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
 import java.util.concurrent.CompletionStage;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
@@ -221,5 +221,5 @@ public interface CoordinatorClient {
      */
     @DELETE
     @Path("nested/{NestedLraId}/forget")
-    CompletionStage<Response> forgetNestedLRA(@PathParam("NestedLraId") String nestedLraId);
+    CompletionStage<NestedForgetLRAHttp.Reply> forgetNestedLRA(@PathParam("NestedLraId") String nestedLraId);
 }

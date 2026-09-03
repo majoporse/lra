@@ -946,15 +946,18 @@ public class NarayanaLRAClient implements AutoCloseable {
             CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
 
             String encodedLRA = URLEncoder.encode(nestedLraId.toString(), StandardCharsets.UTF_8);
-            Response response = client.forgetNestedLRA(encodedLRA)
+            var _response = client.forgetNestedLRA(encodedLRA)
                     .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
 
-            int status = response.getStatus();
-            if (status != OK.getStatusCode() && status != Response.Status.GONE.getStatusCode()) {
-                throw new WebApplicationException(response);
-            }
         } catch (ExecutionException e) {
             rethrowIfUnauthorized(e);
+            var cause = e.getCause();
+            if (cause instanceof WebApplicationException) {
+                var response = ((WebApplicationException) cause).getResponse();
+                if (response.getStatus() == GONE.getStatusCode()) {
+                    return; //ok
+                }
+            }
             throw new NotFoundException(e.getMessage());
         } catch (InterruptedException | TimeoutException e) {
             throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
