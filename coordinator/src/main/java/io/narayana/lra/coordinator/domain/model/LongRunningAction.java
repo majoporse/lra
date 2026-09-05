@@ -18,7 +18,6 @@ import com.arjuna.ats.arjuna.coordinator.RecordListIterator;
 import com.arjuna.ats.arjuna.coordinator.RecordType;
 import com.arjuna.ats.arjuna.state.InputObjectState;
 import com.arjuna.ats.arjuna.state.OutputObjectState;
-import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.LinkHelper;
 import io.narayana.lra.contracts.http.ParticipantLinks;
@@ -31,8 +30,6 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -836,7 +833,7 @@ public class LongRunningAction extends BasicAction {
     }
 
     public LRAParticipantRecord enlistParticipant(URI coordinatorUrl, ParticipantLinks links, String recoveryUrlBase,
-            long timeLimit, String compensatorData, String version, String partId)
+            long timeLimit, String compensatorData, String partId)
             throws UnsupportedEncodingException {
         ReentrantLock lock = tryTimedLockTransaction(participantEnlistTimeout);
         if (lock == null) {
@@ -851,7 +848,7 @@ public class LongRunningAction extends BasicAction {
                     return participant; // must have already been enlisted
                 }
                 participant = doEnlistParticipant(coordinatorUrl, links, recoveryUrlBase, timeLimit,
-                        compensatorData, version, partId);
+                        compensatorData, partId);
                 if (participant != null) {
                     // need to remember that there is a new participant
                     if (deactivate()) { // if it fails the superclass will have logged a warning
@@ -871,33 +868,11 @@ public class LongRunningAction extends BasicAction {
     }
 
     private LRAParticipantRecord doEnlistParticipant(URI coordinatorUrl, ParticipantLinks links, String recoveryUrlBase,
-            long timeLimit, String compensatorData, String version, String partId) {
+            long timeLimit, String compensatorData, String partId) {
         LRAParticipantRecord p = new LRAParticipantRecord(this, lraService, links, compensatorData, partId);
         String pid = p.get_uid().fileStringForm();
 
-        /*
-         * versions are specific to the participant so only update the one used by this participant (ie different
-         * participants are allowed to be on different versions).
-         *
-         * From API version 1.2 onwards, the recovery URI is constructed from the RecoveryCoordinator path followed
-         * by segments for the Uid of the LRA and the Uid of the participant. If the passed in version is null
-         * then assume the latest. In previous versions the recovery URI was broken.
-         */
-        if (version != null && (version.equals(LRAConstants.API_VERSION_1_0) || version.equals(LRAConstants.API_VERSION_1_1))) {
-            // use the old broken method
-            String txId = URLEncoder.encode(coordinatorUrl.toASCIIString(), StandardCharsets.UTF_8);
-
-            if (LRALogger.logger.isDebugEnabled()) {
-                LRALogger.logger.debugf(
-                        "LongRunningAction enlist: using old style recovery URL (txId=%s participantId=%s)",
-                        coordinatorUrl, txId);
-            }
-
-            p.setRecoveryURI(recoveryUrlBase, txId, pid);
-        } else {
-            // use the shiny new working method
-            p.setRecoveryURI(recoveryUrlBase, getId().toString(), pid);
-        }
+        p.setRecoveryURI(recoveryUrlBase, getId().toString(), pid);
 
         endStateCheck();
 

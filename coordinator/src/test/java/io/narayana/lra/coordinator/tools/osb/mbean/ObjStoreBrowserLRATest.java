@@ -103,7 +103,7 @@ public class ObjStoreBrowserLRATest {
             var links = new ParticipantLinks();
             links.compensateLink = URI.create(participantUrl + "/compensate");
             LRAParticipantRecord lraParticipant = lra.enlistParticipant(URI.create(coordinatorUrl), links,
-                    "/recover", Long.MAX_VALUE, null, null, "beanremovaltest");
+                    "/recover", Long.MAX_VALUE, null, "beanremovaltest");
 
             osb.probe();
 

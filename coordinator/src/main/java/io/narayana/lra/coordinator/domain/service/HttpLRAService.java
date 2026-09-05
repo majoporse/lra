@@ -149,13 +149,6 @@ public class HttpLRAService {
                 links, recoveryUrlBase, compensatorData, partId);
     }
 
-    public int joinLRA(StringBuilder recoveryUrl, URI lra, long timeLimit,
-            ParticipantLinks links, String recoveryUrlBase,
-            StringBuilder compensatorData, String version, String partId) {
-        return lraService.joinLRA(recoveryUrl, extractUUID(lra), timeLimit,
-                links, recoveryUrlBase, compensatorData, version, partId);
-    }
-
     public int renewTimeLimit(URI lraId, Long timelimit) {
         return lraService.renewTimeLimit(extractUUID(lraId), timelimit);
     }

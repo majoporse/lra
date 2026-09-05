@@ -315,9 +315,7 @@ public class NarayanaLRAClient implements AutoCloseable {
             // Build the CoordinatorClient using the base coordinator URL
             CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
 
-            return client.getAllLRAs(
-                    null, // status filter (empty for all)
-                    LRAConstants.CURRENT_API_VERSION_STRING)
+            return client.getAllLRAs(null) // status filter (empty for al)
                     .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS).data;
         } catch (WebApplicationException e) {
             LRALogger.logger.debugf("Error getting all LRAs from the coordinator, response status: %d",
@@ -435,9 +433,7 @@ public class NarayanaLRAClient implements AutoCloseable {
                         clientID,
                         timeout,
                         parentLRA);
-                var response = client.startLRA(
-                        LRAConstants.CURRENT_API_VERSION_STRING,
-                        request)
+                var response = client.startLRA(request)
                         .toCompletableFuture().get(START_TIMEOUT, TimeUnit.SECONDS);
 
                 URI lra = response.lraId;
@@ -575,7 +571,6 @@ public class NarayanaLRAClient implements AutoCloseable {
             var req = new LeaveLRAHttp.Request(lraId, body);
             var _response = client.leaveLRA(
                     lraUid,
-                    LRAConstants.CURRENT_API_VERSION_STRING,
                     req)
                     .toCompletableFuture().get(LEAVE_TIMEOUT, TimeUnit.SECONDS);
 
@@ -738,8 +733,7 @@ public class NarayanaLRAClient implements AutoCloseable {
             String lraUid = LRAConstants.getLRAUid(uri);
 
             var response = client.getLRAStatus(
-                    lraUid,
-                    LRAConstants.CURRENT_API_VERSION_STRING)
+                    lraUid)
                     .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS);
 
             return response.status;
@@ -776,8 +770,7 @@ public class NarayanaLRAClient implements AutoCloseable {
             String lraUid = LRAConstants.getLRAUid(uri);
 
             var response = client.getLRAInfo(
-                    lraUid,
-                    LRAConstants.CURRENT_API_VERSION_STRING)
+                    lraUid)
                     .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS);
 
             return response.data;
@@ -808,7 +801,6 @@ public class NarayanaLRAClient implements AutoCloseable {
                     timeLimit == null ? 0L : timeLimit);
             var _response = client.renewTimeLimit(
                     lraUid,
-                    LRAConstants.CURRENT_API_VERSION_STRING,
                     body)
                     .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS);
         } catch (ExecutionException e) {
@@ -864,8 +856,7 @@ public class NarayanaLRAClient implements AutoCloseable {
 
             String encodedLRA = URLEncoder.encode(nestedLraId.toString(), StandardCharsets.UTF_8);
             var response = client.completeNestedLRA(
-                    encodedLRA,
-                    LRAConstants.CURRENT_API_VERSION_STRING)
+                    encodedLRA)
                     .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
 
             return response.status;
@@ -894,8 +885,7 @@ public class NarayanaLRAClient implements AutoCloseable {
 
             String encodedLRA = URLEncoder.encode(nestedLraId.toString(), StandardCharsets.UTF_8);
             var response = client.compensateNestedLRA(
-                    encodedLRA,
-                    LRAConstants.CURRENT_API_VERSION_STRING)
+                    encodedLRA)
                     .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
 
             return response.status;
@@ -1039,8 +1029,7 @@ public class NarayanaLRAClient implements AutoCloseable {
                     linkHeader);
 
             var response = client.joinLRA(
-                    lraUid,
-                    LRAConstants.CURRENT_API_VERSION_STRING, request)
+                    lraUid, request)
                     .toCompletableFuture().get(JOIN_TIMEOUT, TimeUnit.SECONDS);
 
             String recoveryUrl = null;
@@ -1123,7 +1112,6 @@ public class NarayanaLRAClient implements AutoCloseable {
                         userData == null ? "" : userData);
                 var _response = client.closeLRA(
                         lraId,
-                        LRAConstants.CURRENT_API_VERSION_STRING,
                         body)
                         .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
 
@@ -1134,7 +1122,6 @@ public class NarayanaLRAClient implements AutoCloseable {
                         userData == null ? "" : userData);
                 var _reply = client.cancelLRA(
                         lraId,
-                        LRAConstants.CURRENT_API_VERSION_STRING,
                         req)
                         .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
             }

@@ -21,7 +21,6 @@ import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
-import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
@@ -51,76 +50,65 @@ public interface CoordinatorClient {
     /**
      * Get all LRAs known to the coordinator
      *
-     * @param version API version header
      * @return Response containing list of LRAs
      */
     @GET
     @Path("/")
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<GetAllLRAHttp.Reply> getAllLRAs(
-            @QueryParam(LRAConstants.STATUS_PARAM_NAME) LRAStatus status,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
+            @QueryParam(LRAConstants.STATUS_PARAM_NAME) LRAStatus status);
 
     /**
      * Get the status of a specific LRA
      *
      * @param lraId LRA identifier
-     * @param version API version header
      * @return Response containing LRA status
      */
     @GET
     @Path("{LraId}/status")
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<StatusLRAHttp.Reply> getLRAStatus(
-            @PathParam("LraId") String lraId,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
+            @PathParam("LraId") String lraId);
 
     /**
      * Get detailed information about a specific LRA
      *
      * @param lraId LRA identifier
-     * @param version API version header
      * @return Response containing LRA data
      */
     @GET
     @Path("{LraId}")
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<GetLRAInfoLRAHttp.Reply> getLRAInfo(
-            @PathParam("LraId") String lraId,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
+            @PathParam("LraId") String lraId);
 
     /**
      * Start a new LRA
      *
-     * @param version API version header
      * @return Response with new LRA ID in Location header
      */
     @POST
     @Path("start")
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<StartLRAHttp.Reply> startLRA(
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version,
             StartLRAHttp.Request body);
 
     /**
      * Renew the time limit for an existing LRA
      *
      * @param lraId LRA identifier
-     * @param version API version header
      * @return Response indicating success or failure
      */
     @PUT
     @Path("{LraId}/renew")
     CompletionStage<RenewTimeLimitLRAHttp.Reply> renewTimeLimit(
             @PathParam("LraId") String lraId,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version,
             RenewTimeLimitLRAHttp.Request body);
 
     /**
      * Join a participant to an LRA
      *
      * @param lraId LRA identifier
-     * @param version API version header
      * @return Response with recovery URL in header
      */
     @PUT
@@ -128,14 +116,12 @@ public interface CoordinatorClient {
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<JoinLRAHttp.Reply> joinLRA(
             @PathParam("LraId") String lraId,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version,
             JoinLRAHttp.Request body);
 
     /**
      * Remove a participant from an LRA
      *
      * @param lraId LRA identifier
-     * @param version API version header
      * @return Response indicating success or failure
      */
     @PUT
@@ -143,14 +129,12 @@ public interface CoordinatorClient {
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<LeaveLRAHttp.Reply> leaveLRA(
             @PathParam("LraId") String lraId,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version,
             LeaveLRAHttp.Request body);
 
     /**
      * Close (complete) an LRA
      *
      * @param lraId LRA identifier
-     * @param version API version header
      * @return Response containing LRA status
      */
     @PUT
@@ -158,14 +142,12 @@ public interface CoordinatorClient {
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<CloseLRAHttp.Reply> closeLRA(
             @PathParam("LraId") String lraId,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version,
             CloseLRAHttp.Request body);
 
     /**
      * Cancel (compensate) an LRA
      *
      * @param lraId LRA identifier
-     * @param version API version header
      * @return Response containing LRA status
      */
     @PUT
@@ -173,7 +155,6 @@ public interface CoordinatorClient {
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<CancelLRAHttp.Reply> cancelLRA(
             @PathParam("LraId") String lraId,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version,
             CancelLRAHttp.Request body);
 
     /**
@@ -191,27 +172,23 @@ public interface CoordinatorClient {
      * Complete a nested LRA
      *
      * @param nestedLraId Nested LRA identifier
-     * @param version API version header
      * @return Response with participant status
      */
     @PUT
     @Path("nested/{NestedLraId}/complete")
     CompletionStage<NestedCompleteLRAHttp.Reply> completeNestedLRA(
-            @PathParam("NestedLraId") String nestedLraId,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
+            @PathParam("NestedLraId") String nestedLraId);
 
     /**
      * Compensate a nested LRA
      *
      * @param nestedLraId Nested LRA identifier
-     * @param version API version header
      * @return Response with participant status
      */
     @PUT
     @Path("nested/{NestedLraId}/compensate")
     CompletionStage<NestedCompensateLRAHttp.Reply> compensateNestedLRA(
-            @PathParam("NestedLraId") String nestedLraId,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) String version);
+            @PathParam("NestedLraId") String nestedLraId);
 
     /**
      * Forget a nested LRA
