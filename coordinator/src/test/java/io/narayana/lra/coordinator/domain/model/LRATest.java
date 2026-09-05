@@ -255,7 +255,7 @@ public class LRATest extends LRATestBase {
         String version = LRAConstants.API_VERSION_1_2;
         String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8); // must be valid
         var body = new JoinLRAHttp.Request();
-        body.compensatorURL = "";
+        body.compensatorLink = "";
         body.partId = "joinwithversion";
 
         try (Response response = client.target(coordinatorPath)
@@ -286,7 +286,7 @@ public class LRATest extends LRATestBase {
         String version = LRAConstants.API_VERSION_1_1;
         String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8); // must be valid
         var body = new JoinLRAHttp.Request();
-        body.compensatorURL = "";
+        body.compensatorLink = "";
         body.partId = "oldversiontest";
 
         try (Response response = client.target(coordinatorPath)
@@ -623,7 +623,7 @@ public class LRATest extends LRATestBase {
         URI lraId = lraClient.startLRA(testName);
         String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8); // must be valid
         var body = new JoinLRAHttp.Request();
-        body.compensatorURL = "";
+        body.compensatorLink = "";
         body.partId = "";
 
         try (Response response = client.target(coordinatorPath)
@@ -1429,7 +1429,7 @@ public class LRATest extends LRATestBase {
     private void enlistParticipant(String lraUid) {
         var linkHeader = getCompensatorLinkHeader();
         var request = new JoinLRAHttp.Request();
-        request.compensatorURL = linkHeader;
+        request.compensatorLink = linkHeader;
         request.partId = linkHeader;
         try (Response response = client.target(lraUid).request().put(Entity.json(request))) {
             var entity = response.readEntity(JoinLRAHttp.Reply.class);

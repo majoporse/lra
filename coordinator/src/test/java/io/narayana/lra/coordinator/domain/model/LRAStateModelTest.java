@@ -227,7 +227,7 @@ public class LRAStateModelTest extends LRATestBase {
                 makeLink(prefix, COMPLETE),
                 makeLink(prefix, COMPENSATE));
         var request = new JoinLRAHttp.Request();
-        request.compensatorURL = linkHeader;
+        request.compensatorLink = linkHeader;
         request.partId = "/base/failing-test";
 
         try (Response response = client.target(lraUid).request().put(Entity.json(request))) {
@@ -1265,7 +1265,7 @@ public class LRAStateModelTest extends LRATestBase {
                 makeLink(prefix, COMPLETE),
                 makeLink(prefix, COMPENSATE));
         var body = new JoinLRAHttp.Request();
-        body.compensatorURL = linkHeader;
+        body.compensatorLink = linkHeader;
         body.partId = "unreachable";
 
         try (Response response = client.target(lraUrl).request().put(Entity.json(body))) {

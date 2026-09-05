@@ -312,7 +312,7 @@ public class LRAFaultToleranceTest extends LRATestBase {
                 makeLink(prefix, "complete"),
                 makeLink(prefix, "compensate"));
         var request = new JoinLRAHttp.Request();
-        request.compensatorURL = linkHeader;
+        request.compensatorLink = linkHeader;
         request.partId = "/test/base";
 
         try (Response response = client.target(lraUrl).request().put(Entity.json(request))) {
@@ -332,7 +332,7 @@ public class LRAFaultToleranceTest extends LRATestBase {
                 makeLink(prefix, "compensate"));
 
         var request = new JoinLRAHttp.Request();
-        request.compensatorURL = linkHeader;
+        request.compensatorLink = linkHeader;
 
         try (Response response = client.target(lraUrl).request().put(Entity.json(request))) {
             var resEntity = response.readEntity(JoinLRAHttp.Reply.class);
