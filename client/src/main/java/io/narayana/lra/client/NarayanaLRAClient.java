@@ -507,12 +507,12 @@ public class NarayanaLRAClient implements AutoCloseable {
         endLRA(lraId, true, null, null);
     }
 
-    public void cancelLRA(URI lraId, String compensator, String userData) throws WebApplicationException {
-        endLRA(lraId, false, compensator, userData);
+    public void cancelLRA(URI lraId, String participantId, String userData) throws WebApplicationException {
+        endLRA(lraId, false, participantId, userData);
     }
 
-    public void closeLRA(URI lraId, String compensator, String userData) throws WebApplicationException {
-        endLRA(lraId, true, compensator, userData);
+    public void closeLRA(URI lraId, String participantId, String userData) throws WebApplicationException {
+        endLRA(lraId, true, participantId, userData);
     }
 
     /**
@@ -1060,7 +1060,6 @@ public class NarayanaLRAClient implements AutoCloseable {
                     uri,
                     timelimit,
                     links,
-                    compensatorData == null ? linkHeader : data,
                     data == null ? "" : data,
                     partId,
                     linkHeader);
@@ -1130,7 +1129,7 @@ public class NarayanaLRAClient implements AutoCloseable {
         }
     }
 
-    private void endLRA(URI lra, boolean confirm, String compensator, String userData) throws WebApplicationException {
+    private void endLRA(URI lra, boolean confirm, String participantId, String userData) throws WebApplicationException {
         lraTracef(lra, "%s LRA", confirm ? "close" : "compensate");
 
         try {
@@ -1146,7 +1145,7 @@ public class NarayanaLRAClient implements AutoCloseable {
             if (confirm) {
                 var body = new CloseLRAHttp.Request(
                         lra,
-                        compensator == null ? "" : compensator,
+                        participantId == null ? "" : participantId,
                         userData == null ? "" : userData);
                 var _response = client.closeLRA(
                         lraId,
@@ -1157,7 +1156,7 @@ public class NarayanaLRAClient implements AutoCloseable {
             } else {
                 var req = new CancelLRAHttp.Request(
                         lra,
-                        compensator == null ? "" : compensator,
+                        participantId == null ? "" : participantId,
                         userData == null ? "" : userData);
                 var _reply = client.cancelLRA(
                         lraId,

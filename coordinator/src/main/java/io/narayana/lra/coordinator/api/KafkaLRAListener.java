@@ -103,7 +103,7 @@ public class KafkaLRAListener {
 
         try {
             URI lraId = request.lraId;
-            LRAData lraData = httpLraService.endLRA(lraId, false, false, request.compensator, request.userData);
+            LRAData lraData = httpLraService.endLRA(lraId, false, false, request.participantId, request.userData);
             reply = new CloseLRAKafka.Reply(request.getCorrelationId(), lraData.getStatus(), null);
         } catch (Exception e) {
             reply = new CloseLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
@@ -148,9 +148,7 @@ public class KafkaLRAListener {
             String recoveryUrlBase = "http://localhost:8080/" + LRAConstants.COORDINATOR_PATH_NAME + "/"
                     + LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
             StringBuilder recoveryUrl = new StringBuilder();
-            StringBuilder compensatorData = request.compensatorURL != null
-                    ? new StringBuilder(request.compensatorURL)
-                    : new StringBuilder();
+            StringBuilder compensatorData = new StringBuilder(request.userData);
 
             String linkHeader = buildLinkHeader(request);
             String partId = "";

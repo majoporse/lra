@@ -283,7 +283,7 @@ public class LRAService {
         return endLRA(lraId, compensate, fromHierarchy, null, null);
     }
 
-    public LRAData endLRA(UUID lraId, boolean compensate, boolean fromHierarchy, String compensator, String userData) {
+    public LRAData endLRA(UUID lraId, boolean compensate, boolean fromHierarchy, String participantId, String userData) {
         LongRunningAction transaction = getTransaction(lraId);
 
         if (transaction.getLRAStatus() != LRAStatus.Active && !transaction.isRecovering() && transaction.isTopLevel()) {
@@ -292,7 +292,7 @@ public class LRAService {
                     .entity(errorMsg).build());
         }
 
-        transaction.finishLRA(compensate, compensator, userData);
+        transaction.finishLRA(compensate, participantId, userData);
 
         if (BasicAction.Current() != null) {
             if (LRALogger.logger.isInfoEnabled()) {

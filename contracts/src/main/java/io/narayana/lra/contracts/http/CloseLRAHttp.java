@@ -9,8 +9,8 @@ public class CloseLRAHttp {
         public Request() {
         }
 
-        public Request(URI lraId, String compensator, String userData) {
-            super(lraId, compensator, userData);
+        public Request(URI lraId, String participantId, String userData) {
+            super(lraId, participantId, userData);
         }
     }
 

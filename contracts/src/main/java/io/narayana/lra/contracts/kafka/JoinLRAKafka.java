@@ -13,8 +13,8 @@ public class JoinLRAKafka {
 
         public Request(String correlationId, String replyTopic, URI lraId, Long timeLimit,
                 ParticipantLinks links,
-                String compensatorData, String userData, String partId) {
-            super(lraId, timeLimit, links, compensatorData, userData, partId);
+                String userData, String partId) {
+            super(lraId, timeLimit, links, userData, partId);
             this.correlationId = correlationId;
             this.replyTopic = replyTopic;
         }

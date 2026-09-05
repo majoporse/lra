@@ -477,7 +477,7 @@ public class LongRunningAction extends BasicAction {
         return finishLRA(cancel, null, null);
     }
 
-    public int finishLRA(boolean cancel, String compensator, String userData) {
+    public int finishLRA(boolean cancel, String participantId, String userData) {
         ReentrantLock lock = null;
 
         // check whether the transaction should cancel due to a timeout:
@@ -504,8 +504,8 @@ public class LongRunningAction extends BasicAction {
                 return status();
             }
 
-            if (userData != null && !userData.isEmpty() && compensator != null && !compensator.isEmpty()) {
-                updateCompensatorUserData(compensator, userData);
+            if (userData != null && !userData.isEmpty() && participantId != null && !participantId.isEmpty()) {
+                updateCompensatorUserData(participantId, userData);
             }
 
             if (status == LRAStatus.Cancelling) {
@@ -930,13 +930,13 @@ public class LongRunningAction extends BasicAction {
         return null;
     }
 
-    private void updateCompensatorUserData(String compensator, String userData) {
-        LRAParticipantRecord participant = findLRAParticipant(compensator, false);
+    private void updateCompensatorUserData(String participantId, String userData) {
+        LRAParticipantRecord participant = findLRAParticipantById(participantId, false);
 
         if (participant != null) {
             participant.setCompensatorData(userData);
         } else {
-            LRALogger.i18nLogger.warn_unknownParticipant(compensator);
+            LRALogger.i18nLogger.warn_unknownParticipant(participantId.toString());
         }
     }
 
@@ -1018,32 +1018,32 @@ public class LongRunningAction extends BasicAction {
 
                 return null;
             }
-            rec = findLRAParticipantByCompensatorLink(pUrl, remove, pendingList, preparedList, heuristicList, failedList);
+
+            if (pUrl.indexOf(',') != -1) {
+                try {
+                    pUrl = LRAParticipantRecord.extractCompensator(pUrl);
+                } catch (URISyntaxException ignored) {
+                }
+            }
+            rec = findLRAParticipantByCompensateUri(URI.create(pUrl), remove, pendingList, preparedList, heuristicList,
+                    failedList);
         }
 
         return rec;
     }
 
-    private LRAParticipantRecord findLRAParticipantByCompensatorLink(String participantUrl, boolean remove,
+    private LRAParticipantRecord findLRAParticipantByCompensateUri(URI participantUrl, boolean remove,
             RecordList... lists) {
         for (RecordList list : lists) {
             if (list != null) {
                 RecordListIterator i = new RecordListIterator(list);
                 AbstractRecord r;
 
-                if (participantUrl.indexOf(',') != -1) {
-                    try {
-                        participantUrl = LRAParticipantRecord.extractCompensator(participantUrl);
-                    } catch (URISyntaxException e) {
-                        continue;
-                    }
-                }
-
                 while ((r = i.iterate()) != null) {
                     if (r instanceof LRAParticipantRecord) {
                         LRAParticipantRecord rr = (LRAParticipantRecord) r;
                         // can't use == because this may be a recovery scenario
-                        if (participantUrl.equals(rr.getCompensator())) {
+                        if (participantUrl.toASCIIString().equals(rr.getCompensator())) {
                             if (remove) {
                                 list.remove(rr);
                             }

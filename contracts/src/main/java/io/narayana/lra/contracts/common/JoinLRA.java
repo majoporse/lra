@@ -7,7 +7,6 @@ public class JoinLRA {
     public static class Request {
         public URI lraId;
         public Long timeLimit;
-        public String compensatorURL;
         public String partId;
         public String userData;
 
@@ -18,11 +17,10 @@ public class JoinLRA {
 
         public Request(URI lraId, Long timeLimit,
                 ParticipantLinks links,
-                String compensatorURL, String userData, String partId) {
+                String userData, String partId) {
             this.lraId = lraId;
             this.timeLimit = timeLimit;
             this.links = links;
-            this.compensatorURL = compensatorURL;
             this.partId = partId;
             this.userData = userData;
         }

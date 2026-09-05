@@ -181,22 +181,20 @@ public class KafkaLRAClient implements LRAClient {
     public URI joinLRA(URI lraId, Long timeLimit,
             URI compensateUri, URI completeUri,
             URI forgetUri, URI leaveUri, URI afterUri, URI statusUri,
-            StringBuilder compensatorData) {
-        String data = compensatorData != null ? compensatorData.toString() : null;
+            StringBuilder userData) {
         var links = new ParticipantLinks(); // TODO FIX
 
         JoinLRAKafka.Request request = new JoinLRAKafka.Request(
-                nextCorrelationId(), replyTopic, lraId, timeLimit, links,
-                data, "fixme2", "fixme");
+                nextCorrelationId(), replyTopic, lraId, timeLimit, links, userData.toString(), "fixme");
 
         JoinLRAKafka.Reply reply = send(LRAKafkaConstants.TYPE_JOIN, request, JoinLRAKafka.Reply.class,
                 !FIRE_AND_FORGET);
 
         checkError(reply);
 
-        if (compensatorData != null && reply.previousCompensatorData != null) {
-            compensatorData.setLength(0);
-            compensatorData.append(reply.previousCompensatorData);
+        if (userData != null && reply.previousCompensatorData != null) {
+            userData.setLength(0);
+            userData.append(reply.previousCompensatorData);
         }
 
         return URI.create(reply.recoveryUrl);

@@ -15,13 +15,11 @@ public class JoinLRAHttp {
                 URI lraId,
                 Long timeLimit,
                 ParticipantLinks participantLinks,
-                String compensatorURL,
                 String userData,
                 String partId,
                 String compensatorLink) {
             super(lraId, timeLimit,
                     participantLinks,
-                    compensatorURL,
                     userData,
                     partId);
             this.participantLinks = participantLinks;

@@ -9,14 +9,11 @@ import static io.narayana.lra.LRAConstants.API_VERSION_1_0;
 import static io.narayana.lra.LRAConstants.API_VERSION_1_1;
 import static io.narayana.lra.LRAConstants.API_VERSION_1_2;
 import static io.narayana.lra.LRAConstants.API_VERSION_1_3;
-import static io.narayana.lra.LRAConstants.COMPENSATE;
-import static io.narayana.lra.LRAConstants.COMPLETE;
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
 import static io.narayana.lra.LRAConstants.CURRENT_API_VERSION_STRING;
 import static io.narayana.lra.LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME;
 import static io.narayana.lra.LRAConstants.PARTICIPANT_TIMEOUT;
 import static io.narayana.lra.LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
-import static io.narayana.lra.LRAConstants.STATUS;
 import static io.narayana.lra.LRAConstants.STATUS_PARAM_NAME;
 import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST;
 import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
@@ -61,7 +58,6 @@ import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Application;
 import jakarta.ws.rs.core.Context;
-import jakarta.ws.rs.core.Link;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
@@ -71,9 +67,7 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -368,11 +362,11 @@ public class Coordinator extends Application {
             @Parameter(ref = LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version,
             CloseLRAHttp.Request body) {
 
-        var compensator = body.compensator;
+        var participantId = body.participantId;
         var userData = body.userData;
         try {
             URI lraURI = toURI(lraId);
-            LRAData lraData = httpLraService.endLRA(lraURI, false, false, compensator, userData);
+            LRAData lraData = httpLraService.endLRA(lraURI, false, false, participantId, userData);
 
             var lraStatus = lraData.getStatus();
             if (!isTerminal(lraStatus) && !(lraStatus == LRAStatus.Closing || lraStatus == LRAStatus.Cancelling)) {
@@ -475,7 +469,6 @@ public class Coordinator extends Application {
         var compensatorLink = body.compensatorLink == null ? "" : body.compensatorLink;
 
         var partId = body.partId;
-        var compensatorURL = body.compensatorURL;
 
         // test to see if the join request contains any participant specific data
         if (userData != null && !userData.isEmpty() && !isAllowParticipantData(version)) {
@@ -488,75 +481,13 @@ public class Coordinator extends Application {
                     .build());
         }
 
-        // test to see if the compensator endpoints are in the body of the join request
-        boolean isLink = isLink(compensatorURL);
+        StringBuilder sb = new StringBuilder();
 
-        if (compensatorLink != null && !compensatorLink.isEmpty()) {
-            StringBuilder sb = new StringBuilder();
-
-            if (userData != null) {
-                sb.append(userData);
-            }
-
-            return joinLRA(toURI(lraId), timeLimit, compensatorLink, sb, version, partId);
+        if (userData != null) {
+            sb.append(userData);
         }
 
-        if (!isLink && !compensatorURL.isEmpty()) {
-            // interpret the content as a standard participant <url> with the convention that
-            // <url>/compensate, <url>/complete and <url>/status are the endpoints for compensating,
-            // completing and status reporting (this was the protocol in the early prototype and
-            // is deprecated (see issue JBTM-1488 Implement the REST-JDI specification)
-            compensatorURL += "/";
-
-            Map<String, String> terminateURIs = new HashMap<>();
-
-            try {
-                terminateURIs.put(COMPENSATE, new URL(compensatorURL + "compensate").toExternalForm());
-                terminateURIs.put(COMPLETE, new URL(compensatorURL + "complete").toExternalForm());
-                terminateURIs.put(STATUS, new URL(compensatorURL + "status").toExternalForm());
-            } catch (MalformedURLException e) {
-                String errorMsg = String.format("Cannot join to LRA id '%s' with body as compensator url '%s' is invalid",
-                        lraId, compensatorURL);
-                if (LRALogger.logger.isTraceEnabled()) {
-                    LRALogger.logger.trace(errorMsg, e);
-                }
-
-                throw new WebApplicationException(errorMsg, Response.status(PRECONDITION_FAILED).build());
-            }
-
-            // register with the coordinator, put the lra id in an HTTP header
-            StringBuilder linkHeaderValue = new StringBuilder();
-
-            terminateURIs.forEach((k, v) -> makeLink(linkHeaderValue, k, v)); // or use Collectors.joining(",")
-
-            compensatorURL = linkHeaderValue.toString();
-        }
-
-        return joinLRA(toURI(lraId), timeLimit, compensatorURL, null, version, partId);
-    }
-
-    private static void makeLink(StringBuilder b, String key, String value) {
-
-        if (value != null) {
-
-            Link link = Link.fromUri(value).rel(key).type(MediaType.TEXT_PLAIN).build();
-
-            if (b.length() != 0) {
-                b.append(',');
-            }
-
-            b.append(link);
-        }
-    }
-
-    private boolean isLink(String linkString) {
-        try {
-            Link.valueOf(linkString);
-
-            return true;
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
+        return joinLRA(toURI(lraId), timeLimit, compensatorLink, sb, version, partId);
     }
 
     private JoinLRAHttp.Reply joinLRA(URI lraId, long timeLimit, String linkHeader,
