@@ -24,8 +24,8 @@ public class LRAParticipantRecordWrapper extends LogRecordWrapper implements LRA
     }
 
     @Override
-    public String getParticipantPath() {
-        return getParticipant().getParticipantURI();
+    public String getParticipantId() {
+        return getParticipant().getParticipantId();
     }
 
     @Override

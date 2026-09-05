@@ -5,7 +5,11 @@
 
 package io.narayana.lra.coordinator.domain.model;
 
+import static io.narayana.lra.LRAConstants.AFTER;
+import static io.narayana.lra.LRAConstants.COMPENSATE;
+import static io.narayana.lra.LRAConstants.COMPLETE;
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
+import static io.narayana.lra.LRAConstants.FORGET;
 import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static jakarta.ws.rs.core.Response.Status.OK;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT_HEADER;
@@ -31,6 +35,7 @@ import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.GetAllLRAHttp;
 import io.narayana.lra.contracts.http.GetLRAInfoLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
+import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -254,9 +259,11 @@ public class LRATest extends LRATestBase {
         URI lraId = lraClient.startLRA(testName);
         String version = LRAConstants.API_VERSION_1_2;
         String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8); // must be valid
+        var links = new ParticipantLinks();
         var body = new JoinLRAHttp.Request();
         body.compensatorLink = "";
         body.partId = "joinwithversion";
+        body.links = links;
 
         try (Response response = client.target(coordinatorPath)
                 .path(encodedLraId)
@@ -285,9 +292,11 @@ public class LRATest extends LRATestBase {
         URI lraId = lraClient.startLRA(testName);
         String version = LRAConstants.API_VERSION_1_1;
         String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8); // must be valid
+        var links = new ParticipantLinks();
         var body = new JoinLRAHttp.Request();
         body.compensatorLink = "";
         body.partId = "oldversiontest";
+        body.links = links;
 
         try (Response response = client.target(coordinatorPath)
                 .path(encodedLraId)
@@ -622,9 +631,11 @@ public class LRATest extends LRATestBase {
     public void testJoinLRAViaBody() {
         URI lraId = lraClient.startLRA(testName);
         String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8); // must be valid
+        var links = new ParticipantLinks();
         var body = new JoinLRAHttp.Request();
         body.compensatorLink = "";
         body.partId = "";
+        body.links = links;
 
         try (Response response = client.target(coordinatorPath)
                 .path(encodedLraId)
@@ -1428,9 +1439,19 @@ public class LRATest extends LRATestBase {
 
     private void enlistParticipant(String lraUid) {
         var linkHeader = getCompensatorLinkHeader();
+
+        String prefix = TestPortProvider.generateURL("/base/test");
+        var links = new ParticipantLinks();
+        links.compensateLink = URI.create(String.format("%s/%s", prefix, FORGET));
+        links.compensateLink = URI.create(String.format("%s/%s", prefix, AFTER));
+        links.compensateLink = URI.create(String.format("%s/%s", prefix, COMPENSATE));
+        links.completeLink = URI.create(String.format("%s/%s", prefix, COMPLETE));
+
         var request = new JoinLRAHttp.Request();
         request.compensatorLink = linkHeader;
         request.partId = linkHeader;
+        request.links = links;
+
         try (Response response = client.target(lraUid).request().put(Entity.json(request))) {
             var entity = response.readEntity(JoinLRAHttp.Reply.class);
             assertEquals(200, response.getStatus(), "Unexpected status: " + response);

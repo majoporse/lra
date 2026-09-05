@@ -5,6 +5,8 @@
 
 package io.narayana.lra.coordinator.domain.model;
 
+import static io.narayana.lra.LRAConstants.COMPENSATE;
+import static io.narayana.lra.LRAConstants.COMPLETE;
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
 import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -20,6 +22,7 @@ import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.LeaveLRAHttp;
+import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.coordinator.api.Coordinator;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.filter.ServerLRAFilter;
@@ -311,9 +314,15 @@ public class LRAFaultToleranceTest extends LRATestBase {
         String linkHeader = String.join(",",
                 makeLink(prefix, "complete"),
                 makeLink(prefix, "compensate"));
+
+        var links = new ParticipantLinks();
+        links.compensateLink = URI.create(String.format("%s/%s", prefix, COMPENSATE));
+        links.completeLink = URI.create(String.format("%s/%s", prefix, COMPLETE));
+
         var request = new JoinLRAHttp.Request();
         request.compensatorLink = linkHeader;
         request.partId = "/test/base";
+        request.links = links;
 
         try (Response response = client.target(lraUrl).request().put(Entity.json(request))) {
             assertEquals(200, response.getStatus(),
@@ -331,8 +340,14 @@ public class LRAFaultToleranceTest extends LRATestBase {
                 makeLink(prefix, "complete"),
                 makeLink(prefix, "compensate"));
 
+        var links = new ParticipantLinks();
+        links.compensateLink = URI.create(String.format("%s/%s", prefix, COMPENSATE));
+        links.completeLink = URI.create(String.format("%s/%s", prefix, COMPLETE));
+
         var request = new JoinLRAHttp.Request();
         request.compensatorLink = linkHeader;
+        request.links = links;
+        request.partId = "unreachable";
 
         try (Response response = client.target(lraUrl).request().put(Entity.json(request))) {
             var resEntity = response.readEntity(JoinLRAHttp.Reply.class);

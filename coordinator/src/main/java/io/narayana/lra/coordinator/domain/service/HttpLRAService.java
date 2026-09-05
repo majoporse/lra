@@ -9,6 +9,7 @@ import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.NotFoundException;
@@ -120,8 +121,8 @@ public class HttpLRAService {
         lraService.remove(extractUUID(lraId));
     }
 
-    public boolean updateRecoveryURI(URI lraId, String compensatorUrl, String recoveryURI, boolean persist) {
-        return lraService.updateRecoveryURI(extractUUID(lraId), compensatorUrl, recoveryURI, persist);
+    public boolean updateRecoveryURI(URI lraId, ParticipantLinks links, String recoveryURI, boolean persist) {
+        return lraService.updateRecoveryURI(extractUUID(lraId), links, recoveryURI, persist);
     }
 
     public LongRunningAction startLRA(String baseUri, URI parentLRA, String clientId, Long timelimit) {
@@ -142,17 +143,17 @@ public class HttpLRAService {
     }
 
     public int joinLRA(StringBuilder recoveryUrl, URI lra, long timeLimit,
-            String compensatorUrl, String linkHeader, String recoveryUrlBase,
+            ParticipantLinks links, String recoveryUrlBase,
             StringBuilder compensatorData, String partId) {
         return lraService.joinLRA(recoveryUrl, extractUUID(lra), timeLimit,
-                compensatorUrl, linkHeader, recoveryUrlBase, compensatorData, partId);
+                links, recoveryUrlBase, compensatorData, partId);
     }
 
     public int joinLRA(StringBuilder recoveryUrl, URI lra, long timeLimit,
-            String compensatorUrl, String linkHeader, String recoveryUrlBase,
+            ParticipantLinks links, String recoveryUrlBase,
             StringBuilder compensatorData, String version, String partId) {
         return lraService.joinLRA(recoveryUrl, extractUUID(lra), timeLimit,
-                compensatorUrl, linkHeader, recoveryUrlBase, compensatorData, version, partId);
+                links, recoveryUrlBase, compensatorData, version, partId);
     }
 
     public int renewTimeLimit(URI lraId, Long timelimit) {

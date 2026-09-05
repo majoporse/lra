@@ -20,6 +20,8 @@ import com.arjuna.ats.arjuna.state.InputObjectState;
 import com.arjuna.ats.arjuna.state.OutputObjectState;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.LinkHelper;
+import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.ServiceUnavailableException;
@@ -833,7 +835,7 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
-    public LRAParticipantRecord enlistParticipant(URI coordinatorUrl, String participantUrl, String recoveryUrlBase,
+    public LRAParticipantRecord enlistParticipant(URI coordinatorUrl, ParticipantLinks links, String recoveryUrlBase,
             long timeLimit, String compensatorData, String version, String partId)
             throws UnsupportedEncodingException {
         ReentrantLock lock = tryTimedLockTransaction(participantEnlistTimeout);
@@ -848,7 +850,7 @@ public class LongRunningAction extends BasicAction {
                     participant.setCompensatorData(compensatorData);
                     return participant; // must have already been enlisted
                 }
-                participant = doEnlistParticipant(coordinatorUrl, participantUrl, recoveryUrlBase, timeLimit,
+                participant = doEnlistParticipant(coordinatorUrl, links, recoveryUrlBase, timeLimit,
                         compensatorData, version, partId);
                 if (participant != null) {
                     // need to remember that there is a new participant
@@ -868,9 +870,9 @@ public class LongRunningAction extends BasicAction {
 
     }
 
-    private LRAParticipantRecord doEnlistParticipant(URI coordinatorUrl, String participantUrl, String recoveryUrlBase,
+    private LRAParticipantRecord doEnlistParticipant(URI coordinatorUrl, ParticipantLinks links, String recoveryUrlBase,
             long timeLimit, String compensatorData, String version, String partId) {
-        LRAParticipantRecord p = new LRAParticipantRecord(this, lraService, participantUrl, compensatorData, partId);
+        LRAParticipantRecord p = new LRAParticipantRecord(this, lraService, links, compensatorData, partId);
         String pid = p.get_uid().fileStringForm();
 
         /*
@@ -921,7 +923,7 @@ public class LongRunningAction extends BasicAction {
             updateState();
 
             if (LRALogger.logger.isTraceEnabled()) {
-                trace_progress("enlisted listener " + p.getParticipantPath());
+                trace_progress("enlisted listener " + p.getParticipantId());
             }
 
             return p;
@@ -974,7 +976,7 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
-    private LRAParticipantRecord findLRAParticipantById(String participantId, boolean remove) {
+    public LRAParticipantRecord findLRAParticipantById(String participantId, boolean remove) {
         var lists = new RecordList[] { pendingList, preparedList, heuristicList, failedList };
         for (RecordList list : lists) {
             if (list != null) {
@@ -1000,31 +1002,23 @@ public class LongRunningAction extends BasicAction {
         return null;
     }
 
-    private LRAParticipantRecord findLRAParticipant(String participantUrl, boolean remove) {
+    public LRAParticipantRecord findLRAParticipant(String participantUrl, boolean remove) {
         LRAParticipantRecord rec;
 
         try {
-            URI recoveryUrl = new URI(LRAParticipantRecord.cannonicalForm(participantUrl));
+            URI recoveryUrl = new URI(LinkHelper.cannonicalForm(participantUrl));
 
             rec = findLRAParticipantByRecoveryUrl(recoveryUrl, remove, pendingList, preparedList, heuristicList, failedList);
 
         } catch (URISyntaxException ignore) {
-            String pUrl;
-            try {
-                pUrl = LRAParticipantRecord.extractCompensator(participantUrl);
-            } catch (URISyntaxException e) {
-                LRALogger.logger.info(LRALogger.i18nLogger.warn_invalid_uri(
-                        participantUrl, e.getMessage() + " findLRAParticipant"));
-
-                return null;
-            }
-
+            String pUrl = participantUrl;
             if (pUrl.indexOf(',') != -1) {
                 try {
-                    pUrl = LRAParticipantRecord.extractCompensator(pUrl);
+                    pUrl = LinkHelper.extractCompensator(pUrl);
                 } catch (URISyntaxException ignored) {
                 }
             }
+
             rec = findLRAParticipantByCompensateUri(URI.create(pUrl), remove, pendingList, preparedList, heuristicList,
                     failedList);
         }
@@ -1289,13 +1283,13 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
-    public boolean updateRecoveryURI(String linkHeader, String recoveryUri) {
+    public boolean updateRecoveryURI(ParticipantLinks links, String recoveryUri) {
         LRAParticipantRecord lraRecord = findLRAParticipant(recoveryUri, false);
 
         if (lraRecord != null) {
             try {
                 lraRecord.setRecoveryURI(recoveryUri);
-                lraRecord.updateCallbacks(linkHeader);
+                lraRecord.updateCallbacks(links);
 
                 if (!deactivate()) {
                     LRALogger.logger.warn(LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON));

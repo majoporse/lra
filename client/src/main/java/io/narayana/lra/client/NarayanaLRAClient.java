@@ -74,8 +74,6 @@ import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.lra.annotation.AfterLRA;
@@ -1010,30 +1008,6 @@ public class NarayanaLRAClient implements AutoCloseable {
         return enlistCompensator(lraUri, timelimit, linkHeaderValue.toString(), compensatorData, partId);
     }
 
-    public static ParticipantLinks parseLinkString(String headerValue) {
-        Pattern LINK_REL_PATTERN = Pattern.compile("<([^>]+)>[^,]*?;\\s*rel=\"?([^\";,\\s]+)\"?");
-        if (headerValue == null || headerValue.isBlank()) {
-            return new ParticipantLinks();
-        }
-
-        Map<String, String> linksMap = new HashMap<>();
-        Matcher matcher = LINK_REL_PATTERN.matcher(headerValue);
-
-        while (matcher.find()) {
-            String uri = matcher.group(1);
-            String rel = matcher.group(2).toLowerCase();
-            linksMap.put(rel, uri);
-        }
-
-        return new ParticipantLinks(
-                linksMap.get("compensate"),
-                linksMap.get("complete"),
-                linksMap.get("forget"),
-                linksMap.get("leave"),
-                linksMap.get("after"),
-                linksMap.get("status"));
-    }
-
     public URI enlistCompensator(URI uri, Long timelimit, String linkHeader, StringBuilder compensatorData, String partId) {
         // register with the coordinator
         URL lraId = null;
@@ -1052,7 +1026,7 @@ public class NarayanaLRAClient implements AutoCloseable {
         try {
             // Build the CoordinatorClient using the base coordinator URL
             CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uri));
-            var links = parseLinkString(linkHeader);
+            var links = ParticipantLinks.fromLinkString(linkHeader);
 
             // Extract the LRA UID
             String lraUid = LRAConstants.getLRAUid(uri);

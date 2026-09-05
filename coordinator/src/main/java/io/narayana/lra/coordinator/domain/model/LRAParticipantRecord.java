@@ -5,7 +5,6 @@
 
 package io.narayana.lra.coordinator.domain.model;
 
-import static io.narayana.lra.LRAConstants.AFTER;
 import static io.narayana.lra.LRAConstants.NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME;
 import static io.narayana.lra.LRAConstants.PARTICIPANT_TIMEOUT;
 import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST;
@@ -22,6 +21,7 @@ import com.arjuna.ats.arjuna.state.OutputObjectState;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.security.JwtTokenContext;
@@ -33,7 +33,6 @@ import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.client.Invocation;
 import jakarta.ws.rs.client.WebTarget;
 import jakarta.ws.rs.core.HttpHeaders;
-import jakarta.ws.rs.core.Link;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.io.IOException;
@@ -43,10 +42,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.Arrays;
 import java.util.Objects;
-import java.util.SortedMap;
-import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -64,7 +60,6 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     private UUID lraId;
     private UUID parentId;
     private URI recoveryURI;
-    private String participantPath;
 
     private URI completeURI;
     private URI compensateURI;
@@ -83,166 +78,36 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     public LRAParticipantRecord() {
     }
 
-    LRAParticipantRecord(LongRunningAction lra, LRAService lraService, String linkURI, String compensatorData, String partId) {
+    LRAParticipantRecord(LongRunningAction lra, LRAService lraService, ParticipantLinks links, String compensatorData,
+            String partId) {
         super(new Uid());
 
         this.participantId = partId;
         this.lra = lra;
 
-        try {
-            // if compensateURI is a link parse it into compensate,complete and status urls
-            if (linkURI.startsWith("<")) {
-                Exception[] parseException = { null };
+        this.completeURI = links.completeLink;
+        this.compensateURI = links.compensateLink;
+        this.statusURI = links.statusLink;
+        this.forgetURI = links.forgetLink;
+        this.afterURI = links.afterLink;
 
-                Arrays.stream(linkURI.split(",")).forEach((linkStr) -> {
-                    Exception e = parseLink(linkStr);
-                    if (e != null) {
-                        parseException[0] = e;
-                    }
-                });
+        this.lraId = lra.getId();
+        this.parentId = lra.getParentId();
+        this.status = ParticipantStatus.Active;
 
-                if (parseException[0] != null) {
-                    String errorMsg = LRALogger.i18nLogger.error_invalidCompensator(URI.create("urn:uuid:" + lra.getId()),
-                            parseException[0].getMessage(),
-                            linkURI);
-                    LRALogger.logger.error(errorMsg);
-                    if (LRALogger.logger.isTraceEnabled()) {
-                        trace_progress(errorMsg);
-                    }
-                    throw new WebApplicationException(Response.status(BAD_REQUEST)
-                            .entity(errorMsg)
-                            .build());
-                } else if (compensateURI == null && afterURI == null) {
-                    String errorMsg = LRALogger.i18nLogger.error_missingCompensator(URI.create("urn:uuid:" + lra.getId()),
-                            linkURI);
-                    LRALogger.logger.error(errorMsg);
-                    if (LRALogger.logger.isTraceEnabled()) {
-                        trace_progress(errorMsg);
-                    }
-                    throw new WebApplicationException(Response.status(BAD_REQUEST)
-                            .entity(errorMsg)
-                            .build());
-                }
-            } else {
-                this.compensateURI = new URI(String.format("%s/compensate", linkURI));
-                this.completeURI = new URI(String.format("%s/complete", linkURI));
-                this.statusURI = new URI(String.format("%s", linkURI));
-                this.forgetURI = new URI(String.format("%s", linkURI));
+        this.lraService = lraService;
 
-            }
+        this.recoveryURI = null;
+        this.compensatorData = compensatorData;
 
-            this.lraId = lra.getId();
-            this.parentId = lra.getParentId();
-            this.status = ParticipantStatus.Active;
-
-            this.lraService = lraService;
-            this.participantPath = linkURI;
-
-            this.recoveryURI = null;
-            this.compensatorData = compensatorData;
-
-            if (LRALogger.logger.isTraceEnabled()) {
-                trace_progress("created");
-            }
-        } catch (URISyntaxException e) {
-            String logMsg = LRALogger.i18nLogger.error_invalidFormatToCreateLRAParticipantRecord(lraId.toString(), linkURI,
-                    e.getMessage());
-            LRALogger.logger.error(logMsg);
-            if (LRALogger.logger.isTraceEnabled()) {
-                trace_progress(logMsg);
-            }
-
-            throw new WebApplicationException(Response.status(BAD_REQUEST)
-                    .entity(logMsg)
-                    .build());
+        if (LRALogger.logger.isTraceEnabled()) {
+            trace_progress("created");
         }
     }
 
     void setLRA(LongRunningAction lra) {
         this.lra = lra;
         this.parentId = lra.getParentId();
-    }
-
-    String getParticipantPath() {
-        return participantPath;
-    }
-
-    static String cannonicalForm(String linkStr) throws URISyntaxException {
-        if (!linkStr.contains(">;")) {
-            return new URI(linkStr).toASCIIString();
-        }
-
-        SortedMap<String, String> lm = new TreeMap<>();
-        Arrays.stream(linkStr.split(",")).forEach(link -> lm.put(Link.valueOf(link).getRel(), link));
-        StringBuilder sb = new StringBuilder();
-
-        lm.forEach((k, v) -> appendLink(sb, v));
-
-        return sb.toString();
-    }
-
-    private static void appendLink(StringBuilder b, String value) {
-        if (b.length() != 0) {
-            b.append(',');
-        }
-
-        b.append(value);
-    }
-
-    static String extractCompensator(String linkStr) throws URISyntaxException {
-        for (String lnk : linkStr.split(",")) {
-            Link link;
-
-            try {
-                link = Link.valueOf(lnk);
-            } catch (IllegalArgumentException e) {
-                throw new URISyntaxException(lnk, e.getMessage());
-            }
-
-            if (COMPENSATE_REL.equals(link.getRel())) {
-                return cannonicalForm(link.getUri().toString());
-            }
-        }
-
-        return linkStr;
-    }
-
-    private static URI cannonicalURI(URI uri) throws URISyntaxException {
-        return new URI(uri.getScheme(),
-                uri.getUserInfo(),
-                uri.getHost(),
-                uri.getPort(),
-                uri.getPath().replaceAll("//", "/"),
-                uri.getQuery(), uri.getFragment());
-    }
-
-    private URISyntaxException parseLink(String linkStr) {
-        Link link = Link.valueOf(linkStr);
-        String rel = link.getRel();
-
-        try {
-            URI uri = cannonicalURI(link.getUri());
-
-            if (COMPENSATE_REL.equals(rel)) {
-                compensateURI = uri;
-            } else if (COMPLETE_REL.equals(rel)) {
-                completeURI = uri;
-            } else if ("status".equals(rel)) {
-                statusURI = uri;
-            } else if (AFTER.equals(rel)) {
-                afterURI = uri;
-            } else if ("forget".equals(rel)) {
-                forgetURI = uri;
-            } else if ("participant".equals(rel)) {
-                compensateURI = new URI(uri.toASCIIString() + "/compensate");
-                completeURI = new URI(uri.toASCIIString() + "/complete");
-                statusURI = forgetURI = uri;
-            }
-
-            return null;
-        } catch (URISyntaxException e) {
-            return e;
-        }
     }
 
     @Override
@@ -883,7 +748,6 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                 packURI(os, statusURI);
                 packURI(os, forgetURI);
                 packStatus(os);
-                os.packString(participantPath);
                 os.packString(compensatorData);
             } catch (IOException e) {
                 LRALogger.logger.warn(LRALogger.i18nLogger.warn_saveState(e.getMessage()));
@@ -913,7 +777,6 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                 statusURI = unpackURI(os);
                 forgetURI = unpackURI(os);
                 unpackStatus(os);
-                participantPath = os.unpackString();
                 compensatorData = os.unpackString();
                 accepted = status == ParticipantStatus.Completing || status == ParticipantStatus.Compensating;
             } catch (IOException | URISyntaxException | IllegalArgumentException e) {
@@ -1049,19 +912,13 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         return recoveryURI;
     }
 
-    public String getParticipantURI() {
-        return participantPath;
-    }
-
     // the participant is asking to be called back on different URLs
-    void updateCallbacks(String linkStr) {
-        Exception e = parseLink(linkStr);
-
-        if (e != null) {
-            throw new WebApplicationException(Response.status(BAD_REQUEST)
-                    .entity(LRALogger.i18nLogger.warn_invalid_compensator(e.getMessage(), linkStr))
-                    .build());
-        }
+    void updateCallbacks(ParticipantLinks links) {
+        this.compensateURI = links.compensateLink;
+        this.completeURI = links.completeLink;
+        this.forgetURI = links.forgetLink;
+        this.statusURI = links.statusLink;
+        this.afterURI = links.afterLink;
     }
 
     void setRecoveryURI(String recoveryURI) {
@@ -1114,7 +971,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         LRALogger.logger.tracef("%s: LRA id: %s, Participant id: %s, reason: %s, state: %s, accepted: %b",
                 LocalDateTime.now(ZoneOffset.UTC), // use the same time function as used for LRA timeouts
                 lraId,
-                participantPath,
+                participantId,
                 reason,
                 status,
                 accepted);

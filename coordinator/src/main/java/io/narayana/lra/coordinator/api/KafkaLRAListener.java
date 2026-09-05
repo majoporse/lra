@@ -145,6 +145,7 @@ public class KafkaLRAListener {
 
         try {
             URI lraId = request.lraId;
+            var links = request.links;
             String recoveryUrlBase = "http://localhost:8080/" + LRAConstants.COORDINATOR_PATH_NAME + "/"
                     + LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
             StringBuilder recoveryUrl = new StringBuilder();
@@ -153,8 +154,8 @@ public class KafkaLRAListener {
             String linkHeader = buildLinkHeader(request);
             String partId = "";
 
-            int status = httpLraService.joinLRA(recoveryUrl, lraId, request.timeLimit, null,
-                    linkHeader, recoveryUrlBase, compensatorData, partId);
+            int status = httpLraService.joinLRA(recoveryUrl, lraId, request.timeLimit,
+                    links, recoveryUrlBase, compensatorData, partId);
 
             if (status == Response.Status.OK.getStatusCode()) {
                 reply = new JoinLRAKafka.Reply(request.getCorrelationId(), recoveryUrl.toString(),
@@ -190,12 +191,12 @@ public class KafkaLRAListener {
 
     private String buildLinkHeader(JoinLRAKafka.Request request) {
         StringBuilder sb = new StringBuilder();
-        appendLink(sb, "compensate", request.links.compensateLink);
-        appendLink(sb, "complete", request.links.completeLink);
-        appendLink(sb, "forget", request.links.forgetLink);
-        appendLink(sb, "leave", request.links.leaveLink);
-        appendLink(sb, "after", request.links.afterLink);
-        appendLink(sb, "status", request.links.statusLink);
+        appendLink(sb, "compensate", request.links.compensateLink.toString());
+        appendLink(sb, "complete", request.links.completeLink.toString());
+        appendLink(sb, "forget", request.links.forgetLink.toString());
+        appendLink(sb, "leave", request.links.leaveLink.toString());
+        appendLink(sb, "after", request.links.afterLink.toString());
+        appendLink(sb, "status", request.links.statusLink.toString());
         return sb.toString();
     }
 

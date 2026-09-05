@@ -22,6 +22,7 @@ import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.NestedCompensateLRAHttp;
 import io.narayana.lra.contracts.http.NestedCompleteLRAHttp;
 import io.narayana.lra.contracts.http.NestedStatusLRAHttp;
+import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.coordinator.api.Coordinator;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
@@ -226,14 +227,21 @@ public class LRAStateModelTest extends LRATestBase {
         String linkHeader = String.join(",",
                 makeLink(prefix, COMPLETE),
                 makeLink(prefix, COMPENSATE));
+
+        var links = new ParticipantLinks();
+        links.compensateLink = URI.create(String.format("%s/%s", prefix, COMPENSATE));
+        links.completeLink = URI.create(String.format("%s/%s", prefix, COMPLETE));
+
         var request = new JoinLRAHttp.Request();
         request.compensatorLink = linkHeader;
+        request.links = links;
+
         request.partId = "/base/failing-test";
 
         try (Response response = client.target(lraUid).request().put(Entity.json(request))) {
-            var responseEntity = response.readEntity(JoinLRAHttp.Reply.class);
             assertEquals(200, response.getStatus(),
                     "Unexpected status enlisting failing participant: " + response);
+            var responseEntity = response.readEntity(JoinLRAHttp.Reply.class);
             String recoveryId = responseEntity.recoveryUrl;
             assertNotNull(recoveryId, "recovery id was null for failing participant");
         }
@@ -1264,9 +1272,15 @@ public class LRAStateModelTest extends LRATestBase {
         String linkHeader = String.join(",",
                 makeLink(prefix, COMPLETE),
                 makeLink(prefix, COMPENSATE));
+
+        var links = new ParticipantLinks();
+        links.compensateLink = URI.create(String.format("%s/%s", prefix, COMPENSATE));
+        links.completeLink = URI.create(String.format("%s/%s", prefix, COMPLETE));
+
         var body = new JoinLRAHttp.Request();
         body.compensatorLink = linkHeader;
         body.partId = "unreachable";
+        body.links = links;
 
         try (Response response = client.target(lraUrl).request().put(Entity.json(body))) {
             assertEquals(200, response.getStatus(),
