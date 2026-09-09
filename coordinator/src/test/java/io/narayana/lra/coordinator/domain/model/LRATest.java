@@ -5,11 +5,7 @@
 
 package io.narayana.lra.coordinator.domain.model;
 
-import static io.narayana.lra.LRAConstants.AFTER;
-import static io.narayana.lra.LRAConstants.COMPENSATE;
-import static io.narayana.lra.LRAConstants.COMPLETE;
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
-import static io.narayana.lra.LRAConstants.FORGET;
 import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static jakarta.ws.rs.core.Response.Status.OK;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT_HEADER;
@@ -29,13 +25,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.GetAllLRAHttp;
 import io.narayana.lra.contracts.http.GetLRAInfoLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
-import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -54,7 +51,6 @@ import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.client.WebTarget;
 import jakarta.ws.rs.core.Application;
-import jakarta.ws.rs.core.Link;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriBuilder;
@@ -566,11 +562,9 @@ public class LRATest extends LRATestBase {
     public void testJoinLRAViaBody() {
         URI lraId = lraClient.startLRA(testName);
         String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8); // must be valid
-        var links = new ParticipantLinks();
         var body = new JoinLRAHttp.Request();
-        body.compensatorLink = "";
         body.partId = "";
-        body.links = links;
+        body.callbacks = new ParticipantCallbacks();
 
         try (Response response = client.target(coordinatorPath)
                 .path(encodedLraId)
@@ -1373,19 +1367,21 @@ public class LRATest extends LRATestBase {
     }
 
     private void enlistParticipant(String lraUid) {
-        var linkHeader = getCompensatorLinkHeader();
-
         String prefix = TestPortProvider.generateURL("/base/test");
-        var links = new ParticipantLinks();
-        links.compensateLink = URI.create(String.format("%s/%s", prefix, FORGET));
-        links.compensateLink = URI.create(String.format("%s/%s", prefix, AFTER));
-        links.compensateLink = URI.create(String.format("%s/%s", prefix, COMPENSATE));
-        links.completeLink = URI.create(String.format("%s/%s", prefix, COMPLETE));
+
+        var callbacks = new ParticipantCallbacks();
+        callbacks.compensateCallback = new HttpCallback(URI.create(String.format("%s/%s", prefix, "compensate")),
+                HttpCallback.HttpMethod.PUT, HttpCallback.ContextType.ACTIVE);
+        callbacks.completeCallback = new HttpCallback(URI.create(String.format("%s/%s", prefix, "complete")),
+                HttpCallback.HttpMethod.PUT, HttpCallback.ContextType.ACTIVE);
+        callbacks.forgetCallback = new HttpCallback(URI.create(String.format("%s/%s", prefix, "forget")),
+                HttpCallback.HttpMethod.DELETE, HttpCallback.ContextType.ACTIVE);
+        callbacks.afterCallback = new HttpCallback(URI.create(String.format("%s/%s", prefix, "after")),
+                HttpCallback.HttpMethod.PUT, HttpCallback.ContextType.ENDED);
 
         var request = new JoinLRAHttp.Request();
-        request.compensatorLink = linkHeader;
-        request.partId = linkHeader;
-        request.links = links;
+        request.partId = "/base/test";
+        request.callbacks = callbacks;
 
         try (Response response = client.target(lraUid).request().put(Entity.json(request))) {
             var entity = response.readEntity(JoinLRAHttp.Reply.class);
@@ -1446,24 +1442,6 @@ public class LRATest extends LRATestBase {
         } catch (URISyntaxException e) {
             fail(String.format("%s: %s", testName, e.getMessage()));
         }
-    }
-
-    private String getCompensatorLinkHeader() {
-        String prefix = TestPortProvider.generateURL("/base/test");
-
-        return String.join(",",
-                makeLink(prefix, "forget"),
-                makeLink(prefix, "after"),
-                makeLink(prefix, "complete"),
-                makeLink(prefix, "compensate"));
-    }
-
-    private static String makeLink(String uriPrefix, String key) {
-        return Link.fromUri(String.format("%s/%s", uriPrefix, key))
-                .title(key + " URI")
-                .rel(key)
-                .type(MediaType.TEXT_PLAIN)
-                .build().toString();
     }
 
     /**

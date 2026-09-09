@@ -1,6 +1,6 @@
 package io.narayana.lra.contracts.common;
 
-import io.narayana.lra.contracts.http.ParticipantLinks;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import java.net.URI;
 
 public class JoinLRA {
@@ -10,17 +10,17 @@ public class JoinLRA {
         public String partId;
         public String userData;
 
-        public ParticipantLinks links;
+        public ParticipantCallbacks callbacks;
 
         public Request() {
         }
 
         public Request(URI lraId, Long timeLimit,
-                ParticipantLinks links,
+                ParticipantCallbacks callbacks,
                 String userData, String partId) {
             this.lraId = lraId;
             this.timeLimit = timeLimit;
-            this.links = links;
+            this.callbacks = callbacks;
             this.partId = partId;
             this.userData = userData;
         }

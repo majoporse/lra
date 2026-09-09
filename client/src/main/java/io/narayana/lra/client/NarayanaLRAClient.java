@@ -26,11 +26,11 @@ import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.LeaveLRAHttp;
-import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.logging.LRALogger;
@@ -1016,7 +1016,7 @@ public class NarayanaLRAClient implements AutoCloseable {
         try {
             // Build the CoordinatorClient using the base coordinator URL
             CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uri));
-            var links = ParticipantLinks.fromLinkString(linkHeader);
+            var links = ParticipantCallbacks.fromLinkString(linkHeader);
 
             // Extract the LRA UID
             String lraUid = LRAConstants.getLRAUid(uri);
@@ -1025,8 +1025,7 @@ public class NarayanaLRAClient implements AutoCloseable {
                     timelimit,
                     links,
                     data == null ? "" : data,
-                    partId,
-                    linkHeader);
+                    partId);
 
             var response = client.joinLRA(
                     lraUid, request)

@@ -20,13 +20,13 @@ import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVER
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.GetAllLRAHttp;
 import io.narayana.lra.contracts.http.GetLRAInfoLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.LeaveLRAHttp;
-import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
@@ -465,10 +465,10 @@ public class Coordinator extends Application {
             sb.append(userData);
         }
 
-        return joinLRA(toURI(lraId), timeLimit, body.links, sb, partId);
+        return joinLRA(toURI(lraId), timeLimit, body.callbacks, sb, partId);
     }
 
-    private JoinLRAHttp.Reply joinLRA(URI lraId, long timeLimit, ParticipantLinks links,
+    private JoinLRAHttp.Reply joinLRA(URI lraId, long timeLimit, ParticipantCallbacks callbacks,
             StringBuilder userData, String participantId) {
         final String recoveryUrlBase = String.format("%s%s/%s",
                 context.getBaseUri().toASCIIString(), COORDINATOR_PATH_NAME, RECOVERY_COORDINATOR_PATH_NAME);
@@ -481,7 +481,7 @@ public class Coordinator extends Application {
         int status;
 
         try {
-            status = httpLraService.joinLRA(recoveryUrl, lraId, timeLimit, links, recoveryUrlBase, userData,
+            status = httpLraService.joinLRA(recoveryUrl, lraId, timeLimit, callbacks, recoveryUrlBase, userData,
                     participantId);
             if (status < 200 || status >= 300) {
                 String errMessage = String.format(

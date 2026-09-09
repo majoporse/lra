@@ -17,12 +17,13 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.narayana.lra.LRAConstants;
+import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.NestedCompensateLRAHttp;
 import io.narayana.lra.contracts.http.NestedCompleteLRAHttp;
 import io.narayana.lra.contracts.http.NestedStatusLRAHttp;
-import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.coordinator.api.Coordinator;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
@@ -39,8 +40,6 @@ import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Application;
-import jakarta.ws.rs.core.Link;
-import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Method;
 import java.net.URI;
@@ -125,7 +124,7 @@ public class LRAStateModelTest extends LRATestBase {
         @Path("/complete")
         @Complete
         public Response complete(@HeaderParam(LRA.LRA_HTTP_CONTEXT_HEADER) URI contextLRA) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+            return Response.status(Response.Status.CONFLICT)
                     .entity(ParticipantStatus.FailedToComplete.name())
                     .build();
         }
@@ -134,7 +133,7 @@ public class LRAStateModelTest extends LRATestBase {
         @Path("/compensate")
         @Compensate
         public Response compensate(@HeaderParam(LRA.LRA_HTTP_CONTEXT_HEADER) URI contextLRA) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+            return Response.status(Response.Status.CONFLICT)
                     .entity(ParticipantStatus.FailedToCompensate.name())
                     .build();
         }
@@ -224,17 +223,9 @@ public class LRAStateModelTest extends LRATestBase {
     private void enlistFailingParticipant(URI lraId) {
         String lraUid = lraId.toASCIIString().split("\\?")[0];
         String prefix = TestPortProvider.generateURL("/base/failing-test");
-        String linkHeader = String.join(",",
-                makeLink(prefix, COMPLETE),
-                makeLink(prefix, COMPENSATE));
-
-        var links = new ParticipantLinks();
-        links.compensateLink = URI.create(String.format("%s/%s", prefix, COMPENSATE));
-        links.completeLink = URI.create(String.format("%s/%s", prefix, COMPLETE));
 
         var request = new JoinLRAHttp.Request();
-        request.compensatorLink = linkHeader;
-        request.links = links;
+        request.callbacks = callbacksFor(prefix);
 
         request.partId = "/base/failing-test";
 
@@ -247,12 +238,13 @@ public class LRAStateModelTest extends LRATestBase {
         }
     }
 
-    private static String makeLink(String uriPrefix, String key) {
-        return Link.fromUri(String.format("%s/%s", uriPrefix, key))
-                .title(key + " URI")
-                .rel(key)
-                .type(MediaType.TEXT_PLAIN)
-                .build().toString();
+    private static ParticipantCallbacks callbacksFor(String prefix) {
+        ParticipantCallbacks callbacks = new ParticipantCallbacks();
+        callbacks.compensateCallback = new HttpCallback(URI.create(String.format("%s/%s", prefix, "compensate")),
+                HttpCallback.HttpMethod.PUT, HttpCallback.ContextType.ACTIVE);
+        callbacks.completeCallback = new HttpCallback(URI.create(String.format("%s/%s", prefix, "complete")),
+                HttpCallback.HttpMethod.PUT, HttpCallback.ContextType.ACTIVE);
+        return callbacks;
     }
 
     // ===================================================================
@@ -1139,18 +1131,10 @@ public class LRAStateModelTest extends LRATestBase {
     private void enlistUnreachableParticipantInLRA(URI lraId) {
         String lraUrl = lraId.toASCIIString().split("\\?")[0];
         String prefix = "http://localhost:39999/unreachable";
-        String linkHeader = String.join(",",
-                makeLink(prefix, COMPLETE),
-                makeLink(prefix, COMPENSATE));
-
-        var links = new ParticipantLinks();
-        links.compensateLink = URI.create(String.format("%s/%s", prefix, COMPENSATE));
-        links.completeLink = URI.create(String.format("%s/%s", prefix, COMPLETE));
 
         var body = new JoinLRAHttp.Request();
-        body.compensatorLink = linkHeader;
         body.partId = "unreachable";
-        body.links = links;
+        body.callbacks = callbacksFor(prefix);
 
         try (Response response = client.target(lraUrl).request().put(Entity.json(body))) {
             assertEquals(200, response.getStatus(),

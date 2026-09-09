@@ -20,7 +20,11 @@ import com.arjuna.ats.arjuna.state.InputObjectState;
 import com.arjuna.ats.arjuna.state.OutputObjectState;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.LinkHelper;
-import io.narayana.lra.contracts.http.ParticipantLinks;
+import io.narayana.lra.callbacks.CallbackResult;
+import io.narayana.lra.callbacks.CallbackStatus;
+import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.LRACallback;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.ServiceUnavailableException;
@@ -45,6 +49,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 
 public class LongRunningAction extends BasicAction {
     private static final String LRA_TYPE = "/StateManager/BasicAction/LongRunningAction";
@@ -143,7 +148,7 @@ public class LongRunningAction extends BasicAction {
         return new LRAData(null, clientId, status, isTopLevel(), isRecovering(),
                 startTime.toInstant(ZoneOffset.UTC).toEpochMilli(),
                 finishTime == null ? 0L : finishTime.toInstant(ZoneOffset.UTC).toEpochMilli(),
-                getHttpStatus());
+                getParticipantStatus());
     }
 
     @Override
@@ -832,7 +837,7 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
-    public LRAParticipantRecord enlistParticipant(URI coordinatorUrl, ParticipantLinks links, String recoveryUrlBase,
+    public LRAParticipantRecord enlistParticipant(URI coordinatorUrl, ParticipantCallbacks callbacks, String recoveryUrlBase,
             long timeLimit, String compensatorData, String partId)
             throws UnsupportedEncodingException {
         ReentrantLock lock = tryTimedLockTransaction(participantEnlistTimeout);
@@ -847,7 +852,7 @@ public class LongRunningAction extends BasicAction {
                     participant.setCompensatorData(compensatorData);
                     return participant; // must have already been enlisted
                 }
-                participant = doEnlistParticipant(coordinatorUrl, links, recoveryUrlBase, timeLimit,
+                participant = doEnlistParticipant(coordinatorUrl, callbacks, recoveryUrlBase, timeLimit,
                         compensatorData, partId);
                 if (participant != null) {
                     // need to remember that there is a new participant
@@ -867,9 +872,12 @@ public class LongRunningAction extends BasicAction {
 
     }
 
-    private LRAParticipantRecord doEnlistParticipant(URI coordinatorUrl, ParticipantLinks links, String recoveryUrlBase,
+    private LRAParticipantRecord doEnlistParticipant(URI coordinatorUrl, ParticipantCallbacks actions, String recoveryUrlBase,
             long timeLimit, String compensatorData, String partId) {
-        LRAParticipantRecord p = new LRAParticipantRecord(this, lraService, links, compensatorData, partId);
+        LRAParticipantRecord p = new LRAParticipantRecord(this, lraService,
+                actions.compensateCallback, actions.completeCallback,
+                actions.statusCallback, actions.forgetCallback, actions.afterCallback,
+                compensatorData, partId);
         String pid = p.get_uid().fileStringForm();
 
         p.setRecoveryURI(recoveryUrlBase, getId().toString(), pid);
@@ -892,7 +900,7 @@ public class LongRunningAction extends BasicAction {
             }
 
             return p;
-        } else if (isRecovering() && p.getCompensator() == null && p.getEndNotificationUri() != null) {
+        } else if (isRecovering() && p.getCompensateCallback() == null && p.hasAfterCallback()) {
             // the participant is an AfterLRA listener so manually add it to heuristic list
             heuristicList.putRear(p);
             updateState();
@@ -1012,7 +1020,12 @@ public class LongRunningAction extends BasicAction {
                     if (r instanceof LRAParticipantRecord) {
                         LRAParticipantRecord rr = (LRAParticipantRecord) r;
                         // can't use == because this may be a recovery scenario
-                        if (participantUrl.toASCIIString().equals(rr.getCompensator())) {
+                        LRACallback compensateCallback = rr.getCompensateCallback();
+                        String compensator = compensateCallback instanceof HttpCallback
+                                ? ((HttpCallback) compensateCallback).getUri()
+                                : compensateCallback != null ? compensateCallback.toJson() : null;
+
+                        if (participantUrl.toASCIIString().equals(compensator)) {
                             if (remove) {
                                 list.remove(rr);
                             }
@@ -1056,33 +1069,34 @@ public class LongRunningAction extends BasicAction {
         return parentId == null;
     }
 
-    public int getHttpStatus() {
+    public CallbackResult getParticipantStatus() {
         switch (status()) {
             case ActionStatus.COMMITTED:
             case ActionStatus.ABORTED:
-                return 200;
+                return new CallbackResult(CallbackStatus.OK, null);
             default:
-                return lraStatusToHttpStatus();
+                return lraStatusToCallbackStatus();
         }
     }
 
-    private int lraStatusToHttpStatus() {
+    private CallbackResult lraStatusToCallbackStatus() {
         if (status == null || status == LRAStatus.Active) {
-            return Response.Status.NO_CONTENT.getStatusCode(); // in progress, 204
+            return new CallbackResult(CallbackStatus.ACCEPTED, null);
         }
 
         switch (status) {
             case Closed:
             case Cancelled:
-                return Response.Status.OK.getStatusCode(); // 200
+                return new CallbackResult(CallbackStatus.OK, null);
             case Closing:
             case Cancelling:
-                return Response.Status.ACCEPTED.getStatusCode(); // 202
+                return new CallbackResult(CallbackStatus.ACCEPTED, null);
             case FailedToCancel:
+                return new CallbackResult(CallbackStatus.FAILED, ParticipantStatus.FailedToCompensate.name());
             case FailedToClose:
-                return Response.Status.PRECONDITION_FAILED.getStatusCode(); // 412, probably not the correct code
+                return new CallbackResult(CallbackStatus.FAILED, ParticipantStatus.FailedToComplete.name());
             default:
-                return INTERNAL_SERVER_ERROR.getStatusCode(); // 500
+                return new CallbackResult(CallbackStatus.ERROR, null);
         }
     }
 
@@ -1258,13 +1272,13 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
-    public boolean updateRecoveryURI(ParticipantLinks links, String recoveryUri) {
+    public boolean updateRecoveryURI(ParticipantCallbacks actions, String recoveryUri) {
         LRAParticipantRecord lraRecord = findLRAParticipant(recoveryUri, false);
 
         if (lraRecord != null) {
             try {
                 lraRecord.setRecoveryURI(recoveryUri);
-                lraRecord.updateCallbacks(links);
+                lraRecord.updateCallbacks(actions);
 
                 if (!deactivate()) {
                     LRALogger.logger.warn(LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON));

@@ -5,8 +5,6 @@
 
 package io.narayana.lra.coordinator.domain.model;
 
-import static io.narayana.lra.LRAConstants.COMPENSATE;
-import static io.narayana.lra.LRAConstants.COMPLETE;
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
 import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -17,12 +15,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import io.narayana.lra.LRAConstants;
+import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
 import io.narayana.lra.contracts.http.LeaveLRAHttp;
-import io.narayana.lra.contracts.http.ParticipantLinks;
 import io.narayana.lra.coordinator.api.Coordinator;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.filter.ServerLRAFilter;
@@ -38,8 +37,6 @@ import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Application;
-import jakarta.ws.rs.core.Link;
-import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.lang.reflect.Method;
@@ -311,18 +308,10 @@ public class LRAFaultToleranceTest extends LRATestBase {
     private void enlistParticipantAtPath(URI lraId, String pathPrefix) {
         String lraUrl = lraId.toASCIIString().split("\\?")[0];
         String prefix = TestPortProvider.generateURL(pathPrefix);
-        String linkHeader = String.join(",",
-                makeLink(prefix, "complete"),
-                makeLink(prefix, "compensate"));
-
-        var links = new ParticipantLinks();
-        links.compensateLink = URI.create(String.format("%s/%s", prefix, COMPENSATE));
-        links.completeLink = URI.create(String.format("%s/%s", prefix, COMPLETE));
 
         var request = new JoinLRAHttp.Request();
-        request.compensatorLink = linkHeader;
         request.partId = "/test/base";
-        request.links = links;
+        request.callbacks = callbacksFor(prefix);
 
         try (Response response = client.target(lraUrl).request().put(Entity.json(request))) {
             assertEquals(200, response.getStatus(),
@@ -336,17 +325,9 @@ public class LRAFaultToleranceTest extends LRATestBase {
     private void enlistUnreachableParticipant(URI lraId) {
         String lraUrl = lraId.toASCIIString().split("\\?")[0];
         String prefix = "http://localhost:39999/unreachable";
-        String linkHeader = String.join(",",
-                makeLink(prefix, "complete"),
-                makeLink(prefix, "compensate"));
-
-        var links = new ParticipantLinks();
-        links.compensateLink = URI.create(String.format("%s/%s", prefix, COMPENSATE));
-        links.completeLink = URI.create(String.format("%s/%s", prefix, COMPLETE));
 
         var request = new JoinLRAHttp.Request();
-        request.compensatorLink = linkHeader;
-        request.links = links;
+        request.callbacks = callbacksFor(prefix);
         request.partId = "unreachable";
 
         try (Response response = client.target(lraUrl).request().put(Entity.json(request))) {
@@ -354,6 +335,15 @@ public class LRAFaultToleranceTest extends LRATestBase {
             assertEquals(200, response.getStatus(),
                     "Unexpected status enlisting unreachable participant: " + resEntity.toString());
         }
+    }
+
+    private static ParticipantCallbacks callbacksFor(String prefix) {
+        ParticipantCallbacks callbacks = new ParticipantCallbacks();
+        callbacks.compensateCallback = new HttpCallback(URI.create(String.format("%s/%s", prefix, "compensate")),
+                HttpCallback.HttpMethod.PUT, HttpCallback.ContextType.ACTIVE);
+        callbacks.completeCallback = new HttpCallback(URI.create(String.format("%s/%s", prefix, "complete")),
+                HttpCallback.HttpMethod.PUT, HttpCallback.ContextType.ACTIVE);
+        return callbacks;
     }
 
     /**
@@ -405,14 +395,6 @@ public class LRAFaultToleranceTest extends LRATestBase {
                 .request()
                 .header(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME, apiVersion)
                 .get();
-    }
-
-    private static String makeLink(String uriPrefix, String key) {
-        return Link.fromUri(String.format("%s/%s", uriPrefix, key))
-                .title(key + " URI")
-                .rel(key)
-                .type(MediaType.TEXT_PLAIN)
-                .build().toString();
     }
 
     // ===================================================================

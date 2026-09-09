@@ -17,7 +17,7 @@ import com.arjuna.ats.arjuna.coordinator.BasicAction;
 import com.arjuna.ats.arjuna.recovery.RecoveryManager;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
-import io.narayana.lra.contracts.http.ParticipantLinks;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.coordinator.domain.model.LRAParticipantRecord;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
@@ -205,13 +205,19 @@ public class LRAService {
         getRM().periodicWorkSecondPass(); // periodicWorkFirstPass is a no-op
     }
 
-    public boolean updateRecoveryURI(UUID lraId, ParticipantLinks links, String recoveryURI, boolean persist) {
+    public boolean updateRecoveryURI(UUID lraId, ParticipantCallbacks callbacks, String recoveryURI, boolean persist) {
         assert recoveryURI != null;
-        assert links != null;
+        assert callbacks != null;
         LongRunningAction transaction = getTransaction(lraId);
 
+        if (transaction.findLRAParticipant(recoveryURI, false) == null) {
+            throw new NotFoundException(
+                    String.format("error finding participant with recovery URI: %s in transaction %s",
+                            recoveryURI, transaction.getId()));
+        }
+
         if (persist) {
-            return transaction.updateRecoveryURI(links, recoveryURI);
+            return transaction.updateRecoveryURI(callbacks, recoveryURI);
         }
 
         return true;
@@ -320,7 +326,7 @@ public class LRAService {
     }
 
     public int joinLRA(StringBuilder recoveryUrl, UUID lraId, long timeLimit,
-            ParticipantLinks links, String recoveryUrlBase,
+            ParticipantCallbacks actions, String recoveryUrlBase,
             StringBuilder compensatorData, String partId) {
 
         LongRunningAction transaction = getTransaction(lraId);
@@ -331,13 +337,18 @@ public class LRAService {
 
         // the tx must be either Active (for participants with the @Compensate methods) or
         // Closing/Canceling (for the AfterLRA listeners)
+        if (transaction.getLRAStatus() != LRAStatus.Active && !transaction.isRecovering()) {
+            if (actions.afterCallback == null) {
+                return Response.Status.PRECONDITION_FAILED.getStatusCode();
+            }
+        }
 
         LRAParticipantRecord participant;
 
         try {
             if (compensatorData != null) {
                 participant = transaction.enlistParticipant(HttpLRAService.toURI(transaction),
-                        links, recoveryUrlBase,
+                        actions, recoveryUrlBase,
                         timeLimit, compensatorData.toString(), partId);
                 // return any previously registered data
                 compensatorData.setLength(0);
@@ -347,7 +358,7 @@ public class LRAService {
                 }
             } else {
                 participant = transaction.enlistParticipant(HttpLRAService.toURI(transaction),
-                        links, recoveryUrlBase,
+                        actions, recoveryUrlBase,
                         timeLimit, null, partId);
             }
         } catch (UnsupportedEncodingException e) {
@@ -361,7 +372,7 @@ public class LRAService {
 
         String recoveryURI = participant.getRecoveryURI().toASCIIString();
 
-        if (!updateRecoveryURI(lraId, links, recoveryURI, false)) {
+        if (!updateRecoveryURI(lraId, actions, recoveryURI, false)) {
             String msg = LRALogger.i18nLogger.warn_saveState(LongRunningAction.DEACTIVATE_REASON);
             throw new WebApplicationException(msg, Response.status(SERVICE_UNAVAILABLE)
                     .entity(msg)

@@ -2,7 +2,8 @@ package io.narayana.lra.client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.narayana.lra.contracts.http.ParticipantLinks;
+import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.contracts.kafka.CancelLRAKafka;
 import io.narayana.lra.contracts.kafka.CloseLRAKafka;
 import io.narayana.lra.contracts.kafka.JoinLRAKafka;
@@ -182,10 +183,30 @@ public class KafkaLRAClient implements LRAClient {
             URI compensateUri, URI completeUri,
             URI forgetUri, URI leaveUri, URI afterUri, URI statusUri,
             StringBuilder userData) {
-        var links = new ParticipantLinks(); // TODO FIX
+        ParticipantCallbacks callbacks = new ParticipantCallbacks();
+        if (compensateUri != null) {
+            callbacks.compensateCallback = new HttpCallback(compensateUri, HttpCallback.HttpMethod.PUT,
+                    HttpCallback.ContextType.ACTIVE);
+        }
+        if (completeUri != null) {
+            callbacks.completeCallback = new HttpCallback(completeUri, HttpCallback.HttpMethod.PUT,
+                    HttpCallback.ContextType.ACTIVE);
+        }
+        if (statusUri != null) {
+            callbacks.statusCallback = new HttpCallback(statusUri, HttpCallback.HttpMethod.GET,
+                    HttpCallback.ContextType.ACTIVE);
+        }
+        if (forgetUri != null) {
+            callbacks.forgetCallback = new HttpCallback(forgetUri, HttpCallback.HttpMethod.DELETE,
+                    HttpCallback.ContextType.ACTIVE);
+        }
+        if (afterUri != null) {
+            callbacks.afterCallback = new HttpCallback(afterUri, HttpCallback.HttpMethod.PUT,
+                    HttpCallback.ContextType.ENDED);
+        }
 
         JoinLRAKafka.Request request = new JoinLRAKafka.Request(
-                nextCorrelationId(), replyTopic, lraId, timeLimit, links, userData.toString(), "fixme");
+                nextCorrelationId(), replyTopic, lraId, timeLimit, callbacks, userData.toString(), "fixme");
 
         JoinLRAKafka.Reply reply = send(LRAKafkaConstants.TYPE_JOIN, request, JoinLRAKafka.Reply.class,
                 !FIRE_AND_FORGET);

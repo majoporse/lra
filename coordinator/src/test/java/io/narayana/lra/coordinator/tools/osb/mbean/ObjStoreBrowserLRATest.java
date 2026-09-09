@@ -19,7 +19,8 @@ import com.arjuna.ats.arjuna.tools.osb.mbean.OSEntryBean;
 import com.arjuna.ats.arjuna.tools.osb.mbean.ObjStoreBrowser;
 import com.arjuna.ats.arjuna.tools.osb.mbean.UidWrapper;
 import com.arjuna.ats.internal.arjuna.recovery.RecoveryManagerImple;
-import io.narayana.lra.contracts.http.ParticipantLinks;
+import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.coordinator.domain.model.FailedLongRunningAction;
 import io.narayana.lra.coordinator.domain.model.LRAParticipantRecord;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
@@ -100,9 +101,9 @@ public class ObjStoreBrowserLRATest {
             lra.begin(Long.MAX_VALUE); // Creating the LRA records in the log store.
             String coordinatorUrl = "http://localhost:8080/lra-coordinator";
             String participantUrl = "http://localhost:8080/lra-participant";
-            var links = new ParticipantLinks();
-            links.compensateLink = URI.create(participantUrl + "/compensate");
-            LRAParticipantRecord lraParticipant = lra.enlistParticipant(URI.create(coordinatorUrl), links,
+            var callbacks = new ParticipantCallbacks();
+            callbacks.compensateCallback = new HttpCallback(participantUrl + "/compensate");
+            LRAParticipantRecord lraParticipant = lra.enlistParticipant(URI.create(coordinatorUrl), callbacks,
                     "/recover", Long.MAX_VALUE, null, "beanremovaltest");
 
             osb.probe();

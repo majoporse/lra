@@ -11,7 +11,9 @@ import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
 
 import io.narayana.lra.LRAData;
-import io.narayana.lra.contracts.http.ParticipantLinks;
+import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.LRACallback;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.coordinator.domain.model.LRAParticipantRecord;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
 import io.narayana.lra.coordinator.domain.service.HttpLRAService;
@@ -80,7 +82,13 @@ public class RecoveryCoordinator {
                     .entity(errorMsg)
                     .build());
         }
-        return Link.fromUri(participant.getCompensator())
+
+        LRACallback compensateCallback = participant.getCompensateCallback();
+        String compensator = compensateCallback instanceof HttpCallback
+                ? ((HttpCallback) compensateCallback).getUri()
+                : compensateCallback != null ? compensateCallback.toJson() : null;
+
+        return Link.fromUri(compensator)
                 .title("compensate" + " URI")
                 .rel("compensate")
                 .build().toString();
@@ -106,7 +114,6 @@ public class RecoveryCoordinator {
             String newCompensatorUrl) throws NotFoundException {
         String context = uriInfo.getRequestUri().toASCIIString();
         LRAParticipantRecord participant = lraService.getParticipant(context);
-        var links = ParticipantLinks.fromLinkString(newCompensatorUrl);
 
         if (participant != null) {
             URI lra;
@@ -122,7 +129,7 @@ public class RecoveryCoordinator {
                         .build());
             }
 
-            if (!httpLraService.updateRecoveryURI(lra, links, context, true)) {
+            if (!httpLraService.updateRecoveryURI(lra, callbacksFromLinks(newCompensatorUrl), context, true)) {
                 throw new ServiceUnavailableException(
                         LRALogger.i18nLogger.warn_saveState(LongRunningAction.DEACTIVATE_REASON));
             }
@@ -135,6 +142,10 @@ public class RecoveryCoordinator {
         throw new WebApplicationException(Response.status(NOT_FOUND)
                 .entity(errorMsg)
                 .build());
+    }
+
+    private static ParticipantCallbacks callbacksFromLinks(String linkHeader) {
+        return ParticipantCallbacks.fromLinkString(linkHeader);
     }
 
     @GET
