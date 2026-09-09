@@ -29,6 +29,7 @@ public class Deployer {
                 .addPackages(true,
                         "org.eclipse.microprofile.lra",
                         "io.narayana.lra.client.internal.proxy",
+                        "io.narayana.lra.contracts",
                         "io.smallrye.stork",
                         "io.smallrye.mutiny")
                 .addPackages(false,

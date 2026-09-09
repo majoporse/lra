@@ -243,18 +243,24 @@ public class Current {
             return false; // child is top level
         }
 
-        String theParent = parent.toASCIIString();
+        String parentUid = LRAConstants.getLRAUid(parent);
+        if (parentUid == null) {
+            return false;
+        }
+
         String[] params = qs.split(QUERY_PAIR_SEPARATOR);
 
         for (String param : params) {
             String[] nvp = param.split(QUERY_FIELD_SEPARATOR);
 
             if (nvp.length == 2 && nvp[0].contains(PARENT_LRA_PARAM_NAME)) { // ignore null parameter values
-                // Child has a parent. See if its parent matches theParent:
-                String parentCandidate = URLDecoder.decode(nvp[1], StandardCharsets.UTF_8);
+                // Child has a parent. The value is a comma-separated list of UUIDs.
+                String parentCandidates = URLDecoder.decode(nvp[1], StandardCharsets.UTF_8);
 
-                if (parentCandidate.contains(theParent) || theParent.contains(parentCandidate)) {
-                    return true;
+                for (String candidate : parentCandidates.split(",")) {
+                    if (candidate.trim().equals(parentUid)) {
+                        return true;
+                    }
                 }
             }
         }

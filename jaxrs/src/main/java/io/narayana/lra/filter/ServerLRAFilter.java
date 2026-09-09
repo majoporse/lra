@@ -28,6 +28,7 @@ import io.narayana.lra.LRAConstants;
 import io.narayana.lra.PropagateToken;
 import io.narayana.lra.client.LRAParticipantData;
 import io.narayana.lra.client.NarayanaLRAClient;
+import io.narayana.lra.client.ParticipantIdProvider;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipant;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
 import io.narayana.lra.logging.LRALogger;
@@ -201,6 +202,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                         resourceInfo.getResourceClass(),
                         createUriPrefix(containerRequestContext, resourceInfo.getResourceClass()), timeout);
                 String compensatorId = terminateURIs.get("Link");
+                var body = ParticipantIdProvider.getParticipantId(resourceInfo.getResourceClass());
 
                 if (compensatorId == null) {
                     abortWith(containerRequestContext, incomingLRA.toASCIIString(),
@@ -212,7 +214,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                 progress = new ArrayList<>();
 
                 try {
-                    getLRAClient().leaveLRA(incomingLRA, compensatorId);
+                    getLRAClient().leaveLRA(incomingLRA, body);
                     progress.add(new Progress(ProgressStep.Left, null)); // leave succeeded
                 } catch (WebApplicationException e) {
                     progress.add(new Progress(ProgressStep.LeaveFailed, e.getMessage())); // leave may have failed
@@ -437,7 +439,8 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                     for (int i = 0;; i++) {
                         try {
                             recoveryUrl = getLRAClient().enlistCompensator(lraId, timeLimit, compensatorLink,
-                                    previousParticipantData);
+                                    previousParticipantData,
+                                    ParticipantIdProvider.getParticipantId(resourceInfo.getResourceClass()));
                             break;
                         } catch (WebApplicationException e) {
 
@@ -541,7 +544,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
         boolean isCancel = isJaxRsCancel(requestContext, responseContext);
         // the service method has finished but the user data may have changed
         String userData = getUserDefinedData();
-        String compensator = (String) requestContext.getProperty(PARTICIPANT_LINK_PROP);
+        String participantId = ParticipantIdProvider.getParticipantId(resourceInfo.getResourceClass());
 
         try {
             if (current != null && isCancel) {
@@ -582,9 +585,9 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                     // do not attempt to close or cancel if the request filter tried but failed to start a new LRA
                     if (progress == null || progressDoesNotContain(progress, ProgressStep.StartFailed)) {
                         if (isCancel) {
-                            getLRAClient().cancelLRA(toClose, compensator, userData);
+                            getLRAClient().cancelLRA(toClose, participantId, userData);
                         } else {
-                            getLRAClient().closeLRA(toClose, compensator, userData);
+                            getLRAClient().closeLRA(toClose, participantId, userData);
                         }
 
                         progress = updateProgress(progress, ProgressStep.Ended, null);
@@ -611,8 +614,6 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                         requestContext.getHeaders().remove(LRA_HTTP_CONTEXT_HEADER);
                     }
                 }
-            } else if (current != null && compensator != null && userData != null) {
-                getLRAClient().enlistCompensator(current, 0L, compensator, new StringBuilder(userData));
             }
 
             if (responseContext.getStatus() == Response.Status.OK.getStatusCode()

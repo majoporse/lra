@@ -2,6 +2,8 @@ package io.narayana.lra.client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.contracts.kafka.CancelLRAKafka;
 import io.narayana.lra.contracts.kafka.CloseLRAKafka;
 import io.narayana.lra.contracts.kafka.JoinLRAKafka;
@@ -144,36 +146,35 @@ public class KafkaLRAClient implements LRAClient {
     @Override
     public URI startLRA(URI parentLRA, String clientID, Long timeout, ChronoUnit unit, boolean verbose) {
         Long timeoutMillis = timeout != null ? java.time.Duration.of(timeout, unit).toMillis() : 0L;
-        String parentStr = parentLRA != null ? parentLRA.toASCIIString() : null;
 
         StartLRAKafka.Request request = new StartLRAKafka.Request(nextCorrelationId(), replyTopic, clientID,
                 timeoutMillis,
-                parentStr);
+                parentLRA);
         StartLRAKafka.Reply reply = send(LRAKafkaConstants.TYPE_START, request, StartLRAKafka.Reply.class,
                 !FIRE_AND_FORGET);
 
         checkError(reply);
-        return URI.create(reply.lraId);
+        return reply.lraId;
     }
 
     @Override
     public void closeLRA(URI lraId, String compensator, String userData) {
         CloseLRAKafka.Request request = new CloseLRAKafka.Request(nextCorrelationId(), replyTopic,
-                lraId.toASCIIString(), compensator, userData);
+                lraId, compensator, userData);
         send(LRAKafkaConstants.TYPE_CLOSE, request, CloseLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 
     @Override
     public void cancelLRA(URI lraId, String compensator, String userData) {
         CancelLRAKafka.Request request = new CancelLRAKafka.Request(nextCorrelationId(), replyTopic,
-                lraId.toASCIIString(), compensator, userData);
+                lraId, compensator, userData);
         send(LRAKafkaConstants.TYPE_CANCEL, request, CancelLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 
     @Override
     public void leaveLRA(URI lraId, String body) {
         LeaveLRAKafka.Request request = new LeaveLRAKafka.Request(nextCorrelationId(), replyTopic,
-                lraId.toASCIIString(), body);
+                lraId, body);
         send(LRAKafkaConstants.TYPE_LEAVE, request, LeaveLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 
@@ -181,23 +182,40 @@ public class KafkaLRAClient implements LRAClient {
     public URI joinLRA(URI lraId, Long timeLimit,
             URI compensateUri, URI completeUri,
             URI forgetUri, URI leaveUri, URI afterUri, URI statusUri,
-            StringBuilder compensatorData) {
-        String data = compensatorData != null ? compensatorData.toString() : null;
+            StringBuilder userData) {
+        ParticipantCallbacks callbacks = new ParticipantCallbacks();
+        if (compensateUri != null) {
+            callbacks.compensateCallback = new HttpCallback(compensateUri, HttpCallback.HttpMethod.PUT,
+                    HttpCallback.ContextType.ACTIVE);
+        }
+        if (completeUri != null) {
+            callbacks.completeCallback = new HttpCallback(completeUri, HttpCallback.HttpMethod.PUT,
+                    HttpCallback.ContextType.ACTIVE);
+        }
+        if (statusUri != null) {
+            callbacks.statusCallback = new HttpCallback(statusUri, HttpCallback.HttpMethod.GET,
+                    HttpCallback.ContextType.ACTIVE);
+        }
+        if (forgetUri != null) {
+            callbacks.forgetCallback = new HttpCallback(forgetUri, HttpCallback.HttpMethod.DELETE,
+                    HttpCallback.ContextType.ACTIVE);
+        }
+        if (afterUri != null) {
+            callbacks.afterCallback = new HttpCallback(afterUri, HttpCallback.HttpMethod.PUT,
+                    HttpCallback.ContextType.ENDED);
+        }
 
         JoinLRAKafka.Request request = new JoinLRAKafka.Request(
-                nextCorrelationId(), replyTopic, lraId.toASCIIString(), timeLimit,
-                uriToString(compensateUri), uriToString(completeUri), uriToString(forgetUri),
-                uriToString(leaveUri), uriToString(afterUri), uriToString(statusUri),
-                data);
+                nextCorrelationId(), replyTopic, lraId, timeLimit, callbacks, userData.toString(), "fixme");
 
         JoinLRAKafka.Reply reply = send(LRAKafkaConstants.TYPE_JOIN, request, JoinLRAKafka.Reply.class,
                 !FIRE_AND_FORGET);
 
         checkError(reply);
 
-        if (compensatorData != null && reply.previousCompensatorData != null) {
-            compensatorData.setLength(0);
-            compensatorData.append(reply.previousCompensatorData);
+        if (userData != null && reply.previousCompensatorData != null) {
+            userData.setLength(0);
+            userData.append(reply.previousCompensatorData);
         }
 
         return URI.create(reply.recoveryUrl);
@@ -215,7 +233,7 @@ public class KafkaLRAClient implements LRAClient {
                 !FIRE_AND_FORGET);
 
         checkError(reply);
-        return LRAStatus.valueOf(reply.status);
+        return reply.status;
     }
 
     @Override

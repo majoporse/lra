@@ -14,11 +14,11 @@ public interface LRAParticipantRecordWrapperMBean extends LogRecordWrapperMBean 
 
     URI getRecoveryURI();
 
-    String getParticipantPath();
+    String getParticipantId();
 
     String getCompensator();
 
-    URI getEndNotificationUri();
+    boolean hasAfterCallback();
 
     String getLRAStatus();
 }

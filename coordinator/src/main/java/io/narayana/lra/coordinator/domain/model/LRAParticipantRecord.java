@@ -5,13 +5,7 @@
 
 package io.narayana.lra.coordinator.domain.model;
 
-import static io.narayana.lra.LRAConstants.AFTER;
-import static io.narayana.lra.LRAConstants.NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME;
-import static io.narayana.lra.LRAConstants.PARTICIPANT_TIMEOUT;
 import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST;
-import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT_HEADER;
-import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_PARENT_CONTEXT_HEADER;
-import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVERY_HEADER;
 
 import com.arjuna.ats.arjuna.common.Uid;
 import com.arjuna.ats.arjuna.coordinator.AbstractRecord;
@@ -20,54 +14,43 @@ import com.arjuna.ats.arjuna.coordinator.TwoPhaseOutcome;
 import com.arjuna.ats.arjuna.state.InputObjectState;
 import com.arjuna.ats.arjuna.state.OutputObjectState;
 import io.narayana.lra.Current;
-import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.callbacks.CallbackContext;
+import io.narayana.lra.callbacks.CallbackResult;
+import io.narayana.lra.callbacks.CallbackStatus;
+import io.narayana.lra.callbacks.LRACallback;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
+import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.domain.service.LRAService;
-import io.narayana.lra.coordinator.security.JwtTokenContext;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.client.AsyncInvoker;
-import jakarta.ws.rs.client.Client;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.client.Invocation;
-import jakarta.ws.rs.client.WebTarget;
-import jakarta.ws.rs.core.HttpHeaders;
-import jakarta.ws.rs.core.Link;
-import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.Arrays;
 import java.util.Objects;
-import java.util.SortedMap;
-import java.util.TreeMap;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
-import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
 
 public class LRAParticipantRecord extends AbstractRecord implements Comparable<AbstractRecord> {
     private static final String TYPE_NAME = "/StateManager/AbstractRecord/LRARecord";
     private static final String COMPENSATE_REL = "compensate";
     private static final String COMPLETE_REL = "complete";
 
-    private URI lraId;
-    private URI parentId;
+    private String participantId;
+    private UUID lraId;
+    private UUID parentId;
     private URI recoveryURI;
-    private String participantPath;
 
-    private URI completeURI;
-    private URI compensateURI;
-    private URI statusURI;
-    private URI forgetURI;
-    private URI afterURI;
+    private LRACallback compensateCallback;
+    private LRACallback completeCallback;
+    private LRACallback statusCallback;
+    private LRACallback forgetCallback;
+    private LRACallback afterCallback;
 
     private String responseData;
     private String compensatorData;
@@ -80,163 +63,38 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     public LRAParticipantRecord() {
     }
 
-    LRAParticipantRecord(LongRunningAction lra, LRAService lraService, String linkURI, String compensatorData) {
+    LRAParticipantRecord(LongRunningAction lra, LRAService lraService,
+            LRACallback compensateCallback, LRACallback completeCallback,
+            LRACallback statusCallback, LRACallback forgetCallback, LRACallback afterCallback,
+            String compensatorData, String partId) {
         super(new Uid());
 
+        this.participantId = partId;
         this.lra = lra;
 
-        try {
-            // if compensateURI is a link parse it into compensate,complete and status urls
-            if (linkURI.startsWith("<")) {
-                Exception[] parseException = { null };
+        this.compensateCallback = compensateCallback;
+        this.completeCallback = completeCallback;
+        this.statusCallback = statusCallback;
+        this.forgetCallback = forgetCallback;
+        this.afterCallback = afterCallback;
 
-                Arrays.stream(linkURI.split(",")).forEach((linkStr) -> {
-                    Exception e = parseLink(linkStr);
-                    if (e != null) {
-                        parseException[0] = e;
-                    }
-                });
+        this.lraId = lra.getId();
+        this.parentId = lra.getParentId();
+        this.status = ParticipantStatus.Active;
 
-                if (parseException[0] != null) {
-                    String errorMsg = LRALogger.i18nLogger.error_invalidCompensator(lra.getId(), parseException[0].getMessage(),
-                            linkURI);
-                    LRALogger.logger.error(errorMsg);
-                    if (LRALogger.logger.isTraceEnabled()) {
-                        trace_progress(errorMsg);
-                    }
-                    throw new WebApplicationException(Response.status(BAD_REQUEST)
-                            .entity(errorMsg)
-                            .build());
-                } else if (compensateURI == null && afterURI == null) {
-                    String errorMsg = LRALogger.i18nLogger.error_missingCompensator(lra.getId(), linkURI);
-                    LRALogger.logger.error(errorMsg);
-                    if (LRALogger.logger.isTraceEnabled()) {
-                        trace_progress(errorMsg);
-                    }
-                    throw new WebApplicationException(Response.status(BAD_REQUEST)
-                            .entity(errorMsg)
-                            .build());
-                }
-            } else {
-                this.compensateURI = new URI(String.format("%s/compensate", linkURI));
-                this.completeURI = new URI(String.format("%s/complete", linkURI));
-                this.statusURI = new URI(String.format("%s", linkURI));
-                this.forgetURI = new URI(String.format("%s", linkURI));
+        this.lraService = lraService;
 
-            }
+        this.recoveryURI = null;
+        this.compensatorData = compensatorData;
 
-            this.lraId = lra.getId();
-            this.parentId = lra.getParentId();
-            this.status = ParticipantStatus.Active;
-
-            this.lraService = lraService;
-            this.participantPath = linkURI;
-
-            this.recoveryURI = null;
-            this.compensatorData = compensatorData;
-
-            if (LRALogger.logger.isTraceEnabled()) {
-                trace_progress("created");
-            }
-        } catch (URISyntaxException e) {
-            String logMsg = LRALogger.i18nLogger.error_invalidFormatToCreateLRAParticipantRecord(lraId.toASCIIString(), linkURI,
-                    e.getMessage());
-            LRALogger.logger.error(logMsg);
-            if (LRALogger.logger.isTraceEnabled()) {
-                trace_progress(logMsg);
-            }
-
-            throw new WebApplicationException(Response.status(BAD_REQUEST)
-                    .entity(logMsg)
-                    .build());
+        if (LRALogger.logger.isTraceEnabled()) {
+            trace_progress("created");
         }
     }
 
     void setLRA(LongRunningAction lra) {
         this.lra = lra;
         this.parentId = lra.getParentId();
-    }
-
-    String getParticipantPath() {
-        return participantPath;
-    }
-
-    static String cannonicalForm(String linkStr) throws URISyntaxException {
-        if (!linkStr.contains(">;")) {
-            return new URI(linkStr).toASCIIString();
-        }
-
-        SortedMap<String, String> lm = new TreeMap<>();
-        Arrays.stream(linkStr.split(",")).forEach(link -> lm.put(Link.valueOf(link).getRel(), link));
-        StringBuilder sb = new StringBuilder();
-
-        lm.forEach((k, v) -> appendLink(sb, v));
-
-        return sb.toString();
-    }
-
-    private static void appendLink(StringBuilder b, String value) {
-        if (b.length() != 0) {
-            b.append(',');
-        }
-
-        b.append(value);
-    }
-
-    static String extractCompensator(String linkStr) throws URISyntaxException {
-        for (String lnk : linkStr.split(",")) {
-            Link link;
-
-            try {
-                link = Link.valueOf(lnk);
-            } catch (IllegalArgumentException e) {
-                throw new URISyntaxException(lnk, e.getMessage());
-            }
-
-            if (COMPENSATE_REL.equals(link.getRel())) {
-                return cannonicalForm(link.getUri().toString());
-            }
-        }
-
-        return linkStr;
-    }
-
-    private static URI cannonicalURI(URI uri) throws URISyntaxException {
-        return new URI(uri.getScheme(),
-                uri.getUserInfo(),
-                uri.getHost(),
-                uri.getPort(),
-                uri.getPath().replaceAll("//", "/"),
-                uri.getQuery(), uri.getFragment());
-    }
-
-    private URISyntaxException parseLink(String linkStr) {
-        Link link = Link.valueOf(linkStr);
-        String rel = link.getRel();
-
-        try {
-            URI uri = cannonicalURI(link.getUri());
-
-            if (COMPENSATE_REL.equals(rel)) {
-                compensateURI = uri;
-            } else if (COMPLETE_REL.equals(rel)) {
-                completeURI = uri;
-            } else if ("status".equals(rel)) {
-                statusURI = uri;
-            } else if (AFTER.equals(rel)) {
-                afterURI = uri;
-            } else if ("forget".equals(rel)) {
-                forgetURI = uri;
-            } else if ("participant".equals(rel)) {
-                compensateURI = new URI(uri.toASCIIString() + "/compensate");
-                completeURI = new URI(uri.toASCIIString() + "/complete");
-                statusURI = forgetURI = uri;
-            }
-
-            return null;
-        } catch (URISyntaxException e) {
-            return e;
-        }
     }
 
     @Override
@@ -277,8 +135,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     }
 
     private int tryDoEnd(boolean compensate) {
-        URI endPath;
-        Client client = null;
+        LRACallback endCallback = compensate ? compensateCallback : completeCallback;
 
         if (LRALogger.logger.isTraceEnabled()) {
             trace_progress("finishing");
@@ -294,7 +151,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
             compensate = true;
         }
 
-        if (compensateURI == null) {
+        if (compensateCallback == null) {
             return atEnd(TwoPhaseOutcome.FINISH_OK);
         }
 
@@ -303,113 +160,89 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                 return atEnd(TwoPhaseOutcome.FINISH_OK); // the participant has already compensated
             }
 
-            endPath = compensateURI; // we are going to ask the participant to compensate
+            endCallback = compensateCallback; // we are going to ask the participant to compensate
             status = ParticipantStatus.Compensating;
         } else {
-            if (isCompelete() || completeURI == null) {
+            if (isCompelete() || completeCallback == null) {
                 status = ParticipantStatus.Completed;
 
                 return atEnd(TwoPhaseOutcome.FINISH_OK); // the participant has already completed
             }
 
-            endPath = completeURI; // we are going to ask the participant to complete
+            endCallback = completeCallback; // we are going to ask the participant to complete
             status = ParticipantStatus.Completing;
         }
 
         // NB trying to compensate when already completed is allowed (for nested LRAs)
 
-        int httpStatus = -1;
+        CallbackStatus callbackResultStatus = null;
 
         if (accepted) {
             // the participant has previously returned a HTTP 202 Accepted response
-            // to indicate that it is in progress in which case the status URI
+            // to indicate that it is in progress in which case the status action
             // must be valid so try that first for the status
-            int twoPhaseOutcome = retryGetEndStatus(endPath, compensate);
+            int twoPhaseOutcome = retryGetEndStatus(compensate);
 
             if (twoPhaseOutcome != -1) {
                 return atEnd(twoPhaseOutcome);
             }
         } else {
-            httpStatus = tryLocalEndInvocation(endPath); // see if participant is in the same JVM
+            var response = tryLocalEndInvocation(endCallback, compensate); // see if participant is in the same JVM
+            if (response != null) {
+                responseData = response.getBody();
+                callbackResultStatus = response.getStatus();
+            }
+
         }
 
-        if (httpStatus == -1) {
-            // the local invocation was not made so fallback to using JAX-RS
+        if (callbackResultStatus == null) {
+            // no local invocation — call via callback
 
             if (LRALogger.logger.isTraceEnabled()) {
                 trace_progress("notifying participant");
             }
 
-            try {
-                // ask the participant to complete or compensate
-                client = JwtTokenContext.newClient();
-                Response response = client.target(endPath)
-                        .request()
-                        .header(LRA_HTTP_CONTEXT_HEADER, lraId.toASCIIString())
-                        .header(LRA_HTTP_PARENT_CONTEXT_HEADER, parentId) // make the context available to participants
-                        .header(LRA_HTTP_RECOVERY_HEADER, recoveryURI.toASCIIString())
-                        .header(NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME, compensatorData)
-                        .async()
-                        .put(Entity.text(""))
-                        .get(PARTICIPANT_TIMEOUT, TimeUnit.SECONDS);
+            CallbackContext ctx = buildCallbackContext(null);
 
-                httpStatus = response.getStatus();
+            CallbackResult result = endCallback.call(ctx);
+            callbackResultStatus = result.getStatus();
+            responseData = result.getBody();
 
-                accepted = httpStatus == Response.Status.ACCEPTED.getStatusCode();
+            accepted = callbackResultStatus == CallbackStatus.ACCEPTED;
 
-                if (accepted && statusURI == null && response.getHeaderString(HttpHeaders.LOCATION) != null) {
-                    // the participant could not finish immediately and we have no status URI so one should be
-                    // present in the Location header
-                    statusURI = URI.create(response.getHeaderString(HttpHeaders.LOCATION));
-                }
+            if (accepted && statusCallback == null && result.getUpdatedStatusCallback() != null) {
+                // the participant could not finish immediately and we have no status action so one should be
+                // present in the (updated status) action
+                statusCallback = result.getUpdatedStatusCallback();
+            }
 
-                if (httpStatus == Response.Status.GONE.getStatusCode()) {
-                    updateStatus(compensate);
-                    return atEnd(TwoPhaseOutcome.FINISH_OK); // the participant must have finished ok but we lost the response
-                }
+            if (callbackResultStatus == CallbackStatus.GONE) {
+                updateStatus(compensate);
+                return atEnd(TwoPhaseOutcome.FINISH_OK); // the participant must have finished ok but we lost the response
+            }
 
-                if (response.hasEntity()) {
-                    responseData = response.readEntity(String.class);
-                }
-            } catch (Exception e) {
-                if (LRALogger.logger.isInfoEnabled()) {
-                    LRALogger.logger.infof("LRAParticipantRecord.doEnd(%s) HTTP PUT at %s failed for LRA %s (reason: %s)",
-                            compensate ? "compensate" : "complete", endPath, lraId, e.getMessage());
-                    if (LRALogger.logger.isDebugEnabled()) {
-                        LRALogger.logger.debug("LRAParticipantRecord.doEnd stacktrace", e);
-                    }
-                }
-            } finally {
-                if (LRALogger.logger.isTraceEnabled()) {
-                    trace_progress("notified participant");
-                }
-
-                if (client != null) {
-                    client.close();
-                }
+            if (LRALogger.logger.isTraceEnabled()) {
+                trace_progress("notified participant");
             }
         }
 
-        if (responseData != null &&
-                httpStatus == Response.Status.INTERNAL_SERVER_ERROR.getStatusCode()) {
+        if (responseData != null && callbackResultStatus == CallbackStatus.FAILED) {
             // the body should contain a valid ParticipantStatus
             try {
-                return atEnd(reportFailure(compensate, endPath,
+                return atEnd(reportFailure(compensate,
                         ParticipantStatus.valueOf(responseData).name()));
             } catch (IllegalArgumentException ignore) {
                 // ignore the body and let recovery discover the status of the participant
             }
         }
 
-        if (httpStatus != Response.Status.OK.getStatusCode()
-                && httpStatus != Response.Status.NO_CONTENT.getStatusCode()
-                && !accepted) {
+        if (callbackResultStatus != CallbackStatus.OK && !accepted) {
             if (LRALogger.logger.isDebugEnabled()) {
-                LRALogger.logger.debugf("LRAParticipantRecord.doEnd put %s failed with status: %d",
-                        endPath, httpStatus);
+                LRALogger.logger.debugf("LRAParticipantRecord.doEnd action failed for LRA %s with status: %s",
+                        lraId, callbackResultStatus);
             }
 
-            // recovery will figure out the status via the status url
+            // recovery will figure out the status via the status callback
             status = compensate ? ParticipantStatus.Compensating : ParticipantStatus.Completing;
             accepted = true;
             if (LRALogger.logger.isTraceEnabled()) {
@@ -425,8 +258,8 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
 
     boolean isFinished() {
         // nested participants must still be able to compensate even if they are closed
-        if (compensateURI == null) {
-            return afterURI != null;
+        if (compensateCallback == null) {
+            return afterCallback != null;
         }
 
         switch (status) {
@@ -447,39 +280,22 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         return status == ParticipantStatus.FailedToCompensate || status == ParticipantStatus.FailedToComplete;
     }
 
-    private boolean afterLRARequest(URI target, String payload) {
+    private boolean afterLRARequest(CallbackContext ctx) {
+        if (afterCallback == null) {
+            return true;
+        }
 
-        try (Client client = JwtTokenContext.newClient()) {
-            Invocation.Builder builder = client.target(target)
-                    .request()
-                    .header(LRA_HTTP_RECOVERY_HEADER, recoveryURI.toASCIIString())
-                    .header(NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME, compensatorData);
+        CallbackResult result = afterCallback.call(ctx);
 
-            if (target.equals(afterURI)) {
-                builder.header(LRA.LRA_HTTP_ENDED_CONTEXT_HEADER, lra.getId().toASCIIString());
-                if (lra.getParentId() != null) {
-                    builder.header(LRA_HTTP_PARENT_CONTEXT_HEADER, lra.getParentId().toASCIIString());
-                }
-            } else {
-                builder.header(LRA.LRA_HTTP_CONTEXT_HEADER, lra.getId().toASCIIString());
-            }
-
-            Future<Response> responseFuture = target.equals(forgetURI) ? builder.async().delete()
-                    : builder.async().put(Entity.text(payload));
-            Response response = responseFuture.get(PARTICIPANT_TIMEOUT, TimeUnit.SECONDS);
-
-            if (response.getStatus() == 200) {
-                if (LRALogger.logger.isTraceEnabled()) {
-                    trace_progress("notified participant");
-                }
-                return true;
-            }
-        } catch (Exception e) {
-            LRALogger.i18nLogger.warn_cannotNotifyAfterLRAURI(target, e);
-        } finally {
+        if (result.getStatus() == CallbackStatus.OK) {
             if (LRALogger.logger.isTraceEnabled()) {
-                trace_progress("finished notifying participant");
+                trace_progress("notified participant");
             }
+            return true;
+        }
+
+        if (LRALogger.logger.isTraceEnabled()) {
+            trace_progress("finished notifying participant");
         }
 
         return false;
@@ -499,7 +315,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         // Only run the post LRA actions if both the LRA and participant are in an end state
         // check the participant first since it will have been removed from one of the lists
         if (!isFinished() || !lra.isFinished()) {
-            if (afterURI != null) {
+            if (afterCallback != null) {
                 return TwoPhaseOutcome.HEURISTIC_HAZARD;
             }
 
@@ -521,11 +337,13 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
             lraStatus = report ? LRAStatus.FailedToClose : LRAStatus.Closed;
         }
 
-        if (afterURI == null || afterLRARequest(afterURI, lraStatus.name())) {
-            afterURI = null;
+        CallbackContext ctx = buildCallbackContext(lraStatus.name());
+
+        if (afterCallback == null || afterLRARequest(ctx)) {
+            afterCallback = null;
 
             if (LRALogger.logger.isTraceEnabled()) {
-                trace_progress("runPostLRAActions with afterURI");
+                trace_progress("runPostLRAActions with afterAction");
             }
             // the post LRA actions succeeded so remove the participant from the intentions list otherwise retry
             return report ? reportFailure(lraStatus.name()) : TwoPhaseOutcome.FINISH_OK;
@@ -548,33 +366,48 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
 
     private int reportFailure(String failureReason) {
         if (status == ParticipantStatus.FailedToCompensate) {
-            return reportFailure(true, compensateURI, failureReason);
+            return reportFailure(true, failureReason);
         } else { // must be ParticipantStatus.FailedToComplete
-            return reportFailure(false, completeURI, failureReason);
+            return reportFailure(false, failureReason);
         }
     }
 
-    private int reportFailure(boolean compensate, URI endPath, String failureReason) {
+    private int reportFailure(boolean compensate, String failureReason) {
         status = compensate ? ParticipantStatus.FailedToCompensate : ParticipantStatus.FailedToComplete;
 
         if (LRALogger.logger.isTraceEnabled()) {
             trace_progress("reportFailure");
         }
-        LRALogger.logger.warnf("LRAParticipantRecord: participant %s reported a failure to %s (cause %s)",
-                endPath, compensate ? COMPENSATE_REL : COMPLETE_REL, failureReason);
+        LRALogger.logger.warnf("LRAParticipantRecord: participant reported a failure to %s (cause %s)",
+                compensate ? COMPENSATE_REL : COMPLETE_REL, failureReason);
 
         // permanently failed so ask recovery to ignore us in the future.
         return TwoPhaseOutcome.FINISH_ERROR;
     }
 
-    private int retryGetEndStatus(URI endPath, boolean compensate) {
+    private int retryGetEndStatus(boolean compensate) {
         assert accepted;
 
-        // the participant has previously returned a HTTP 202 Accepted response so the status URI
+        // the participant has previously returned a HTTP 202 Accepted response so the status
         // must be valid - try that first for the status
 
         // first check that this isn't a nested coordinator running locally
-        URI nestedLraId = extractParentLRA(endPath);
+        UUID nestedLraId = null;
+
+        if (statusCallback != null) {
+            String targetUid = statusCallback.extractTargetUid();
+
+            if (targetUid != null) {
+                try {
+                    UUID uuid = UUID.fromString(targetUid);
+
+                    if (lraService != null && lraService.hasTransaction(uuid)) {
+                        nestedLraId = uuid;
+                    }
+                } catch (IllegalArgumentException ignore) {
+                }
+            }
+        }
 
         if (LRALogger.logger.isTraceEnabled()) {
             trace_progress("retryGetEndStatus");
@@ -593,8 +426,8 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                 if (cStatus == null) {
                     LRALogger.logger.warnf(
                             "LRAParticipantRecord.retryGetEndStatus: local LRA %s accepted but has a null status",
-                            endPath);
-                    return -1; // shouldn't happen since it imples it's still be active - force end to be called
+                            nestedLraId);
+                    return -1; // shouldn't happen since it implies it's still active - force end to be called
                 }
 
                 switch (cStatus) {
@@ -606,83 +439,78 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                         return TwoPhaseOutcome.HEURISTIC_HAZARD;
                     case FailedToClose:
                     case FailedToCancel:
-                        return reportFailure(compensate, endPath, "unknown");
+                        return reportFailure(compensate, "unknown");
                     default:
                         return TwoPhaseOutcome.HEURISTIC_HAZARD;
                 }
             }
-        } else if (statusURI != null) {
-            // it is a standard participant - check the status URI
-            Response response;
+        } else if (statusCallback != null) {
+            // it is a standard participant - check the status callback
+            try {
+                CallbackContext ctx = buildCallbackContext(null);
 
-            try (Client client = JwtTokenContext.newClient()) {
-                // since this method is called from the recovery thread do not block
-                response = client.target(statusURI)//.path(getLRAId(lraId))
-                        .request()
-                        .header(LRA_HTTP_CONTEXT_HEADER, lraId.toASCIIString())
-                        .header(LRA_HTTP_RECOVERY_HEADER, recoveryURI.toASCIIString())
-                        .header(LRA_HTTP_PARENT_CONTEXT_HEADER, parentId)
-                        .header(NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME, compensatorData)
-                        .async()
-                        .get()
-                        .get(PARTICIPANT_TIMEOUT, TimeUnit.SECONDS); // if the attempt times out the catch block below will return a heuristic
+                CallbackResult result = statusCallback.call(ctx);
 
-                // 200 and 410 are the only valid response code for reporting the participant status
-                if (response.getStatus() == Response.Status.GONE.getStatusCode()) {
-                    /*
-                     * The specification states (in section 3.2.10. Reporting the status of a participant):
-                     * If the participant has already responded successfully to an @Compensate or @Complete method
-                     * invocation then it MAY report 410 Gone HTTP status code
-                     *
-                     * This means that if the participant was asked to compensate then it has now compensated, or
-                     * if the participant was asked to complete then it has now completed.
-                     */
-                    status = compensate ? ParticipantStatus.Compensated : ParticipantStatus.Completed;
-                    return TwoPhaseOutcome.FINISH_OK;
-                } else if (response.getStatus() == Response.Status.ACCEPTED.getStatusCode() ||
-                        Response.Status.Family.familyOf(response.getStatus()).equals(
-                                Response.Status.Family.SERVER_ERROR)) {
-                    // these response codes indicate that the implementation should retry later
-                    return TwoPhaseOutcome.HEURISTIC_HAZARD;
-                } else if (response.getStatus() == Response.Status.OK.getStatusCode() &&
-                        response.hasEntity()) {
-                    // the participant is available again and has reported its status
-                    status = ParticipantStatus.valueOf(response.readEntity(String.class));
+                if (result.getUpdatedStatusCallback() != null) {
+                    statusCallback = result.getUpdatedStatusCallback();
+                }
 
-                    switch (status) {
-                        case Completed:
-                        case Compensated:
-                            return TwoPhaseOutcome.FINISH_OK;
-                        case Completing:
-                        case Compensating:
-                            // still in progress - make sure recovery keeps retrying it
+                switch (result.getStatus()) {
+                    case GONE:
+                        /*
+                         * The specification states (in section 3.2.10. Reporting the status of a participant):
+                         * If the participant has already responded successfully to an @Compensate or @Complete method
+                         * invocation then it MAY report 410 Gone HTTP status code
+                         *
+                         * This means that if the participant was asked to compensate then it has now compensated, or
+                         * if the participant was asked to complete then it has now completed.
+                         */
+                        status = compensate ? ParticipantStatus.Compensated : ParticipantStatus.Completed;
+                        return TwoPhaseOutcome.FINISH_OK;
+                    case ACCEPTED:
+                    case ERROR:
+                    case FAILED:
+                    case TIMEOUT:
+                        // these statuses indicate that the implementation should retry later
+                        return TwoPhaseOutcome.HEURISTIC_HAZARD;
+                    case OK:
+                        if (result.getBody() == null) {
                             return TwoPhaseOutcome.HEURISTIC_HAZARD;
-                        case FailedToCompensate:
-                        case FailedToComplete:
-                            // the participant could not finish - log a warning and forget
-                            LRALogger.logger.warnf(
-                                    "LRAParticipantRecord.doEnd(compensate %b) get status %s did not finish: %s: WILL NOT RETRY",
-                                    compensate, endPath, status);
+                        }
+                        // the participant is available again and has reported its status
+                        try {
+                            status = ParticipantStatus.valueOf(result.getBody());
+                        } catch (IllegalArgumentException e) {
+                            return TwoPhaseOutcome.HEURISTIC_HAZARD;
+                        }
 
-                            if (forgetURI != null) {
-                                if (!forget()) {
-                                    // we will retry the forget on the next recovery cycle
-                                    return TwoPhaseOutcome.HEURISTIC_HAZARD;
+                        switch (status) {
+                            case Completed:
+                            case Compensated:
+                                return TwoPhaseOutcome.FINISH_OK;
+                            case Completing:
+                            case Compensating:
+                                // still in progress - make sure recovery keeps retrying it
+                                return TwoPhaseOutcome.HEURISTIC_HAZARD;
+                            case FailedToCompensate:
+                            case FailedToComplete:
+                                // the participant could not finish - log a warning and forget
+                                LRALogger.logger.warnf(
+                                        "LRAParticipantRecord.doEnd(compensate %b) get status reported failure: %s: WILL NOT RETRY",
+                                        compensate, status);
+
+                                if (forgetCallback != null) {
+                                    if (!forget()) {
+                                        // we will retry the forget on the next recovery cycle
+                                        return TwoPhaseOutcome.HEURISTIC_HAZARD;
+                                    }
                                 }
-                            }
 
-                            return reportFailure(compensate, endPath, "Unknown");
-                        default:
-                            return TwoPhaseOutcome.HEURISTIC_HAZARD;
-                    }
+                                return reportFailure(compensate, "Unknown");
+                            default:
+                                return TwoPhaseOutcome.HEURISTIC_HAZARD;
+                        }
                 }
-            } catch (Throwable e) {
-                if (LRALogger.logger.isInfoEnabled()) {
-                    LRALogger.logger.infof("LRAParticipantRecord.doEnd status URI %s is invalid (%s)",
-                            statusURI, e.getMessage());
-                }
-
-                return TwoPhaseOutcome.HEURISTIC_HAZARD; // force recovery to keep retrying
             } finally {
                 if (LRALogger.logger.isTraceEnabled()) {
                     trace_progress("retryGetEndStatus");
@@ -694,150 +522,65 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         return -1;
     }
 
-    private Future<Response> getAsyncResponse(WebTarget target, String method, AsyncInvoker asyncInvoker, String cData) {
-        String queryString = target.getUri().getQuery();
-
-        if (queryString != null) {
-            String[] queries = queryString.split("&");
-
-            for (String pair : queries) {
-                if (pair.contains("=")) {
-                    String[] qp = pair.split("=");
-
-                    if (qp[0].equals(LRAConstants.HTTP_METHOD_NAME)) {
-                        switch (qp[1]) {
-                            case "jakarta.ws.rs.GET":
-                                return asyncInvoker.get();
-                            case "jakarta.ws.rs.PUT":
-                                return asyncInvoker.put(Entity.entity(cData, MediaType.TEXT_PLAIN));
-                            case "jakarta.ws.rs.POST":
-                                return asyncInvoker.post(Entity.entity(cData, MediaType.TEXT_PLAIN));
-                            case "jakarta.ws.rs.DELETE":
-                                return asyncInvoker.delete();
-                            default:
-                                break;
-                        }
-                    }
-                }
-            }
-        }
-
-        switch (method) {
-            case "jakarta.ws.rs.GET":
-                return asyncInvoker.get();
-            case "jakarta.ws.rs.PUT":
-                return asyncInvoker.put(Entity.entity(compensatorData, MediaType.TEXT_PLAIN));
-            case "jakarta.ws.rs.POST":
-                return asyncInvoker.post(Entity.entity(compensatorData, MediaType.TEXT_PLAIN));
-            case "jakarta.ws.rs.DELETE":
-                return asyncInvoker.delete();
-            default:
-                return asyncInvoker.get();
-        }
+    private CallbackContext buildCallbackContext(String payload) {
+        return new CallbackContext(
+                HttpLRAService.toURI(lra).toASCIIString(),
+                parentId == null ? null
+                        : HttpLRAService.toURI(lra.getCoordinatorUrl(), parentId, null).toASCIIString(),
+                recoveryURI == null ? null : recoveryURI.toASCIIString(),
+                compensatorData,
+                payload);
     }
 
     // see if the participant is an LRA in the same VM as the coordinator
-    private URI extractParentLRA(URI endPath) {
-        if (lraService != null) {
-            String[] segments = endPath.getPath().split("/");
-            int pCnt = segments.length;
+    private CallbackResult tryLocalEndInvocation(LRACallback callback, boolean compensate) {
+        String targetUid = callback.extractTargetUid();
 
-            if (pCnt > 1) {
-                String cId;
-
-                try {
-                    cId = URLDecoder.decode(segments[pCnt - 2], StandardCharsets.UTF_8);
-
-                    return lraService.hasTransaction(cId) ? new URI(cId) : null;
-                } catch (URISyntaxException ignore) {
-                }
-            }
-
-            if (LRALogger.logger.isTraceEnabled()) {
-                trace_progress("extractParentLRA: not local");
-            }
+        if (targetUid == null || lraService == null) {
+            return null;
         }
 
-        return null;
-    }
-
-    private int tryLocalEndInvocation(URI endPath) {
-        URI cId = extractParentLRA(endPath);
-
-        if (cId != null) {
-            String[] segments = endPath.getPath().split("/");
-            int pCnt = segments.length;
-
-            // this is a call from a parent LRA to end the nested LRA:
-            boolean isCompensate = COMPENSATE_REL.equals(segments[pCnt - 1]);
-            boolean isComplete = COMPLETE_REL.equals(segments[pCnt - 1]);
-            int httpStatus;
-
-            if (!isCompensate && !isComplete) {
-                if (LRALogger.logger.isInfoEnabled()) {
-                    LRALogger.logger.infof("LRAParticipantRecord.doEnd invalid nested participant url %s" +
-                            "(should be compensate or complete)",
-                            endPath);
-                }
-
-                httpStatus = BAD_REQUEST.getStatusCode();
-            } else {
-                LRAData inVMStatus = lraService.endLRA(cId, isCompensate, true);
-
-                httpStatus = inVMStatus.getHttpStatus();
+        try {
+            UUID cId = UUID.fromString(targetUid);
+            if (!lraService.hasTransaction(cId)) {
+                return null;
             }
 
-            return httpStatus;
+            LRAData inVMStatus = lraService.endLRA(cId, compensate, true);
+
+            return inVMStatus.getCallbackResult();
+        } catch (IllegalArgumentException e) {
+            return null;
         }
-
-        // fall back to using JAX-RS
-
-        return -1;
     }
 
     boolean forget() {
-        Client client = null;
-
-        if (forgetURI != null) {
+        if (forgetCallback != null) {
             try {
-                client = JwtTokenContext.newClient();
-                Response response = client.target(forgetURI)//.path(getLRAId(lraId))
-                        .request()
-                        .header(LRA_HTTP_CONTEXT_HEADER, lraId)
-                        .header(LRA_HTTP_RECOVERY_HEADER, recoveryURI)
-                        .header(LRA_HTTP_PARENT_CONTEXT_HEADER, parentId)
-                        .header(NARAYANA_LRA_PARTICIPANT_DATA_HEADER_NAME, compensatorData)
-                        .async()
-                        .delete()
-                        .get(PARTICIPANT_TIMEOUT, TimeUnit.SECONDS);
+                CallbackContext ctx = buildCallbackContext(null);
 
-                if (response.getStatus() == Response.Status.OK.getStatusCode()) {
-                    forgetURI = null; // succeeded so dispose of the endpoint
+                CallbackResult result = forgetCallback.call(ctx);
+
+                if (result.getStatus() == CallbackStatus.OK) {
+                    forgetCallback = null; // succeeded so dispose of the action
                     return true;
+                } else {
+                    if (LRALogger.logger.isInfoEnabled()) {
+                        LRALogger.logger.infof("LRAParticipantRecord.forget failed for LRA %s (status: %s)",
+                                lraId, result.getStatus());
+                    }
+                    return false; // force recovery to keep retrying
                 }
-            } catch (Exception e) {
-                Exception exception = e;
-                Throwable cause = exception.getCause();
-                if (!(exception instanceof WebApplicationException) && cause instanceof WebApplicationException) {
-                    exception = (WebApplicationException) cause;
-                }
-                LRALogger.logger.infof("LRAParticipantRecord.forget delete %s failed for LRA %s (reason %s)",
-                        forgetURI, lraId, exception.getMessage());
-                return false; // force recovery to keep retrying
             } finally {
                 if (LRALogger.logger.isTraceEnabled()) {
                     trace_progress("forget");
                 }
                 Current.pop();
-                if (client != null) {
-                    client.close();
-                }
             }
-
         } else {
             LRALogger.logger.warnf(
-                    "LRAParticipantRecord.forget() LRA: %s: cannot forget %s: missing forget URI, status: %s",
-                    lraId, recoveryURI, status);
+                    "LRAParticipantRecord.forget() LRA: %s: cannot forget: missing forget action, status: %s",
+                    lraId, status);
         }
 
         return true;
@@ -855,15 +598,16 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     public boolean save_state(OutputObjectState os, int t) {
         if (super.save_state(os, t)) {
             try {
-                packURI(os, lraId);
-                packURI(os, compensateURI);
+                os.packString(participantId);
+                packUUID(os, lraId);
+                packUUID(os, parentId);
+                packCallback(os, compensateCallback);
                 packURI(os, recoveryURI);
-                packURI(os, completeURI);
-                packURI(os, afterURI);
-                packURI(os, statusURI);
-                packURI(os, forgetURI);
+                packCallback(os, completeCallback);
+                packCallback(os, afterCallback);
+                packCallback(os, statusCallback);
+                packCallback(os, forgetCallback);
                 packStatus(os);
-                os.packString(participantPath);
                 os.packString(compensatorData);
             } catch (IOException e) {
                 LRALogger.logger.warn(LRALogger.i18nLogger.warn_saveState(e.getMessage()));
@@ -883,15 +627,16 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     public boolean restore_state(InputObjectState os, int t) {
         if (super.restore_state(os, t)) {
             try {
-                lraId = unpackURI(os);
-                compensateURI = unpackURI(os);
+                participantId = os.unpackString();
+                lraId = unpackUUID(os);
+                parentId = unpackUUID(os);
+                compensateCallback = unpackCallback(os);
                 recoveryURI = unpackURI(os);
-                completeURI = unpackURI(os);
-                afterURI = unpackURI(os);
-                statusURI = unpackURI(os);
-                forgetURI = unpackURI(os);
+                completeCallback = unpackCallback(os);
+                afterCallback = unpackCallback(os);
+                statusCallback = unpackCallback(os);
+                forgetCallback = unpackCallback(os);
                 unpackStatus(os);
-                participantPath = os.unpackString();
                 compensatorData = os.unpackString();
                 accepted = status == ParticipantStatus.Completing || status == ParticipantStatus.Compensating;
             } catch (IOException | URISyntaxException e) {
@@ -920,6 +665,15 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         status = os.unpackBoolean() ? ParticipantStatus.values()[os.unpackInt()] : null;
     }
 
+    private void packCallback(OutputObjectState os, LRACallback callback) throws IOException {
+        os.packString(callback == null ? null : callback.toJson());
+    }
+
+    private LRACallback unpackCallback(InputObjectState os) throws IOException {
+        String json = os.unpackString();
+        return LRACallback.fromJson(json);
+    }
+
     private void packURI(OutputObjectState os, URI url) throws IOException {
         if (url == null) {
             os.packBoolean(false);
@@ -929,8 +683,21 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         }
     }
 
+    private void packUUID(OutputObjectState os, UUID uuid) throws IOException {
+        if (uuid == null) {
+            os.packBoolean(false);
+        } else {
+            os.packBoolean(true);
+            os.packString(uuid.toString());
+        }
+    }
+
     private URI unpackURI(InputObjectState os) throws IOException, URISyntaxException {
         return os.unpackBoolean() ? new URI(Objects.requireNonNull(os.unpackString())) : null;
+    }
+
+    private UUID unpackUUID(InputObjectState os) throws IOException {
+        return os.unpackBoolean() ? UUID.fromString(Objects.requireNonNull(os.unpackString())) : null;
     }
 
     private static int getTypeId() {
@@ -1014,26 +781,26 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         return recoveryURI;
     }
 
-    public String getParticipantURI() {
-        return participantPath;
-    }
-
-    // the participant is asking to be called back on different URLs
-    void updateCallbacks(String linkStr) {
-        Exception e = parseLink(linkStr);
-
-        if (e != null) {
-            throw new WebApplicationException(Response.status(BAD_REQUEST)
-                    .entity(LRALogger.i18nLogger.warn_invalid_compensator(e.getMessage(), linkStr))
-                    .build());
-        }
+    // the participant is asking to be called back on different callbacks
+    void updateCallbacks(ParticipantCallbacks callbacks) {
+        if (callbacks.compensateCallback != null)
+            this.compensateCallback = callbacks.compensateCallback;
+        if (callbacks.completeCallback != null)
+            this.completeCallback = callbacks.completeCallback;
+        if (callbacks.statusCallback != null)
+            this.statusCallback = callbacks.statusCallback;
+        if (callbacks.forgetCallback != null)
+            this.forgetCallback = callbacks.forgetCallback;
+        if (callbacks.afterCallback != null)
+            this.afterCallback = callbacks.afterCallback;
     }
 
     void setRecoveryURI(String recoveryURI) {
         try {
             this.recoveryURI = new URI(recoveryURI);
         } catch (URISyntaxException e) {
-            String errorMsg = LRALogger.i18nLogger.error_invalidRecoveryUrlToJoinLRAURI(recoveryURI, lraId);
+            String errorMsg = LRALogger.i18nLogger.error_invalidRecoveryUrlToJoinLRAURI(recoveryURI,
+                    URI.create("urn:uuid:" + lraId));
 
             throw new WebApplicationException(Response.status(BAD_REQUEST)
                     .entity(errorMsg)
@@ -1045,8 +812,12 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         setRecoveryURI(String.format("%s/%s/%s", recoveryUrlBase, txId, participantId));
     }
 
-    public String getCompensator() {
-        return compensateURI != null ? compensateURI.toASCIIString() : null;
+    public LRACallback getCompensateCallback() {
+        return compensateCallback;
+    }
+
+    public boolean hasAfterCallback() {
+        return afterCallback != null;
     }
 
     void setLRAService(LRAService lraService) {
@@ -1055,10 +826,6 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
 
     public void setLraService(LRAService lraService) {
         this.lraService = lraService;
-    }
-
-    public URI getEndNotificationUri() {
-        return afterURI;
     }
 
     public ParticipantStatus getStatus() {
@@ -1078,9 +845,13 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         LRALogger.logger.tracef("%s: LRA id: %s, Participant id: %s, reason: %s, state: %s, accepted: %b",
                 LocalDateTime.now(ZoneOffset.UTC), // use the same time function as used for LRA timeouts
                 lraId,
-                participantPath,
+                participantId,
                 reason,
                 status,
                 accepted);
+    }
+
+    public String getParticipantId() {
+        return participantId;
     }
 }

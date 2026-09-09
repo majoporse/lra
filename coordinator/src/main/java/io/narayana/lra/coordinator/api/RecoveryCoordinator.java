@@ -11,7 +11,12 @@ import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
 
 import io.narayana.lra.LRAData;
+import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.LRACallback;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
+import io.narayana.lra.coordinator.domain.model.LRAParticipantRecord;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
+import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
@@ -25,6 +30,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.ServiceUnavailableException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.Link;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
@@ -44,9 +50,11 @@ import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 @Tag(name = "LRA Recovery")
 public class RecoveryCoordinator {
     private final LRAService lraService;
+    private final HttpLRAService httpLraService;
 
     public RecoveryCoordinator() {
         lraService = LRARecoveryModule.getService();
+        httpLraService = LRARecoveryModule.getHttpService();
     }
 
     // Performing a GET on the recovery URL (return from a join request) will return the original <participant URL>
@@ -65,9 +73,9 @@ public class RecoveryCoordinator {
             @Context UriInfo uriInfo) throws NotFoundException {
 
         String context = uriInfo.getRequestUri().toASCIIString();
-        String compensatorUrl = lraService.getParticipant(context);
+        LRAParticipantRecord participant = lraService.getParticipant(context);
 
-        if (compensatorUrl == null) {
+        if (participant == null) {
             String errorMsg = LRALogger.i18nLogger.warn_cannotFoundCompensatorUrl(rcvCoordId, lraId);
             LRALogger.logger.warn(errorMsg);
             throw new WebApplicationException(Response.status(NOT_FOUND)
@@ -75,7 +83,15 @@ public class RecoveryCoordinator {
                     .build());
         }
 
-        return compensatorUrl;
+        LRACallback compensateCallback = participant.getCompensateCallback();
+        String compensator = compensateCallback instanceof HttpCallback
+                ? ((HttpCallback) compensateCallback).getUri()
+                : compensateCallback != null ? compensateCallback.toJson() : null;
+
+        return Link.fromUri(compensator)
+                .title("compensate" + " URI")
+                .rel("compensate")
+                .build().toString();
     }
 
     // Performing a PUT on the recovery URL will overwrite the old <participant URL> with the new one supplied
@@ -97,22 +113,23 @@ public class RecoveryCoordinator {
             @Context UriInfo uriInfo,
             String newCompensatorUrl) throws NotFoundException {
         String context = uriInfo.getRequestUri().toASCIIString();
-        String compensatorUrl = lraService.getParticipant(context);
+        LRAParticipantRecord participant = lraService.getParticipant(context);
 
-        if (compensatorUrl != null) {
+        if (participant != null) {
             URI lra;
 
             try {
                 lra = new URI(lraId);
             } catch (URISyntaxException e) {
-                LRALogger.i18nLogger.error_invalidFormatOfLraIdReplacingCompensatorURI(lraId, compensatorUrl, e);
+                LRALogger.i18nLogger.error_invalidFormatOfLraIdReplacingCompensatorURI(lraId, participant.getParticipantId(),
+                        e);
                 String errMsg = LRALogger.i18nLogger.warn_invalid_uri(lraId, e.getMessage() + " replaceCompensator");
                 throw new WebApplicationException(errMsg, Response.status(BAD_REQUEST)
                         .entity(errMsg)
                         .build());
             }
 
-            if (!lraService.updateRecoveryURI(lra, newCompensatorUrl, context, true)) {
+            if (!httpLraService.updateRecoveryURI(lra, callbacksFromLinks(newCompensatorUrl), context, true)) {
                 throw new ServiceUnavailableException(
                         LRALogger.i18nLogger.warn_saveState(LongRunningAction.DEACTIVATE_REASON));
             }
@@ -125,6 +142,10 @@ public class RecoveryCoordinator {
         throw new WebApplicationException(Response.status(NOT_FOUND)
                 .entity(errorMsg)
                 .build());
+    }
+
+    private static ParticipantCallbacks callbacksFromLinks(String linkHeader) {
+        return ParticipantCallbacks.fromLinkString(linkHeader);
     }
 
     @GET
@@ -168,7 +189,7 @@ public class RecoveryCoordinator {
 
             // verify that the LRA is not still being processed
             // will throw NotFoundException if it's unknown (to be caught and processed in the catch block)
-            LRAData lraData = lraService.getLRA(lra);
+            LRAData lraData = httpLraService.getLRA(lra);
             LRAStatus status = lraData.getStatus();
 
             // 412 the LRA is not in an end state (return 412 and the actual status of the LRA)

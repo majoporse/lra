@@ -18,19 +18,21 @@ import com.arjuna.ats.arjuna.state.InputObjectState;
 import com.arjuna.ats.arjuna.state.OutputObjectState;
 import io.narayana.lra.coordinator.domain.model.FailedLongRunningAction;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
+import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.logging.LRALogger;
 import java.io.IOException;
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Consumer;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 public class LRARecoveryModule implements RecoveryModule {
     public LRARecoveryModule() {
         service = new LRAService();
+        httpService = new HttpLRAService(service);
 
         if (_recoveryStore == null) {
             _recoveryStore = StoreManager.getRecoveryStore();
@@ -41,7 +43,11 @@ public class LRARecoveryModule implements RecoveryModule {
     }
 
     public static LRAService getService() {
-        return getInstance().service; // this call triggers the creation of the LRARecoveryModule singleton which contains service
+        return getInstance().service;
+    }
+
+    public static HttpLRAService getHttpService() {
+        return getInstance().httpService;
     }
 
     public static LRARecoveryModule getInstance() {
@@ -237,7 +243,7 @@ public class LRARecoveryModule implements RecoveryModule {
         recoverTransactions();
     }
 
-    public void getFailedLRAs(Map<URI, LongRunningAction> lras) {
+    public void getFailedLRAs(Map<UUID, LongRunningAction> lras) {
         InputObjectState aa_uids = new InputObjectState();
         Consumer<Uid> failedLRACreator = uid -> {
             FailedLongRunningAction lra = new FailedLongRunningAction(service, new Uid(uid));
@@ -313,6 +319,7 @@ public class LRARecoveryModule implements RecoveryModule {
     }
 
     private final LRAService service;
+    private final HttpLRAService httpService;
 
     // 'type' within the Object Store for LRAs.
     private final String _transactionType = LongRunningAction.getType();

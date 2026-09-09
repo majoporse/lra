@@ -17,6 +17,7 @@ import static org.hamcrest.core.IsCollectionContaining.hasItem;
 import static org.hamcrest.core.IsCollectionContaining.hasItems;
 import static org.hamcrest.core.IsNot.not;
 
+import io.narayana.lra.callbacks.CallbackStatus;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.arquillian.Deployer;
@@ -150,7 +151,7 @@ public class CoordinatorApiIT extends TestBase {
 
             Assertions.assertEquals(LRAStatus.Active, lraTop.getStatus(),
                     "Expected top-level LRA '" + lraTop + "'  being active");
-            Assertions.assertEquals(Status.NO_CONTENT.getStatusCode(), lraTop.getHttpStatus(),
+            Assertions.assertEquals(CallbackStatus.ACCEPTED, lraTop.getCallbackResult(),
                     "Expected top-level LRA '" + lraTop + "'  being active, HTTP status 204.");
             Assertions.assertFalse(lraTop.isRecovering(), "Expected top-level LRA '" + lraTop + "' not being recovering");
             Assertions.assertTrue(lraTop.isTopLevel(), "Expected top-level LRA '" + lraTop + "' to be top level");
@@ -159,7 +160,7 @@ public class CoordinatorApiIT extends TestBase {
 
             Assertions.assertEquals(LRAStatus.Active, lraNested.getStatus(),
                     "Expected nested LRA '" + lraNested + "'  being active");
-            Assertions.assertEquals(Status.NO_CONTENT.getStatusCode(), lraNested.getHttpStatus(),
+            Assertions.assertEquals(CallbackStatus.ACCEPTED, lraNested.getCallbackResult(),
                     "Expected nested LRA '" + lraNested + "'  being active, HTTP status 204.");
             Assertions.assertFalse(lraNested.isRecovering(), "Expected nested LRA '" + lraNested + "' not being recovering");
             Assertions.assertFalse(lraNested.isTopLevel(), "Expected nested LRA '" + lraNested + "' to be nested");
@@ -317,7 +318,7 @@ public class CoordinatorApiIT extends TestBase {
                         "Expected the returned LRA to be the one that was started by test");
                 Assertions.assertEquals(LRAStatus.Active, data.getStatus(), "Expected the returned LRA being Active");
                 Assertions.assertTrue(data.isTopLevel(), "Expected the returned LRA is top-level");
-                Assertions.assertEquals(Status.NO_CONTENT.getStatusCode(), data.getHttpStatus(),
+                Assertions.assertEquals(CallbackStatus.ACCEPTED, data.getCallbackResult(),
                         "Expected the returned LRA get HTTP status as active, HTTP status 204.");
             }
         } finally {
@@ -966,7 +967,8 @@ public class CoordinatorApiIT extends TestBase {
         URI lraId = lraClient.startLRA(testName);
         lrasToAfterFinish.add(lraId);
         try {
-            URI recoveryUri = lraClient.joinLRA(lraId, 0L, URI.create("http://localhost:8080"), new StringBuilder());
+            URI recoveryUri = lraClient.joinLRA(lraId, 0L, URI.create("http://localhost:8080"), new StringBuilder(),
+                    "CoordinatorApiT");
 
             String encodedLRAId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8);
             try (Response response = client.target(coordinatorUrl)
