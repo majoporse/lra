@@ -339,10 +339,10 @@ public class LRAFaultToleranceTest extends LRATestBase {
 
     private static ParticipantCallbacks callbacksFor(String prefix) {
         ParticipantCallbacks callbacks = new ParticipantCallbacks();
-        callbacks.compensateCallback = new HttpCallback(URI.create(String.format("%s/%s", prefix, "compensate")),
-                HttpCallback.HttpMethod.PUT, HttpCallback.ContextType.ACTIVE);
-        callbacks.completeCallback = new HttpCallback(URI.create(String.format("%s/%s", prefix, "complete")),
-                HttpCallback.HttpMethod.PUT, HttpCallback.ContextType.ACTIVE);
+        callbacks.compensateCallback = HttpCallback.compensateCallback(
+                URI.create(String.format("%s/%s", prefix, "compensate")));
+        callbacks.completeCallback = HttpCallback.completeCallback(
+                URI.create(String.format("%s/%s", prefix, "complete")));
         return callbacks;
     }
 

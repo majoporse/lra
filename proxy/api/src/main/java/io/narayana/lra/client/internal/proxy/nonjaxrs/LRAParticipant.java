@@ -12,6 +12,8 @@ import static io.narayana.lra.LRAConstants.FORGET;
 import static io.narayana.lra.LRAConstants.STATUS;
 
 import io.narayana.lra.AnnotationResolver;
+import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.inject.spi.CDI;
 import jakarta.ws.rs.DELETE;
@@ -349,30 +351,30 @@ public class LRAParticipant {
         this.instance = instance;
     }
 
-    public void augmentTerminationURIs(Map<String, String> terminateURIs, URI baseUri) {
+    public void augmentTerminationCallbacks(ParticipantCallbacks callbacks, URI baseUri) {
         String baseURI = UriBuilder.fromUri(baseUri)
                 .path(LRAParticipantResource.RESOURCE_PATH)
                 .path(javaClass.getName())
                 .build().toASCIIString();
 
-        if (!terminateURIs.containsKey(COMPLETE) && completeMethod != null) {
-            terminateURIs.put(COMPLETE, getURI(baseURI, COMPLETE));
+        if (callbacks.completeCallback == null && completeMethod != null) {
+            callbacks.completeCallback = HttpCallback.completeCallback(URI.create(getURI(baseURI, COMPLETE)));
         }
 
-        if (!terminateURIs.containsKey(COMPENSATE) && compensateMethod != null) {
-            terminateURIs.put(COMPENSATE, getURI(baseURI, COMPENSATE));
+        if (callbacks.compensateCallback == null && compensateMethod != null) {
+            callbacks.compensateCallback = HttpCallback.compensateCallback(URI.create(getURI(baseURI, COMPENSATE)));
         }
 
-        if (!terminateURIs.containsKey(STATUS) && statusMethod != null) {
-            terminateURIs.put(STATUS, getURI(baseURI, STATUS));
+        if (callbacks.statusCallback == null && statusMethod != null) {
+            callbacks.statusCallback = HttpCallback.statusCallback(URI.create(getURI(baseURI, STATUS)));
         }
 
-        if (!terminateURIs.containsKey(FORGET) && forgetMethod != null) {
-            terminateURIs.put(FORGET, getURI(baseURI, FORGET));
+        if (callbacks.forgetCallback == null && forgetMethod != null) {
+            callbacks.forgetCallback = HttpCallback.forgetCallback(URI.create(getURI(baseURI, FORGET)));
         }
 
-        if (!terminateURIs.containsKey(AFTER) && afterLRAMethod != null) {
-            terminateURIs.put(AFTER, getURI(baseURI, AFTER));
+        if (callbacks.afterCallback == null && afterLRAMethod != null) {
+            callbacks.afterCallback = HttpCallback.afterCallback(URI.create(getURI(baseURI, AFTER)));
         }
     }
 

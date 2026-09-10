@@ -17,11 +17,11 @@ import static org.hamcrest.core.IsCollectionContaining.hasItem;
 import static org.hamcrest.core.IsCollectionContaining.hasItems;
 import static org.hamcrest.core.IsNot.not;
 
-import io.narayana.lra.callbacks.CallbackStatus;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.arquillian.Deployer;
 import io.narayana.lra.arquillian.TestBase;
+import io.narayana.lra.callbacks.CallbackStatus;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.HttpHeaders;

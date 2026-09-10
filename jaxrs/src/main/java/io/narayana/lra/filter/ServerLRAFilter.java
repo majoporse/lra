@@ -5,14 +5,7 @@
 
 package io.narayana.lra.filter;
 
-import static io.narayana.lra.LRAConstants.AFTER;
-import static io.narayana.lra.LRAConstants.COMPENSATE;
-import static io.narayana.lra.LRAConstants.COMPLETE;
 import static io.narayana.lra.LRAConstants.ENLIST_PARTICIPANT_CLIENT_MAX_RETRY;
-import static io.narayana.lra.LRAConstants.FORGET;
-import static io.narayana.lra.LRAConstants.LEAVE;
-import static io.narayana.lra.LRAConstants.STATUS;
-import static io.narayana.lra.LRAConstants.TIMELIMIT_PARAM_NAME;
 import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT_HEADER;
@@ -26,6 +19,7 @@ import io.narayana.lra.BearerTokenResolver;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.PropagateToken;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.client.LRAParticipantData;
 import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.client.ParticipantIdProvider;
@@ -46,8 +40,6 @@ import jakarta.ws.rs.container.ContainerResponseFilter;
 import jakarta.ws.rs.container.ResourceInfo;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
-import jakarta.ws.rs.core.Link;
-import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
@@ -63,7 +55,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Map;
 import java.util.StringJoiner;
 import java.util.regex.Pattern;
 import org.eclipse.microprofile.config.ConfigProvider;
@@ -198,19 +189,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
 
             if (AnnotationResolver.isAnnotationPresent(Leave.class, method)) {
                 // leave the LRA
-                Map<String, String> terminateURIs = NarayanaLRAClient.getTerminationUris(
-                        resourceInfo.getResourceClass(),
-                        createUriPrefix(containerRequestContext, resourceInfo.getResourceClass()), timeout);
-                String compensatorId = terminateURIs.get("Link");
                 var body = ParticipantIdProvider.getParticipantId(resourceInfo.getResourceClass());
-
-                if (compensatorId == null) {
-                    abortWith(containerRequestContext, incomingLRA.toASCIIString(),
-                            Response.Status.BAD_REQUEST.getStatusCode(),
-                            "Missing complete or compensate annotations", null);
-                    return; // user error, bail out
-                }
-
                 progress = new ArrayList<>();
 
                 try {
@@ -406,39 +385,35 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
         }
 
         if (!endAnnotation) { // don't enlist for methods marked with Compensate, Complete or Leave
-            Map<String, String> terminateURIs = NarayanaLRAClient.getTerminationUris(resourceInfo.getResourceClass(),
-                    createUriPrefix(containerRequestContext, resourceInfo.getResourceClass()), timeout);
-            String timeLimitStr = terminateURIs.get(TIMELIMIT_PARAM_NAME);
-            long timeLimit = timeLimitStr == null ? DEFAULT_TIMEOUT_MILLIS : Long.parseLong(timeLimitStr);
+            ParticipantCallbacks callbacks = NarayanaLRAClient.getTerminationCallbacks(
+                    resourceInfo.getResourceClass(),
+                    createUriPrefix(containerRequestContext, resourceInfo.getResourceClass()));
+            long timeLimit = timeout != null && callbacks.hasCompensateOrComplete()
+                    ? timeout
+                    : DEFAULT_TIMEOUT_MILLIS;
 
             LRAParticipant participant = lraParticipantRegistry != null
                     ? lraParticipantRegistry.getParticipant(resourceInfo.getResourceClass().getName())
                     : null;
 
-            if (terminateURIs.containsKey("Link") || participant != null) {
+            if (callbacks.hasAnyCallback() || participant != null) {
                 try {
                     if (participant != null) {
-                        participant.augmentTerminationURIs(terminateURIs, containerRequestContext.getUriInfo().getBaseUri());
+                        participant.augmentTerminationCallbacks(callbacks,
+                                containerRequestContext.getUriInfo().getBaseUri());
                     }
 
-                    String compensatorLink = buildCompensatorURI(
-                            toURI(terminateURIs.get(COMPENSATE)),
-                            toURI(terminateURIs.get(COMPLETE)),
-                            toURI(terminateURIs.get(FORGET)),
-                            toURI(terminateURIs.get(LEAVE)),
-                            toURI(terminateURIs.get(AFTER)),
-                            toURI(terminateURIs.get(STATUS)));
                     StringBuilder previousParticipantData = new StringBuilder();
 
                     // store the registration link in case the participant wants to associate data with the enlistment in the LRA
-                    containerRequestContext.setProperty(PARTICIPANT_LINK_PROP, compensatorLink);
+                    containerRequestContext.setProperty(PARTICIPANT_LINK_PROP, callbacks);
 
                     // The coordinator needs to hold a lock to enlist an participant. This lock is only waited on for a small amount of
                     // time (potentially even zero time). This means if multiple participants try to enlist at the same time, enlistment
                     // may fail. We therefore re-try a configurable amount of times.
                     for (int i = 0;; i++) {
                         try {
-                            recoveryUrl = getLRAClient().enlistCompensator(lraId, timeLimit, compensatorLink,
+                            recoveryUrl = getLRAClient().enlistCompensator(lraId, timeLimit, callbacks,
                                     previousParticipantData,
                                     ParticipantIdProvider.getParticipantId(resourceInfo.getResourceClass()));
                             break;
@@ -477,12 +452,6 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                     abortWith(containerRequestContext, lraId.toASCIIString(),
                             e.getResponse().getStatus(),
                             String.format("%s: %s", e.getClass().getSimpleName(), reason), progress);
-                    // the failure plus any previous actions (such as leave and start requests) will be reported via the response filter
-                } catch (URISyntaxException e) {
-                    progress = updateProgress(progress, ProgressStep.JoinFailed, e.getMessage()); // one or more of the participant end points was invalid
-                    abortWith(containerRequestContext, lraId.toASCIIString(),
-                            Response.Status.BAD_REQUEST.getStatusCode(),
-                            String.format("%s %s: %s", lraId, e.getClass().getSimpleName(), e.getMessage()), progress);
                     // the failure plus any previous actions (such as leave and start requests) will be reported via the response filter
                 } catch (ProcessingException e) {
                     progress = updateProgress(progress, ProgressStep.JoinFailed, e.getMessage()); // a remote coordinator was unavailable
@@ -790,10 +759,6 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                 lraId == null ? "context" : lraId);
     }
 
-    private URI toURI(String uri) throws URISyntaxException {
-        return uri == null ? null : new URI(uri);
-    }
-
     @SuppressWarnings("unchecked")
     public static <T extends Collection<?>> T cast(Object obj) {
         return (T) obj;
@@ -840,33 +805,5 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
         } catch (ContextNotActiveException e) {
             LRALogger.i18nLogger.warn_missingContexts("LRAParticipantData is not usable in this (probably async) context.");
         }
-    }
-
-    private String buildCompensatorURI(URI compensate, URI complete, URI forget, URI leave, URI after, URI status) {
-        StringBuilder linkHeaderValue = new StringBuilder();
-
-        makeLink(linkHeaderValue, COMPENSATE, compensate);
-        makeLink(linkHeaderValue, COMPLETE, complete);
-        makeLink(linkHeaderValue, FORGET, forget);
-        makeLink(linkHeaderValue, LEAVE, leave);
-        makeLink(linkHeaderValue, AFTER, after);
-        makeLink(linkHeaderValue, STATUS, status);
-
-        return linkHeaderValue.toString();
-    }
-
-    private static void makeLink(StringBuilder b, String key, URI value) {
-        if (key == null || value == null) {
-            return;
-        }
-
-        String uri = value.toASCIIString();
-        Link link = Link.fromUri(uri).title(key + " URI").rel(key).type(MediaType.TEXT_PLAIN).build();
-
-        if (b.length() != 0) {
-            b.append(',');
-        }
-
-        b.append(link);
     }
 }

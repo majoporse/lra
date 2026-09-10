@@ -102,7 +102,8 @@ public class ObjStoreBrowserLRATest {
             String coordinatorUrl = "http://localhost:8080/lra-coordinator";
             String participantUrl = "http://localhost:8080/lra-participant";
             var callbacks = new ParticipantCallbacks();
-            callbacks.compensateCallback = new HttpCallback(participantUrl + "/compensate");
+            callbacks.compensateCallback = HttpCallback.compensateCallback(
+                    URI.create(participantUrl + "/compensate"));
             LRAParticipantRecord lraParticipant = lra.enlistParticipant(URI.create(coordinatorUrl), callbacks,
                     "/recover", Long.MAX_VALUE, null, "beanremovaltest");
 

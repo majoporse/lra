@@ -1370,14 +1370,14 @@ public class LRATest extends LRATestBase {
         String prefix = TestPortProvider.generateURL("/base/test");
 
         var callbacks = new ParticipantCallbacks();
-        callbacks.compensateCallback = new HttpCallback(URI.create(String.format("%s/%s", prefix, "compensate")),
-                HttpCallback.HttpMethod.PUT, HttpCallback.ContextType.ACTIVE);
-        callbacks.completeCallback = new HttpCallback(URI.create(String.format("%s/%s", prefix, "complete")),
-                HttpCallback.HttpMethod.PUT, HttpCallback.ContextType.ACTIVE);
-        callbacks.forgetCallback = new HttpCallback(URI.create(String.format("%s/%s", prefix, "forget")),
-                HttpCallback.HttpMethod.DELETE, HttpCallback.ContextType.ACTIVE);
-        callbacks.afterCallback = new HttpCallback(URI.create(String.format("%s/%s", prefix, "after")),
-                HttpCallback.HttpMethod.PUT, HttpCallback.ContextType.ENDED);
+        callbacks.compensateCallback = HttpCallback.compensateCallback(
+                URI.create(String.format("%s/%s", prefix, "compensate")));
+        callbacks.completeCallback = HttpCallback.completeCallback(
+                URI.create(String.format("%s/%s", prefix, "complete")));
+        callbacks.forgetCallback = HttpCallback.forgetCallback(
+                URI.create(String.format("%s/%s", prefix, "forget")));
+        callbacks.afterCallback = HttpCallback.afterCallback(
+                URI.create(String.format("%s/%s", prefix, "after")));
 
         var request = new JoinLRAHttp.Request();
         request.partId = "/base/test";

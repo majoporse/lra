@@ -13,7 +13,6 @@ import static io.narayana.lra.LRAConstants.FORGET;
 import static io.narayana.lra.LRAConstants.LEAVE;
 import static io.narayana.lra.LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
 import static io.narayana.lra.LRAConstants.STATUS;
-import static io.narayana.lra.LRAConstants.TIMELIMIT_PARAM_NAME;
 import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST;
 import static jakarta.ws.rs.core.Response.Status.GONE;
 import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
@@ -26,6 +25,7 @@ import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.callbacks.HttpCallback;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
@@ -51,8 +51,6 @@ import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.ServiceUnavailableException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.container.Suspended;
-import jakarta.ws.rs.core.Link;
-import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriBuilder;
 import java.lang.annotation.Annotation;
@@ -67,7 +65,6 @@ import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -125,8 +122,6 @@ public class NarayanaLRAClient implements AutoCloseable {
             LB_METHOD_LEAST_RESPONSE_TIME,
             LB_METHOD_POWER_OF_TWO_CHOICES
     };
-
-    private static final String LINK_TEXT = "Link";
 
     /**
      * constrain how long client operations take before giving up
@@ -554,10 +549,15 @@ public class NarayanaLRAClient implements AutoCloseable {
      */
     public URI joinLRA(URI lraId, Long timeLimit,
             URI participantUri, StringBuilder compensatorData, String partId) throws WebApplicationException {
-        validateURI(participantUri, false, "Invalid participant URL: %s");
-        StringBuilder linkHeaderValue = makeLink(new StringBuilder(), null, "participant", participantUri.toASCIIString());
 
-        return enlistCompensator(lraId, timeLimit, linkHeaderValue.toString(), compensatorData, partId);
+        var callbacks = new ParticipantCallbacks();
+        callbacks.compensateCallback = HttpCallback.compensateCallback(
+                URI.create(participantUri.toASCIIString() + "/compensate"));
+        callbacks.completeCallback = HttpCallback.completeCallback(
+                URI.create(participantUri.toASCIIString() + "/complete"));
+        callbacks.statusCallback = HttpCallback.statusCallback(participantUri);
+        callbacks.forgetCallback = HttpCallback.forgetCallback(participantUri);
+        return enlistCompensator(lraId, timeLimit, callbacks, compensatorData, partId);
     }
 
     public void leaveLRA(URI lraId, String body) throws WebApplicationException {
@@ -582,54 +582,44 @@ public class NarayanaLRAClient implements AutoCloseable {
     }
 
     /**
-     * For particular compensator class it returns termination uris based on the provided base uri.
-     * You get map of string and URI.
+     * For a particular participant class it returns the participant callbacks derived from the
+     * provided base uri and the participant's annotations.
      *
-     * @param compensatorClass compensator class to examine.
+     * @param compensatorClass participant class to examine.
      * @param uriPrefix the uri that triggered this join request.
-     * @param timeout how long the participant is prepared to wait for LRA
-     *        to compensate or complete.
-     * @return map of URI
+     * @return the participant callbacks
      */
-    public static Map<String, String> getTerminationUris(Class<?> compensatorClass, String uriPrefix, Long timeout) {
-        Map<String, String> paths = new HashMap<>();
+    public static ParticipantCallbacks getTerminationCallbacks(Class<?> compensatorClass, String uriPrefix) {
+        ParticipantCallbacks callbacks = new ParticipantCallbacks();
         final boolean[] asyncTermination = { false };
-
-        String timeoutValue = timeout != null ? Long.toString(timeout) : "0";
 
         Arrays.stream(compensatorClass.getMethods()).forEach(method -> {
             Path pathAnnotation = method.getAnnotation(Path.class);
 
             if (pathAnnotation != null) {
 
-                if (checkMethod(paths, method, COMPENSATE, pathAnnotation,
-                        method.getAnnotation(Compensate.class), uriPrefix) != 0) {
-                    paths.put(TIMELIMIT_PARAM_NAME, timeoutValue);
-
-                    if (isAsyncCompletion(method)) {
-                        asyncTermination[0] = true;
-                    }
+                if (checkMethod(callbacks, method, COMPENSATE, pathAnnotation,
+                        method.getAnnotation(Compensate.class), uriPrefix) != 0
+                        && isAsyncCompletion(method)) {
+                    asyncTermination[0] = true;
                 }
 
-                if (checkMethod(paths, method, COMPLETE, pathAnnotation,
-                        method.getAnnotation(Complete.class), uriPrefix) != 0) {
-                    paths.put(TIMELIMIT_PARAM_NAME, timeoutValue);
-
-                    if (isAsyncCompletion(method)) {
-                        asyncTermination[0] = true;
-                    }
+                if (checkMethod(callbacks, method, COMPLETE, pathAnnotation,
+                        method.getAnnotation(Complete.class), uriPrefix) != 0
+                        && isAsyncCompletion(method)) {
+                    asyncTermination[0] = true;
                 }
-                checkMethod(paths, method, STATUS, pathAnnotation,
+                checkMethod(callbacks, method, STATUS, pathAnnotation,
                         method.getAnnotation(Status.class), uriPrefix);
-                checkMethod(paths, method, FORGET, pathAnnotation,
+                checkMethod(callbacks, method, FORGET, pathAnnotation,
                         method.getAnnotation(Forget.class), uriPrefix);
 
-                checkMethod(paths, method, LEAVE, pathAnnotation, method.getAnnotation(Leave.class), uriPrefix);
-                checkMethod(paths, method, AFTER, pathAnnotation, method.getAnnotation(AfterLRA.class), uriPrefix);
+                checkMethod(callbacks, method, LEAVE, pathAnnotation, method.getAnnotation(Leave.class), uriPrefix);
+                checkMethod(callbacks, method, AFTER, pathAnnotation, method.getAnnotation(AfterLRA.class), uriPrefix);
             }
         });
 
-        if (asyncTermination[0] && !paths.containsKey(STATUS) && !paths.containsKey(FORGET)) {
+        if (asyncTermination[0] && callbacks.statusCallback == null && callbacks.forgetCallback == null) {
             String logMsg = LRALogger.i18nLogger.error_asyncTerminationBeanMissStatusAndForget(compensatorClass);
             LRALogger.logger.warn(logMsg);
             throw new WebApplicationException(
@@ -638,14 +628,7 @@ public class NarayanaLRAClient implements AutoCloseable {
                             .build());
         }
 
-        StringBuilder linkHeaderValue = new StringBuilder();
-
-        if (!paths.isEmpty()) {
-            paths.forEach((k, v) -> makeLink(linkHeaderValue, null, k, v));
-            paths.put(LINK_TEXT, linkHeaderValue.toString());
-        }
-
-        return paths;
+        return callbacks;
     }
 
     /**
@@ -671,7 +654,7 @@ public class NarayanaLRAClient implements AutoCloseable {
         return false;
     }
 
-    private static int checkMethod(Map<String, String> paths,
+    private static int checkMethod(ParticipantCallbacks callbacks,
             Method method, String rel,
             Path pathAnnotation,
             Annotation annotationClass,
@@ -690,20 +673,30 @@ public class NarayanaLRAClient implements AutoCloseable {
             return 0;
         }
 
-        // search for a matching JAX-RS method
-        for (Annotation annotation : method.getDeclaredAnnotations()) {
+        // the participant method must declare an HTTP verb annotation otherwise there is nothing to call
+        boolean hasHttpVerb = Arrays.stream(method.getDeclaredAnnotations()).anyMatch(annotation -> {
             String name = annotation.annotationType().getName();
 
-            if (name.equals(GET.class.getName()) ||
-                    name.equals(PUT.class.getName()) ||
-                    name.equals(POST.class.getName()) ||
-                    name.equals(DELETE.class.getName())) {
-                String pathValue = pathAnnotation.value();
-                pathValue = pathValue.startsWith("/") ? pathValue : "/" + pathValue;
-                String url = String.format("%s%s?%s=%s", uriPrefix, pathValue, LRAConstants.HTTP_METHOD_NAME, name);
+            return name.equals(GET.class.getName()) || name.equals(PUT.class.getName())
+                    || name.equals(POST.class.getName()) || name.equals(DELETE.class.getName());
+        });
 
-                paths.put(rel, url);
-                break;
+        if (!hasHttpVerb) {
+            return 1;
+        }
+
+        String pathValue = pathAnnotation.value();
+        pathValue = pathValue.startsWith("/") ? pathValue : "/" + pathValue;
+        URI url = URI.create(String.format("%s%s", uriPrefix, pathValue));
+
+        switch (rel) {
+            case COMPENSATE -> callbacks.compensateCallback = HttpCallback.compensateCallback(url);
+            case COMPLETE -> callbacks.completeCallback = HttpCallback.completeCallback(url);
+            case STATUS -> callbacks.statusCallback = HttpCallback.statusCallback(url);
+            case FORGET -> callbacks.forgetCallback = HttpCallback.forgetCallback(url);
+            case AFTER -> callbacks.afterCallback = HttpCallback.afterCallback(url);
+            default -> {
+                // @Leave is handled directly by the client and is not part of the participant callbacks
             }
         }
 
@@ -953,52 +946,39 @@ public class NarayanaLRAClient implements AutoCloseable {
         }
     }
 
-    private static StringBuilder makeLink(StringBuilder b, String uriPrefix, String key, String value) {
-
-        if (value == null) {
-            return b;
-        }
-
-        String terminationUri = uriPrefix == null ? value : String.format("%s%s", uriPrefix, value);
-        Link link = Link.fromUri(terminationUri).title(key + " URI").rel(key).type(MediaType.TEXT_PLAIN).build();
-
-        if (b.length() != 0) {
-            b.append(',');
-        }
-
-        return b.append(link);
-    }
-
     private URI enlistCompensator(URI lraUri, Long timelimit, String uriPrefix,
             URI compensateUri, URI completeUri,
             URI forgetUri, URI leaveUri, URI afterUri, URI statusUri,
             StringBuilder compensatorData, String partId) {
         validateURI(completeUri, true, "Invalid complete URL: %s");
         validateURI(compensateUri, true, "Invalid compensate URL: %s");
-        validateURI(leaveUri, true, "Invalid status URL: %s");
+        //        validateURI(leaveUri, true, "Invalid status URL: %s");
         validateURI(afterUri, true, "Invalid after URL: %s");
         validateURI(forgetUri, true, "Invalid forgetUri URL: %s");
         validateURI(statusUri, true, "Invalid status URL: %s");
 
-        Map<String, URI> terminateURIs = new HashMap<>();
+        ParticipantCallbacks callbacks = new ParticipantCallbacks();
+        if (compensateUri != null) {
+            callbacks.compensateCallback = HttpCallback.compensateCallback(compensateUri);
+        }
+        if (completeUri != null) {
+            callbacks.completeCallback = HttpCallback.completeCallback(completeUri);
+        }
+        if (statusUri != null) {
+            callbacks.statusCallback = HttpCallback.statusCallback(statusUri);
+        }
+        if (forgetUri != null) {
+            callbacks.forgetCallback = HttpCallback.forgetCallback(forgetUri);
+        }
+        if (afterUri != null) {
+            callbacks.afterCallback = HttpCallback.afterCallback(afterUri);
+        }
 
-        terminateURIs.put(COMPENSATE, compensateUri);
-        terminateURIs.put(COMPLETE, completeUri);
-        terminateURIs.put(LEAVE, leaveUri);
-        terminateURIs.put(AFTER, afterUri);
-        terminateURIs.put(STATUS, statusUri);
-        terminateURIs.put(FORGET, forgetUri);
-
-        // register with the coordinator
-        // put the lra id in an http header
-        StringBuilder linkHeaderValue = new StringBuilder();
-
-        terminateURIs.forEach((k, v) -> makeLink(linkHeaderValue, uriPrefix, k, v == null ? null : v.toASCIIString()));
-
-        return enlistCompensator(lraUri, timelimit, linkHeaderValue.toString(), compensatorData, partId);
+        return enlistCompensator(lraUri, timelimit, callbacks, compensatorData, partId);
     }
 
-    public URI enlistCompensator(URI uri, Long timelimit, String linkHeader, StringBuilder compensatorData, String partId) {
+    public URI enlistCompensator(URI uri, Long timelimit, ParticipantCallbacks links, StringBuilder compensatorData,
+            String partId) {
         // register with the coordinator
         URL lraId = null;
         String data = compensatorData == null ? null : compensatorData.toString();
@@ -1016,7 +996,6 @@ public class NarayanaLRAClient implements AutoCloseable {
         try {
             // Build the CoordinatorClient using the base coordinator URL
             CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uri));
-            var links = ParticipantCallbacks.fromLinkString(linkHeader);
 
             // Extract the LRA UID
             String lraUid = LRAConstants.getLRAUid(uri);
