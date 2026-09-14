@@ -837,7 +837,7 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
-    public LRAParticipantRecord enlistParticipant(URI coordinatorUrl, ParticipantCallbacks callbacks, String recoveryUrlBase,
+    public LRAParticipantRecord enlistParticipant(ParticipantCallbacks callbacks, String recoveryUrlBase,
             long timeLimit, String compensatorData, String partId)
             throws UnsupportedEncodingException {
         ReentrantLock lock = tryTimedLockTransaction(participantEnlistTimeout);
@@ -852,7 +852,7 @@ public class LongRunningAction extends BasicAction {
                     participant.setCompensatorData(compensatorData);
                     return participant; // must have already been enlisted
                 }
-                participant = doEnlistParticipant(coordinatorUrl, callbacks, recoveryUrlBase, timeLimit,
+                participant = doEnlistParticipant(callbacks, recoveryUrlBase, timeLimit,
                         compensatorData, partId);
                 if (participant != null) {
                     // need to remember that there is a new participant
@@ -872,7 +872,7 @@ public class LongRunningAction extends BasicAction {
 
     }
 
-    private LRAParticipantRecord doEnlistParticipant(URI coordinatorUrl, ParticipantCallbacks actions, String recoveryUrlBase,
+    private LRAParticipantRecord doEnlistParticipant(ParticipantCallbacks actions, String recoveryUrlBase,
             long timeLimit, String compensatorData, String partId) {
         LRAParticipantRecord p = new LRAParticipantRecord(this, lraService,
                 actions.compensateCallback, actions.completeCallback,

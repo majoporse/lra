@@ -347,8 +347,7 @@ public class LRAService {
 
         try {
             if (compensatorData != null) {
-                participant = transaction.enlistParticipant(HttpLRAService.toURI(transaction),
-                        actions, recoveryUrlBase,
+                participant = transaction.enlistParticipant(actions, recoveryUrlBase,
                         timeLimit, compensatorData.toString(), partId);
                 // return any previously registered data
                 compensatorData.setLength(0);
@@ -357,8 +356,7 @@ public class LRAService {
                     compensatorData.append(participant.getPreviousCompensatorData());
                 }
             } else {
-                participant = transaction.enlistParticipant(HttpLRAService.toURI(transaction),
-                        actions, recoveryUrlBase,
+                participant = transaction.enlistParticipant(actions, recoveryUrlBase,
                         timeLimit, null, partId);
             }
         } catch (UnsupportedEncodingException e) {

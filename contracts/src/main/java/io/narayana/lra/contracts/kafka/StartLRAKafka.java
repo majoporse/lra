@@ -1,7 +1,7 @@
 package io.narayana.lra.contracts.kafka;
 
 import java.net.URI;
-import java.util.ArrayList;
+import java.util.UUID;
 
 public class StartLRAKafka {
     public static class Request extends io.narayana.lra.contracts.common.StartLRA.Request implements LRAKafkaRequest {
@@ -11,7 +11,7 @@ public class StartLRAKafka {
         public Request() {
         }
 
-        public Request(String correlationId, String replyTopic, String clientId, Long timeout, URI parentLRA) {
+        public Request(String correlationId, String replyTopic, String clientId, Long timeout, UUID parentLRA) {
             super(clientId, timeout, parentLRA);
             this.correlationId = correlationId;
             this.replyTopic = replyTopic;
@@ -36,7 +36,7 @@ public class StartLRAKafka {
         }
 
         public Reply(String correlationId, URI lraId, String error) {
-            super(lraId, new ArrayList<>(), error);
+            super(lraId, null, error);
             this.correlationId = correlationId;
             this.error = error;
         }

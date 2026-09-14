@@ -43,33 +43,19 @@ public class HttpLRAService {
     // --- URI construction ---
 
     public URI toURI(UUID lraId) {
-        return toURI(lraId, null);
-    }
-
-    public URI toURI(UUID lraId, UUID parentId) {
         String url = getCoordinatorUrl();
         int comma = url.indexOf(',');
         if (comma != -1) {
             url = url.substring(0, comma);
         }
-        return toURI(url, lraId, parentId);
+        return toURI(url, lraId);
     }
 
     public static URI toURI(LongRunningAction lra) {
-        String hierarchy = lra.getParentHierarchy();
-        if (hierarchy != null) {
-            return URI.create(lra.getCoordinatorUrl() + "/" + lra.getId().toString()
-                    + "?" + LRAConstants.PARENT_LRA_PARAM_NAME + "=" + hierarchy);
-        }
         return URI.create(lra.getCoordinatorUrl() + "/" + lra.getId().toString());
     }
 
-    public static URI toURI(String coordinatorUrl, UUID lraId, UUID parentId) {
-        if (parentId != null) {
-            return URI.create(
-                    coordinatorUrl + "/" + lraId.toString() + "?" + LRAConstants.PARENT_LRA_PARAM_NAME + "="
-                            + parentId.toString());
-        }
+    public static URI toURI(String coordinatorUrl, UUID lraId) {
         return URI.create(coordinatorUrl + "/" + lraId.toString());
     }
 

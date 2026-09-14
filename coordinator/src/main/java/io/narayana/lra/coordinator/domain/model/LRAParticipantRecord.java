@@ -526,7 +526,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         return new CallbackContext(
                 HttpLRAService.toURI(lra).toASCIIString(),
                 parentId == null ? null
-                        : HttpLRAService.toURI(lra.getCoordinatorUrl(), parentId, null).toASCIIString(),
+                        : HttpLRAService.toURI(lra.getCoordinatorUrl(), parentId).toASCIIString(),
                 recoveryURI == null ? null : recoveryURI.toASCIIString(),
                 compensatorData,
                 payload);

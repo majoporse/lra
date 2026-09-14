@@ -61,6 +61,7 @@ import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -228,26 +229,22 @@ public class Coordinator extends Application {
     public StartLRAHttp.Reply startLRA(
             @RequestBody StartLRAHttp.Request body) {
 
-        URI parentId = body.parentLRA;
+        UUID parentId = body.parentLRA;
         var timelimit = body.timeout == null ? 0 : body.timeout;
         var clientId = body.clientId == null ? "" : body.clientId;
         String coordinatorUrl = String.format("%s%s", context.getBaseUri(), COORDINATOR_PATH_NAME);
-        LongRunningAction lra = httpLraService.startLRA(coordinatorUrl, parentId, clientId, timelimit);
-        String hierarchy = lra.getParentHierarchy();
-        URI lraId = hierarchy != null
-                ? URI.create(coordinatorUrl + "/" + lra.getId().toString() + "?" + LRAConstants.PARENT_LRA_PARAM_NAME + "="
-                        + hierarchy)
-                : URI.create(coordinatorUrl + "/" + lra.getId().toString());
+        LongRunningAction lra = lraService.startLRA(coordinatorUrl, parentId, clientId, timelimit);
+        URI lraId = URI.create(coordinatorUrl + "/" + lra.getId().toString());
 
         if (parentId != null) {
             // the startLRA call will have imported the parent LRA
             String compensatorUrl = String.format("%s/%s/%s", coordinatorUrl, LRAConstants.NESTED_COORDINATOR_PATH_NAME,
                     LRAConstants.getLRAUid(lraId));
 
-            if (!httpLraService.hasTransaction(parentId)) {
+            if (!httpLraService.hasTransaction(toURI(parentId.toString()))) {
 
                 try (Client client = JwtTokenContext.newClient()) {
-                    try (Response response = client.target(parentId)
+                    try (Response response = client.target(toURI(parentId.toString()))
                             .request()
                             .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, CURRENT_API_VERSION_STRING)
                             .async()
@@ -274,9 +271,9 @@ public class Coordinator extends Application {
             }
         }
 
-        Current.push(lraId);
+        Current.push(lraId, parentId);
 
-        return new StartLRAHttp.Reply(lraId, Current.getContexts());
+        return new StartLRAHttp.Reply(lraId, parentId);
     }
 
     @PUT

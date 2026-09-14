@@ -22,6 +22,7 @@ import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.core.Response;
 import java.net.URI;
+import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 import org.eclipse.microprofile.reactive.messaging.Channel;
@@ -88,8 +89,8 @@ public class KafkaLRAListener {
 
         try {
             String coordinatorUrl = "http://localhost:8080/" + LRAConstants.COORDINATOR_PATH_NAME;
-            URI parentId = request.parentLRA;
-            LongRunningAction lra = httpLraService.startLRA(coordinatorUrl, parentId, request.clientId, request.timeout);
+            UUID parentId = request.parentLRA;
+            LongRunningAction lra = lraService.startLRA(coordinatorUrl, parentId, request.clientId, request.timeout);
             reply = new StartLRAKafka.Reply(request.getCorrelationId(), HttpLRAService.toURI(lra), null);
         } catch (Exception e) {
             reply = new StartLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());

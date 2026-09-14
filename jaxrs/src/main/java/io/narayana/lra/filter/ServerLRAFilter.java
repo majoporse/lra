@@ -44,7 +44,6 @@ import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 import jakarta.ws.rs.ext.Provider;
-import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -56,6 +55,7 @@ import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.StringJoiner;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -215,14 +215,16 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
 
         if (type == null) {
             if (!endAnnotation) {
-                Current.clearContext(headers);
+                Current.popAll();
+                headers.remove(LRA_HTTP_CONTEXT_HEADER);
             }
 
             if (incomingLRA != null) {
-                Current.push(incomingLRA);
+                UUID incomingLraId = uuidOf(incomingLRA);
                 containerRequestContext.setProperty(SUSPENDED_LRA_PROP, incomingLRA);
                 containerRequestContext.setProperty(CURRENT_LRA_PROP, incomingLRA);
-                Current.addActiveLRACache(incomingLRA);
+                Current.push(incomingLRA, null);
+                Current.addActiveLRACache(incomingLraId);
             }
 
             return; // not transactional
@@ -242,15 +244,17 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
         }
 
         if (incomingLRA != null) {
-            // set the parent context header
-            try {
-                headers.putSingle(LRA_HTTP_PARENT_CONTEXT_HEADER, Current.getFirstParent(incomingLRA));
-            } catch (UnsupportedEncodingException e) {
-                abortWith(containerRequestContext, incomingLRA.toASCIIString(),
-                        Response.Status.PRECONDITION_FAILED.getStatusCode(),
-                        String.format("incoming LRA %s contains an invalid parent: %s", incomingLRA, e.getMessage()),
-                        progress);
-                return; // any previous actions (the leave request) will be reported via the response filter
+            // set the parent context header using the full parent URI
+            var incomingId = uuidOf(incomingLRA);
+            UUID firstParent = Current.getFirstParent(incomingId);
+
+            if (firstParent != null) {
+                // parent and child run on the same coordinator so the parent id is the
+                // coordinator url of the child plus the parent uid
+                headers.putSingle(LRA_HTTP_PARENT_CONTEXT_HEADER,
+                        LRAConstants.getLRACoordinatorUrl(incomingLRA) + "/" + firstParent);
+            } else {
+                headers.remove(LRA_HTTP_PARENT_CONTEXT_HEADER);
             }
         }
 
@@ -346,7 +350,8 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
 
         if (lraId == null) {
             // the method call needs to run without a transaction
-            Current.clearContext(headers);
+            Current.popAll();
+            headers.remove(LRA_HTTP_CONTEXT_HEADER);
 
             if (suspendedLRA != null) {
                 containerRequestContext.setProperty(SUSPENDED_LRA_PROP, suspendedLRA);
@@ -360,7 +365,8 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
         }
 
         // store state with the current thread
-        Current.updateLRAContext(lraId, headers); // make the current LRA available to the called method
+        Current.push(lraId, null); // make the current LRA available to the called method
+        headers.putSingle(LRA_HTTP_CONTEXT_HEADER, lraId.toString());
 
         if (newLRA != null) {
             if (suspendedLRA != null) {
@@ -369,8 +375,6 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
 
             containerRequestContext.setProperty(NEW_LRA_PROP, newLRA);
         }
-
-        Current.push(lraId);
 
         try {
             getLRAClient().setCurrentLRA(lraId); // make the current LRA available to the called method
@@ -461,8 +465,9 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                     // the failure plus any previous actions (such as leave and start requests) will be reported via the response filter
                 }
             } else if (requiresActiveLRA && getLRAClient().getStatus(lraId) != LRAStatus.Active) {
-                Current.clearContext(headers);
-                Current.pop(lraId);
+                Current.popAll();
+                headers.remove(LRA_HTTP_CONTEXT_HEADER);
+                Current.pop(uuidOf(lraId));
                 containerRequestContext.removeProperty(SUSPENDED_LRA_PROP);
 
                 if (type == MANDATORY) {
@@ -475,7 +480,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
         }
 
         containerRequestContext.setProperty(CURRENT_LRA_PROP, lraId);
-        Current.addActiveLRACache(lraId);
+        Current.addActiveLRACache(uuidOf(lraId));
     }
 
     private String createUriPrefix(ContainerRequestContext containerRequestContext, Class<?> resourceClass) {
@@ -612,13 +617,13 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
             }
         } finally {
             if (suspendedLRA != null) {
-                Current.push((URI) suspendedLRA);
+                Current.push((URI) suspendedLRA, null);
             }
 
             Current.updateLRAContext(responseContext);
 
             Current.popAll();
-            Current.removeActiveLRACache(current);
+            Current.removeActiveLRACache(uuidOf(current));
             Current.clearAuthToken();
         }
     }
@@ -630,6 +635,14 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
         }
 
         return lraClient;
+    }
+
+    private static UUID uuidOf(URI lraId) {
+        try {
+            return lraId == null ? null : UUID.fromString(LRAConstants.getLRAUid(lraId));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private boolean isJaxRsCancel(ContainerRequestContext requestContext, ContainerResponseContext responseContext) {

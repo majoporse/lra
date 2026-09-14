@@ -2,6 +2,7 @@ package io.narayana.lra.client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.narayana.lra.LRAConstants;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.contracts.kafka.CancelLRAKafka;
 import io.narayana.lra.contracts.kafka.CloseLRAKafka;
@@ -148,7 +149,7 @@ public class KafkaLRAClient {
 
         StartLRAKafka.Request request = new StartLRAKafka.Request(nextCorrelationId(), replyTopic, clientID,
                 timeoutMillis,
-                parentLRA);
+                parentLRA == null ? null : UUID.fromString(LRAConstants.getLRAUid(parentLRA)));
         StartLRAKafka.Reply reply = send(LRAKafkaConstants.TYPE_START, request, StartLRAKafka.Reply.class, false);
 
         checkError(reply);

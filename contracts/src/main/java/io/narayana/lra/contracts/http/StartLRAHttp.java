@@ -2,14 +2,14 @@ package io.narayana.lra.contracts.http;
 
 import io.narayana.lra.contracts.common.StartLRA;
 import java.net.URI;
-import java.util.List;
+import java.util.UUID;
 
 public class StartLRAHttp {
     public static class Request extends StartLRA.Request {
         public Request() {
         }
 
-        public Request(String clientId, Long timeout, URI parentLRA) {
+        public Request(String clientId, Long timeout, UUID parentLRA) {
             super(clientId, timeout, parentLRA);
         }
     }
@@ -18,8 +18,8 @@ public class StartLRAHttp {
         public Reply() {
         }
 
-        public Reply(URI lraId, List<Object> contexts) {
-            super(lraId, contexts, null);
+        public Reply(URI lraId, UUID parent) {
+            super(lraId, parent, null);
         }
     }
 }
