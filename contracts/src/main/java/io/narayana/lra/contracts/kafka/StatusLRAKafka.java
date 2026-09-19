@@ -1,17 +1,19 @@
 package io.narayana.lra.contracts.kafka;
 
+import io.narayana.lra.callbacks.contracts.common.StatusLRACallback;
+import java.util.UUID;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 public class StatusLRAKafka {
-    public static class Request extends io.narayana.lra.contracts.common.StatusLRA.Request implements LRAKafkaRequest {
+    public static class Request extends StatusLRACallback.Request implements LRAKafkaRequest {
         public String correlationId = "";
         public String replyTopic = "";
 
         public Request() {
         }
 
-        public Request(String correlationId, String replyTopic, String lraId) {
-            super(lraId);
+        public Request(String correlationId, String replyTopic, String clientId, Long timeout, UUID parentLRA) {
+            super(clientId, parentLRA);
             this.correlationId = correlationId;
             this.replyTopic = replyTopic;
         }
@@ -27,7 +29,7 @@ public class StatusLRAKafka {
         }
     }
 
-    public static class Reply extends io.narayana.lra.contracts.common.StatusLRA.Reply implements LRAKafkaReply {
+    public static class Reply extends StatusLRACallback.Reply implements LRAKafkaReply {
         public String correlationId;
         public String error;
 

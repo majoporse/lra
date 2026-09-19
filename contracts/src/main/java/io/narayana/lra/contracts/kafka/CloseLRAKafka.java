@@ -1,10 +1,11 @@
 package io.narayana.lra.contracts.kafka;
 
+import io.narayana.lra.contracts.common.CloseLRA;
 import java.net.URI;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 public class CloseLRAKafka {
-    public static class Request extends io.narayana.lra.contracts.common.CloseLRA.Request implements LRAKafkaRequest {
+    public static class Request extends CloseLRA.Request implements LRAKafkaRequest {
         public String correlationId = "";
         public String replyTopic = "";
 
@@ -28,7 +29,7 @@ public class CloseLRAKafka {
         }
     }
 
-    public static class Reply extends io.narayana.lra.contracts.common.CloseLRA.Reply implements LRAKafkaReply {
+    public static class Reply extends CloseLRA.Reply implements LRAKafkaReply {
         public String correlationId;
         public String error;
 

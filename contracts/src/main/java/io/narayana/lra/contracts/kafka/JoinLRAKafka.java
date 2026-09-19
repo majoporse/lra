@@ -1,10 +1,11 @@
 package io.narayana.lra.contracts.kafka;
 
 import io.narayana.lra.callbacks.ParticipantCallbacks;
+import io.narayana.lra.contracts.common.JoinLRA;
 import java.net.URI;
 
 public class JoinLRAKafka {
-    public static class Request extends io.narayana.lra.contracts.common.JoinLRA.Request implements LRAKafkaRequest {
+    public static class Request extends JoinLRA.Request implements LRAKafkaRequest {
         public String correlationId = "";
         public String replyTopic = "";
 
@@ -30,7 +31,7 @@ public class JoinLRAKafka {
         }
     }
 
-    public static class Reply extends io.narayana.lra.contracts.common.JoinLRA.Reply implements LRAKafkaReply {
+    public static class Reply extends JoinLRA.Reply implements LRAKafkaReply {
         public String correlationId;
         public String error;
 
