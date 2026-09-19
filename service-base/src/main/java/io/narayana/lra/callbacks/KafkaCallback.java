@@ -4,16 +4,14 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.LRAConstants;
-import io.narayana.lra.callbacks.contracts.common.ParticipantReply;
 import io.narayana.lra.callbacks.contracts.common.ParticipantRequest;
-import io.narayana.lra.callbacks.contracts.kafka.AfterLRAKafka;
-import io.narayana.lra.callbacks.contracts.kafka.CompensateKafka;
-import io.narayana.lra.callbacks.contracts.kafka.CompleteKafka;
-import io.narayana.lra.callbacks.contracts.kafka.ForgetKafka;
-import io.narayana.lra.callbacks.contracts.kafka.StatusKafka;
+import io.narayana.lra.callbacks.contracts.kafka.AfterLRAKafkaCallback;
+import io.narayana.lra.callbacks.contracts.kafka.CompensateLRAKafkaCallback;
+import io.narayana.lra.callbacks.contracts.kafka.CompleteLRAKafkaCallback;
+import io.narayana.lra.callbacks.contracts.kafka.ForgetLraKafkaCallback;
+import io.narayana.lra.callbacks.contracts.kafka.StatusLraKafkaCallback;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.inject.spi.CDI;
-import java.net.URI;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
@@ -30,11 +28,11 @@ public class KafkaCallback implements LRACallback {
      * exchanged with the client-side listener.
      */
     public enum Operation {
-        COMPENSATE(CompensateKafka.TYPE),
-        COMPLETE(CompleteKafka.TYPE),
-        STATUS(StatusKafka.TYPE),
-        FORGET(ForgetKafka.TYPE),
-        AFTER_LRA(AfterLRAKafka.TYPE);
+        COMPENSATE(CompensateLRAKafkaCallback.TYPE),
+        COMPLETE(CompleteLRAKafkaCallback.TYPE),
+        STATUS(StatusLraKafkaCallback.TYPE),
+        FORGET(ForgetLraKafkaCallback.TYPE),
+        AFTER_LRA(AfterLRAKafkaCallback.TYPE);
 
         private final String messageType;
 
@@ -123,29 +121,29 @@ public class KafkaCallback implements LRACallback {
      * @param replyTopic the topic on which the caller receives the reply
      */
     public ParticipantRequest newRequest(CallbackContext context, String correlationId, String replyTopic) {
-        String lraId = context.getLraId();
-        URI lraUri = lraId == null ? null : URI.create(lraId);
-        URI parentUri = context.getParentId() == null ? null : URI.create(context.getParentId());
+        UUID lraId = context.getLraId();
+        UUID parentId = context.getParentId();
         String recoveryUrl = context.getRecoveryId();
         String compensatorData = context.getCompensatorData();
+        String participantId = context.getParticipantId();
 
         switch (operation) {
             case COMPENSATE:
-                return new CompensateKafka.Request(correlationId, replyTopic, lraUri, parentUri, recoveryUrl,
-                        compensatorData);
+                return new CompensateLRAKafkaCallback.Request(correlationId, replyTopic, lraId, parentId, recoveryUrl,
+                        compensatorData, participantId);
             case COMPLETE:
-                return new CompleteKafka.Request(correlationId, replyTopic, lraUri, parentUri, recoveryUrl,
-                        compensatorData);
+                return new CompleteLRAKafkaCallback.Request(correlationId, replyTopic, lraId, parentId, recoveryUrl,
+                        compensatorData, participantId);
             case STATUS:
-                return new StatusKafka.Request(correlationId, replyTopic, lraUri, parentUri, recoveryUrl,
-                        compensatorData);
+                return new StatusLraKafkaCallback.Request(correlationId, replyTopic, lraId, parentId, recoveryUrl,
+                        compensatorData, participantId);
             case FORGET:
-                return new ForgetKafka.Request(correlationId, replyTopic, lraUri, parentUri, recoveryUrl,
-                        compensatorData);
+                return new ForgetLraKafkaCallback.Request(correlationId, replyTopic, lraId, parentId, recoveryUrl,
+                        compensatorData, participantId);
             case AFTER_LRA:
                 String payload = context.getPayload();
-                return new AfterLRAKafka.Request(correlationId, replyTopic, lraUri, parentUri,
-                        recoveryUrl, compensatorData,
+                return new AfterLRAKafkaCallback.Request(correlationId, replyTopic, lraId, parentId,
+                        recoveryUrl, compensatorData, participantId,
                         payload == null ? null : LRAStatus.valueOf(payload));
             default:
                 throw new IllegalStateException("Unexpected operation: " + operation);
@@ -196,58 +194,26 @@ public class KafkaCallback implements LRACallback {
 
     private CallbackResult mapReply(String replyJson) {
         try {
-            return switch (operation) {
-                case COMPENSATE -> mapEndResult(objectMapper.readValue(replyJson, CompensateKafka.Reply.class));
-                case COMPLETE -> mapEndResult(objectMapper.readValue(replyJson, CompleteKafka.Reply.class));
-                case STATUS -> mapStatusResult(objectMapper.readValue(replyJson, StatusKafka.Reply.class));
-                case FORGET -> mapAckResult(objectMapper.readValue(replyJson, ForgetKafka.Reply.class).getError());
-                case AFTER_LRA -> mapAckResult(objectMapper.readValue(replyJson, AfterLRAKafka.Reply.class).getError());
-                default -> new CallbackResult(CallbackStatus.ERROR);
+            CallbackResult result = switch (operation) {
+                case COMPENSATE ->
+                    objectMapper.readValue(replyJson, CompensateLRAKafkaCallback.Reply.class).result;
+                case COMPLETE ->
+                    objectMapper.readValue(replyJson, CompleteLRAKafkaCallback.Reply.class).result;
+                case STATUS ->
+                    objectMapper.readValue(replyJson, StatusLraKafkaCallback.Reply.class).result;
+                case FORGET ->
+                    objectMapper.readValue(replyJson, ForgetLraKafkaCallback.Reply.class).result;
+                case AFTER_LRA ->
+                    objectMapper.readValue(replyJson, AfterLRAKafkaCallback.Reply.class).result;
+                default -> null;
             };
+
+            return result != null ? result : new CallbackResult(CallbackStatus.ERROR);
         } catch (Exception e) {
             LRALogger.logger.errorf("Failed to deserialize Kafka callback reply (topic=%s, operation=%s): %s",
                     topic, operation, e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
             return new CallbackResult(CallbackStatus.ERROR);
         }
-    }
-
-    private CallbackResult mapEndResult(CompensateKafka.Reply reply) {
-        return mapEndResult(reply, reply.getError());
-    }
-
-    private CallbackResult mapEndResult(CompleteKafka.Reply reply) {
-        return mapEndResult(reply, reply.getError());
-    }
-
-    private CallbackResult mapEndResult(ParticipantReply reply, String error) {
-        if (error != null || reply.status == null) {
-            return new CallbackResult(CallbackStatus.ERROR, error);
-        }
-
-        return switch (reply.status) {
-            case Completed, Compensated -> new CallbackResult(CallbackStatus.OK);
-            case Completing, Compensating -> new CallbackResult(CallbackStatus.ACCEPTED);
-            case FailedToComplete, FailedToCompensate -> new CallbackResult(CallbackStatus.FAILED, reply.status.name());
-            default -> new CallbackResult(CallbackStatus.ERROR);
-        };
-    }
-
-    private CallbackResult mapStatusResult(StatusKafka.Reply reply) {
-        if (reply.getError() != null || reply.status == null) {
-            return new CallbackResult(CallbackStatus.ERROR, reply.getError());
-        }
-
-        // a definite outcome is reported as OK with the status in the body, leaving
-        // it in progress maps to ACCEPTED so recovery keeps polling
-        return switch (reply.status) {
-            case Completed, Compensated -> new CallbackResult(CallbackStatus.OK, reply.status.name());
-            case FailedToComplete, FailedToCompensate -> new CallbackResult(CallbackStatus.OK, reply.status.name());
-            default -> new CallbackResult(CallbackStatus.ACCEPTED);
-        };
-    }
-
-    private CallbackResult mapAckResult(String error) {
-        return error == null ? new CallbackResult(CallbackStatus.OK) : new CallbackResult(CallbackStatus.ERROR, error);
     }
 
     @Override

@@ -14,6 +14,7 @@ import static io.narayana.lra.LRAConstants.STATUS;
 import io.narayana.lra.AnnotationResolver;
 import io.narayana.lra.callbacks.HttpCallback;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
+import io.narayana.lra.client.internal.proxy.nonjaxrs.listeners.LRAParticipantResource;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.inject.spi.CDI;
 import jakarta.ws.rs.DELETE;
@@ -68,7 +69,7 @@ public class LRAParticipant {
         return javaClass;
     }
 
-    synchronized Response compensate(URI lraId, URI parentId) {
+    public synchronized Response compensate(URI lraId, URI parentId) {
         if (participantStatusMap.containsKey(lraId)) {
             processCompletionStageResult(compensateMethod, lraId, parentId, COMPENSATE).close();
         }
@@ -76,7 +77,7 @@ public class LRAParticipant {
         return invokeParticipantMethod(compensateMethod, lraId, parentId, COMPENSATE);
     }
 
-    synchronized Response complete(URI lraId, URI parentId) {
+    public synchronized Response complete(URI lraId, URI parentId) {
         if (participantStatusMap.containsKey(lraId)) {
             processCompletionStageResult(completeMethod, lraId, parentId, COMPLETE).close();
         }
@@ -84,7 +85,7 @@ public class LRAParticipant {
         return invokeParticipantMethod(completeMethod, lraId, parentId, COMPLETE);
     }
 
-    synchronized Response status(URI lraId, URI parentId) {
+    public synchronized Response status(URI lraId, URI parentId) {
         if (participantStatusMap.containsKey(lraId)) {
             return processCompletionStageResult(statusMethod, lraId, parentId, STATUS);
         }
@@ -92,11 +93,11 @@ public class LRAParticipant {
         return invokeParticipantMethod(statusMethod, lraId, parentId, STATUS);
     }
 
-    synchronized Response forget(URI lraId, URI parentId) {
+    public synchronized Response forget(URI lraId, URI parentId) {
         return invokeParticipantMethod(forgetMethod, lraId, parentId, FORGET);
     }
 
-    synchronized Response afterLRA(URI lraId, LRAStatus lraStatus) {
+    public synchronized Response afterLRA(URI lraId, LRAStatus lraStatus) {
         Object result = invokeMethod(AFTER, afterLRAMethod, getInstance(), lraId, lraStatus);
 
         // return the result if it is a Response

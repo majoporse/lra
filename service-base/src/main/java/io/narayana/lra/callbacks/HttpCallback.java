@@ -2,11 +2,13 @@ package io.narayana.lra.callbacks;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
 import java.net.URI;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
 
@@ -105,13 +107,13 @@ public class HttpCallback implements LRACallback {
                     .header(LRA.LRA_HTTP_RECOVERY_HEADER, context.getRecoveryId())
                     .header("Narayana-LRA-Participant-Data", context.getCompensatorData());
             if (context.getParentId() != null) {
-                builder.header(LRA.LRA_HTTP_PARENT_CONTEXT_HEADER, context.getParentId());
+                builder.header(LRA.LRA_HTTP_PARENT_CONTEXT_HEADER, lraUri(context.getParentId()));
             }
 
             if (contextType == ContextType.ENDED) {
-                builder.header(LRA.LRA_HTTP_ENDED_CONTEXT_HEADER, context.getLraId());
+                builder.header(LRA.LRA_HTTP_ENDED_CONTEXT_HEADER, lraUri(context.getLraId()));
             } else {
-                builder.header(LRA.LRA_HTTP_CONTEXT_HEADER, context.getLraId());
+                builder.header(LRA.LRA_HTTP_CONTEXT_HEADER, lraUri(context.getLraId()));
             }
 
             Response response = switch (method) {
@@ -144,6 +146,12 @@ public class HttpCallback implements LRACallback {
                 client.close();
             }
         }
+    }
+
+    // rebuild the LRA URI for the context headers sent to the participant
+    private static String lraUri(UUID lraId) {
+        URI lra = Current.toURI(lraId);
+        return lra == null ? null : lra.toASCIIString();
     }
 
     private static CallbackStatus mapStatus(int httpStatus) {

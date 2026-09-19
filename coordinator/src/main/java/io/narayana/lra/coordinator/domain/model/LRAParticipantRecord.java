@@ -20,7 +20,6 @@ import io.narayana.lra.callbacks.CallbackResult;
 import io.narayana.lra.callbacks.CallbackStatus;
 import io.narayana.lra.callbacks.LRACallback;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
-import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.WebApplicationException;
@@ -524,11 +523,11 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
 
     private CallbackContext buildCallbackContext(String payload) {
         return new CallbackContext(
-                HttpLRAService.toURI(lra).toASCIIString(),
-                parentId == null ? null
-                        : HttpLRAService.toURI(lra.getCoordinatorUrl(), parentId).toASCIIString(),
+                lraId,
+                parentId,
                 recoveryURI == null ? null : recoveryURI.toASCIIString(),
                 compensatorData,
+                participantId,
                 payload);
     }
 

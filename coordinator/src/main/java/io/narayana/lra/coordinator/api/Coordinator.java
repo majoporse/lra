@@ -457,10 +457,7 @@ public class Coordinator extends Application {
         }
 
         StringBuilder sb = new StringBuilder();
-
-        if (userData != null) {
-            sb.append(userData);
-        }
+        sb.append(userData);
 
         return joinLRA(toURI(lraId), timeLimit, body.callbacks, sb, partId);
     }

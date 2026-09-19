@@ -1,29 +1,35 @@
 package io.narayana.lra.callbacks;
 
+import java.util.UUID;
+
 public class CallbackContext {
-    private final String lraId;
-    private final String parentId;
+    private final UUID lraId;
+    private final UUID parentId;
     private final String recoveryId;
     private final String compensatorData;
+    private final String participantId;
     private final String payload;
 
-    public CallbackContext(String lraId, String parentId, String recoveryId, String compensatorData) {
-        this(lraId, parentId, recoveryId, compensatorData, null);
+    public CallbackContext(UUID lraId, UUID parentId, String recoveryId, String compensatorData,
+            String participantId) {
+        this(lraId, parentId, recoveryId, compensatorData, participantId, null);
     }
 
-    public CallbackContext(String lraId, String parentId, String recoveryId, String compensatorData, String payload) {
+    public CallbackContext(UUID lraId, UUID parentId, String recoveryId, String compensatorData,
+            String participantId, String payload) {
         this.lraId = lraId;
         this.parentId = parentId;
         this.recoveryId = recoveryId;
         this.compensatorData = compensatorData;
+        this.participantId = participantId;
         this.payload = payload;
     }
 
-    public String getLraId() {
+    public UUID getLraId() {
         return lraId;
     }
 
-    public String getParentId() {
+    public UUID getParentId() {
         return parentId;
     }
 
@@ -33,6 +39,10 @@ public class CallbackContext {
 
     public String getCompensatorData() {
         return compensatorData;
+    }
+
+    public String getParticipantId() {
+        return participantId;
     }
 
     public String getPayload() {

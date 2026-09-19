@@ -18,7 +18,6 @@ import static jakarta.ws.rs.core.Response.Status.GONE;
 import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 import static jakarta.ws.rs.core.Response.Status.NOT_ACCEPTABLE;
 import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
-import static jakarta.ws.rs.core.Response.Status.OK;
 import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
 import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 
@@ -893,29 +892,6 @@ public class NarayanaLRAClient implements AutoCloseable {
         }
     }
 
-    private ParticipantStatus handleNestedEndResponse(Response response, URI nestedLraId, String operation) {
-        int status = response.getStatus();
-
-        if (status == Response.Status.GONE.getStatusCode()) {
-            throw new NotFoundException("Nested LRA is no longer known: " + nestedLraId);
-        }
-
-        if (status != OK.getStatusCode()
-                && status != Response.Status.ACCEPTED.getStatusCode()
-                && status != Response.Status.CONFLICT.getStatusCode()) {
-            throw new WebApplicationException(response);
-        }
-
-        if (!response.hasEntity()) {
-            throw new WebApplicationException(
-                    Response.status(INTERNAL_SERVER_ERROR)
-                            .entity("No status returned for nested LRA " + operation).build());
-        }
-
-        String statusString = response.readEntity(String.class);
-        return ParticipantStatus.valueOf(statusString);
-    }
-
     /**
      * Forget a nested LRA.
      * This removes the nested LRA from the coordinator's memory after it has completed or compensated.
@@ -1151,15 +1127,6 @@ public class NarayanaLRAClient implements AutoCloseable {
                         String.format(message, mue.getClass().getName() + ":" + mue.getMessage()) + " uri=" + uri, mue);
             }
         }
-    }
-
-    private boolean isUnexpectedResponseStatus(Response response, Response.Status... expected) {
-        for (Response.Status anExpected : expected) {
-            if (response.getStatus() == anExpected.getStatusCode()) {
-                return false;
-            }
-        }
-        return true;
     }
 
     public String getCoordinatorUrl() {
