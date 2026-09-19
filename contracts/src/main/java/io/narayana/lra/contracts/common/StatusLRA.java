@@ -12,10 +12,6 @@ public class StatusLRA {
         public Request(String lraId) {
             this.lraId = lraId;
         }
-
-        public Request(String correlationId, String replyTopic, String lraId) {
-            this(lraId);
-        }
     }
 
     public static class Reply {
