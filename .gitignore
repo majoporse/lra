@@ -28,3 +28,5 @@ audit.log
 *.log
 kafka/
 kafka1/
+.factorypath
+
