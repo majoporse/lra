@@ -4,6 +4,8 @@ import io.narayana.lra.contracts.common.StatusLRA;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 public class StatusLRAKafka {
+    public static final String TYPE = "status";
+
     public static class Request extends StatusLRA.Request implements LRAKafkaRequest {
         public String correlationId = "";
         public String replyTopic = "";

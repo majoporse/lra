@@ -5,6 +5,8 @@ import java.net.URI;
 import java.util.UUID;
 
 public class StartLRAKafka {
+    public static final String TYPE = "start";
+
     public static class Request extends StartLRA.Request implements LRAKafkaRequest {
         public String correlationId = "";
         public String replyTopic = "";

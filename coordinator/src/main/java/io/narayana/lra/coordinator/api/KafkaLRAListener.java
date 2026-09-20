@@ -55,22 +55,22 @@ public class KafkaLRAListener {
             LRAKafkaEnvelope envelope = objectMapper.readValue(rawJson, LRAKafkaEnvelope.class);
 
             switch (envelope.type) {
-                case LRAKafkaConstants.TYPE_START:
+                case StartLRAKafka.TYPE:
                     handleStart(objectMapper.convertValue(envelope.payload, StartLRAKafka.Request.class));
                     break;
-                case LRAKafkaConstants.TYPE_CLOSE:
+                case CloseLRAKafka.TYPE:
                     handleClose(objectMapper.convertValue(envelope.payload, CloseLRAKafka.Request.class));
                     break;
-                case LRAKafkaConstants.TYPE_CANCEL:
+                case CancelLRAKafka.TYPE:
                     handleCancel(objectMapper.convertValue(envelope.payload, CancelLRAKafka.Request.class));
                     break;
-                case LRAKafkaConstants.TYPE_LEAVE:
+                case LeaveLRAKafka.TYPE:
                     handleLeave(objectMapper.convertValue(envelope.payload, LeaveLRAKafka.Request.class));
                     break;
-                case LRAKafkaConstants.TYPE_JOIN:
+                case JoinLRAKafka.TYPE:
                     handleJoin(objectMapper.convertValue(envelope.payload, JoinLRAKafka.Request.class));
                     break;
-                case LRAKafkaConstants.TYPE_STATUS:
+                case StatusLRAKafka.TYPE:
                     handleStatus(objectMapper.convertValue(envelope.payload, StatusLRAKafka.Request.class));
                     break;
                 default:

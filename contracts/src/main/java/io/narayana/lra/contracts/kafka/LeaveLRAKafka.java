@@ -4,6 +4,8 @@ import io.narayana.lra.contracts.common.LeaveLRA;
 import java.net.URI;
 
 public class LeaveLRAKafka {
+    public static final String TYPE = "leave";
+
     public static class Request extends LeaveLRA.Request implements LRAKafkaRequest {
         public String correlationId = "";
         public String replyTopic = "";
