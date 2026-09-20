@@ -4,9 +4,9 @@ import java.net.URI;
 import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 
 /**
- * Common contract for a participant {@code @Compensate} notification.
+ * Common contract for a participant {@code @Status} query.
  */
-public class Compensate {
+public class StatusCallback {
     public static class Request extends ParticipantRequest {
         public Request() {
         }
