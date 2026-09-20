@@ -1,11 +1,12 @@
 package io.narayana.lra.contracts.kafka;
 
+import io.narayana.lra.contracts.common.StatusLRA;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 public class StatusLRAKafka {
     public static final String TYPE = "status";
 
-    public static class Request extends io.narayana.lra.contracts.common.StatusLRA.Request implements LRAKafkaRequest {
+    public static class Request extends StatusLRA.Request implements LRAKafkaRequest {
         public String correlationId = "";
         public String replyTopic = "";
 
@@ -29,7 +30,7 @@ public class StatusLRAKafka {
         }
     }
 
-    public static class Reply extends io.narayana.lra.contracts.common.StatusLRA.Reply implements LRAKafkaReply {
+    public static class Reply extends StatusLRA.Reply implements LRAKafkaReply {
         public String correlationId;
         public String error;
 
