@@ -14,9 +14,12 @@ import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_ENDED_CONTEXT_HEADER;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_PARENT_CONTEXT_HEADER;
 
+import io.narayana.lra.callbacks.CallbackResult;
+import io.narayana.lra.callbacks.CallbackStatus;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipant;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
 import io.narayana.lra.proxy.logging.LRAProxyLogger;
+import io.quarkus.arc.properties.IfBuildProperty;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.DELETE;
@@ -27,6 +30,7 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.net.URI;
@@ -39,6 +43,7 @@ import org.eclipse.microprofile.lra.annotation.Status;
 
 @ApplicationScoped
 @Path(LRAParticipantResource.RESOURCE_PATH)
+@IfBuildProperty(name = "quarkus.lra.client.protocol", stringValue = "http")
 public class LRAParticipantResource {
 
     public static final String RESOURCE_PATH = "lra-participant-proxy";
@@ -53,7 +58,7 @@ public class LRAParticipantResource {
     public Response compensate(@PathParam("participantId") String participantId,
             @HeaderParam(LRA_HTTP_CONTEXT_HEADER) String lraId,
             @HeaderParam(LRA_HTTP_PARENT_CONTEXT_HEADER) String parentId) {
-        return getParticipant(participantId).compensate(createURI(lraId), createURI(parentId));
+        return toHttp(getParticipant(participantId).compensate(createURI(lraId), createURI(parentId)));
     }
 
     @PUT
@@ -63,7 +68,7 @@ public class LRAParticipantResource {
     public Response complete(@PathParam("participantId") String participantId,
             @HeaderParam(LRA_HTTP_CONTEXT_HEADER) String lraId,
             @HeaderParam(LRA_HTTP_PARENT_CONTEXT_HEADER) String parentId) {
-        return getParticipant(participantId).complete(createURI(lraId), createURI(parentId));
+        return toHttp(getParticipant(participantId).complete(createURI(lraId), createURI(parentId)));
     }
 
     @GET
@@ -73,7 +78,7 @@ public class LRAParticipantResource {
     public Response status(@PathParam("participantId") String participantId,
             @HeaderParam(LRA_HTTP_CONTEXT_HEADER) String lraId,
             @HeaderParam(LRA_HTTP_PARENT_CONTEXT_HEADER) String parentId) {
-        return getParticipant(participantId).status(createURI(lraId), createURI(parentId));
+        return toHttp(getParticipant(participantId).status(createURI(lraId), createURI(parentId)));
     }
 
     @DELETE
@@ -83,7 +88,7 @@ public class LRAParticipantResource {
     public Response forget(@PathParam("participantId") String participantId,
             @HeaderParam(LRA_HTTP_CONTEXT_HEADER) String lraId,
             @HeaderParam(LRA_HTTP_PARENT_CONTEXT_HEADER) String parentId) {
-        return getParticipant(participantId).forget(createURI(lraId), createURI(parentId));
+        return toHttp(getParticipant(participantId).forget(createURI(lraId), createURI(parentId)));
     }
 
     @PUT
@@ -92,7 +97,7 @@ public class LRAParticipantResource {
     public Response afterLRA(@PathParam("participantId") String participantId,
             @HeaderParam(LRA_HTTP_ENDED_CONTEXT_HEADER) URI lraId,
             LRAStatus lraStatus) {
-        return getParticipant(participantId).afterLRA(lraId, lraStatus);
+        return toHttp(getParticipant(participantId).afterLRA(lraId, lraStatus));
     }
 
     private LRAParticipant getParticipant(String participantId) {
@@ -108,5 +113,27 @@ public class LRAParticipantResource {
 
     private URI createURI(String value) {
         return value != null ? URI.create(value) : null;
+    }
+
+    // map a participant notification result onto the HTTP response understood by the coordinator
+    private static Response toHttp(CallbackResult result) {
+        Response.ResponseBuilder builder = Response.status(httpStatus(result.getStatus()));
+        if (result.getBody() != null) {
+            builder.entity(result.getBody());
+        }
+        if (result.getUpdatedStatusCallback() != null) {
+            builder.header(HttpHeaders.LOCATION, result.getUpdatedStatusCallback());
+        }
+        return builder.build();
+    }
+
+    private static Response.Status httpStatus(CallbackStatus status) {
+        return switch (status) {
+            case OK -> Response.Status.OK;
+            case ACCEPTED -> Response.Status.ACCEPTED;
+            case GONE -> Response.Status.GONE;
+            case FAILED -> Response.Status.CONFLICT;
+            case TIMEOUT, ERROR -> Response.Status.INTERNAL_SERVER_ERROR;
+        };
     }
 }

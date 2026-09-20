@@ -12,10 +12,13 @@ import static io.narayana.lra.LRAConstants.FORGET;
 import static io.narayana.lra.LRAConstants.STATUS;
 
 import io.narayana.lra.AnnotationResolver;
+import io.narayana.lra.callbacks.CallbackResult;
+import io.narayana.lra.callbacks.CallbackStatus;
 import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.LRACallback;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
-import io.narayana.lra.client.internal.proxy.nonjaxrs.listeners.LRAParticipantResource;
 import io.narayana.lra.logging.LRALogger;
+import io.narayana.lra.proxy.callbacks.ParticipantCallbackGeneratorFactory;
 import jakarta.enterprise.inject.spi.CDI;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -25,7 +28,6 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.UriBuilder;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
@@ -65,27 +67,27 @@ public class LRAParticipant {
         Arrays.stream(javaClass.getMethods()).forEach(this::processParticipantMethod);
     }
 
-    Class<?> getJavaClass() {
+    public Class<?> getJavaClass() {
         return javaClass;
     }
 
-    public synchronized Response compensate(URI lraId, URI parentId) {
+    public synchronized CallbackResult compensate(URI lraId, URI parentId) {
         if (participantStatusMap.containsKey(lraId)) {
-            processCompletionStageResult(compensateMethod, lraId, parentId, COMPENSATE).close();
+            processCompletionStageResult(compensateMethod, lraId, parentId, COMPENSATE);
         }
 
         return invokeParticipantMethod(compensateMethod, lraId, parentId, COMPENSATE);
     }
 
-    public synchronized Response complete(URI lraId, URI parentId) {
+    public synchronized CallbackResult complete(URI lraId, URI parentId) {
         if (participantStatusMap.containsKey(lraId)) {
-            processCompletionStageResult(completeMethod, lraId, parentId, COMPLETE).close();
+            processCompletionStageResult(completeMethod, lraId, parentId, COMPLETE);
         }
 
         return invokeParticipantMethod(completeMethod, lraId, parentId, COMPLETE);
     }
 
-    public synchronized Response status(URI lraId, URI parentId) {
+    public synchronized CallbackResult status(URI lraId, URI parentId) {
         if (participantStatusMap.containsKey(lraId)) {
             return processCompletionStageResult(statusMethod, lraId, parentId, STATUS);
         }
@@ -93,15 +95,19 @@ public class LRAParticipant {
         return invokeParticipantMethod(statusMethod, lraId, parentId, STATUS);
     }
 
-    public synchronized Response forget(URI lraId, URI parentId) {
+    public synchronized CallbackResult forget(URI lraId, URI parentId) {
         return invokeParticipantMethod(forgetMethod, lraId, parentId, FORGET);
     }
 
-    public synchronized Response afterLRA(URI lraId, LRAStatus lraStatus) {
+    public synchronized CallbackResult afterLRA(URI lraId, LRAStatus lraStatus) {
         Object result = invokeMethod(AFTER, afterLRAMethod, getInstance(), lraId, lraStatus);
 
+        if (result instanceof CallbackResult) {
+            return (CallbackResult) result;
+        }
+
         // return the result if it is a Response
-        return result instanceof Response ? (Response) result : Response.ok().build();
+        return result instanceof Response ? httpResult((Response) result) : new CallbackResult(CallbackStatus.OK);
     }
 
     /**
@@ -220,7 +226,7 @@ public class LRAParticipant {
         }
     }
 
-    private Response processCompletionStageResult(Method method, URI lraId, URI parentId, String type) {
+    private CallbackResult processCompletionStageResult(Method method, URI lraId, URI parentId, String type) {
         ParticipantResult participantResult = participantStatusMap.get(lraId);
         if (participantResult.isReady()) {
             participantStatusMap.remove(lraId);
@@ -236,7 +242,7 @@ public class LRAParticipant {
             return processResult(result, participantResult.getType(), type);
         } else {
             // participant is still compensating / completing
-            return Response.accepted().build();
+            return new CallbackResult(CallbackStatus.ACCEPTED);
         }
     }
 
@@ -250,7 +256,7 @@ public class LRAParticipant {
         }
     }
 
-    private Response invokeParticipantMethod(Method method, URI lraId,
+    private CallbackResult invokeParticipantMethod(Method method, URI lraId,
             URI parentId, String type) {
         Object participant = getInstance();
         Object result;
@@ -270,6 +276,11 @@ public class LRAParticipant {
                         method.toGenericString() + ": invalid number of arguments: " + method.getParameterCount());
         }
 
+        // an exception raised by the invocation is already mapped to a result
+        if (result instanceof CallbackResult) {
+            return (CallbackResult) result;
+        }
+
         return processResult(result, lraId, method, type);
     }
 
@@ -287,9 +298,9 @@ public class LRAParticipant {
         }
     }
 
-    private Response processResult(Object result, URI lraId, Method method, String type) {
+    private CallbackResult processResult(Object result, URI lraId, Method method, String type) {
         if (result instanceof CompletionStage) {
-            // store the CompletionStage result and respond compensating / completing
+            // store the CompletionStage result and report that the operation is in progress
             participantStatusMap.put(lraId, new ParticipantResult(getCompletionStageActualType(method)));
             ((CompletionStage<?>) result)
                     .thenAccept(res -> participantStatusMap.get(lraId).setValue(res))
@@ -297,90 +308,101 @@ public class LRAParticipant {
                         participantStatusMap.get(lraId).setValue(throwable);
                         return null;
                     });
-            return Response.status(Response.Status.ACCEPTED).build();
+            return new CallbackResult(CallbackStatus.ACCEPTED);
         }
 
         return processResult(result, method.getReturnType(), type);
     }
 
-    private Response processResult(Object result, Class<?> resultType, String type) {
-        Response.ResponseBuilder builder = Response.status(Response.Status.OK);
-
+    private CallbackResult processResult(Object result, Class<?> resultType, String type) {
         // when the return type is void (Void.TYPE) or CompletionStage<Void> (Void.class)
         // the result is equal to null, so we need to first check the result type
         if (resultType.equals(Void.TYPE) || resultType.equals(Void.class)) {
             // void return type and no exception was thrown
-            builder.entity(type.equals(COMPLETE) ? ParticipantStatus.Completed.name() : ParticipantStatus.Compensated.name());
+            return new CallbackResult(CallbackStatus.OK,
+                    type.equals(COMPLETE) ? ParticipantStatus.Completed.name() : ParticipantStatus.Compensated.name());
         } else if (result == null) {
-            builder.status(Response.Status.NOT_FOUND);
+            return new CallbackResult(CallbackStatus.ERROR);
         } else if (result instanceof ParticipantStatus) {
             ParticipantStatus status = (ParticipantStatus) result;
             if (status == ParticipantStatus.Compensating || status == ParticipantStatus.Completing) {
-                return builder.status(Response.Status.ACCEPTED).build();
+                return new CallbackResult(CallbackStatus.ACCEPTED, status.name());
             } else {
-                builder.entity(status.name());
+                return new CallbackResult(CallbackStatus.OK, status.name());
             }
         } else if (result instanceof Response) {
-            return (Response) result;
+            return httpResult((Response) result);
         } else {
             // the result must be a Throwable as no other option exists (signatures are checked during deployment)
-            builder.entity(processThrowable((Throwable) result, type));
+            return processThrowable((Throwable) result, type);
         }
-
-        return builder.build();
     }
 
-    private Object processThrowable(Throwable throwable, String type) {
+    private CallbackResult processThrowable(Throwable throwable, String type) {
         if (throwable instanceof WebApplicationException) {
-            return ((WebApplicationException) throwable).getResponse();
+            return httpResult(((WebApplicationException) throwable).getResponse());
         }
 
         // other exceptions differ based on the participant method type
         if (type.equals(COMPENSATE)) {
             LRALogger.logger.debug("Compensate participant method threw an unexpected exception", throwable);
-            return ParticipantStatus.FailedToCompensate.name();
+            return new CallbackResult(CallbackStatus.FAILED, ParticipantStatus.FailedToCompensate.name());
         } else if (type.equals(COMPLETE)) {
             LRALogger.logger.debug("Complete participant method threw an unexpected exception", throwable);
-            return ParticipantStatus.FailedToComplete.name();
+            return new CallbackResult(CallbackStatus.FAILED, ParticipantStatus.FailedToComplete.name());
         } else {
-            // @Status and @Forget should return HTTP 500
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+            // @Status and @Forget invocations map to an HTTP 500
+            return new CallbackResult(CallbackStatus.ERROR);
         }
+    }
+
+    // translate a participant-returned HTTP Response into the transport-agnostic result
+    private CallbackResult httpResult(Response response) {
+        CallbackStatus status = switch (response.getStatus()) {
+            case 200 -> CallbackStatus.OK;
+            case 202 -> CallbackStatus.ACCEPTED;
+            case 410 -> CallbackStatus.GONE;
+            case 409 -> CallbackStatus.FAILED;
+            default -> CallbackStatus.ERROR;
+        };
+        String body = response.hasEntity() ? response.readEntity(String.class) : null;
+        LRACallback updatedStatusCallback = null;
+        if (status == CallbackStatus.ACCEPTED) {
+            // an asynchronous accept may carry the status endpoint to poll for the outcome
+            String location = response.getHeaderString("Location");
+            if (location != null) {
+                updatedStatusCallback = HttpCallback.statusCallback(URI.create(location));
+            }
+        }
+        return new CallbackResult(status, body, updatedStatusCallback);
     }
 
     public void setInstance(Object instance) {
         this.instance = instance;
     }
 
-    public void augmentTerminationCallbacks(ParticipantCallbacks callbacks, URI baseUri) {
-        String baseURI = UriBuilder.fromUri(baseUri)
-                .path(LRAParticipantResource.RESOURCE_PATH)
-                .path(javaClass.getName())
-                .build().toASCIIString();
-
-        if (callbacks.completeCallback == null && completeMethod != null) {
-            callbacks.completeCallback = HttpCallback.completeCallback(URI.create(getURI(baseURI, COMPLETE)));
-        }
-
-        if (callbacks.compensateCallback == null && compensateMethod != null) {
-            callbacks.compensateCallback = HttpCallback.compensateCallback(URI.create(getURI(baseURI, COMPENSATE)));
-        }
-
-        if (callbacks.statusCallback == null && statusMethod != null) {
-            callbacks.statusCallback = HttpCallback.statusCallback(URI.create(getURI(baseURI, STATUS)));
-        }
-
-        if (callbacks.forgetCallback == null && forgetMethod != null) {
-            callbacks.forgetCallback = HttpCallback.forgetCallback(URI.create(getURI(baseURI, FORGET)));
-        }
-
-        if (callbacks.afterCallback == null && afterLRAMethod != null) {
-            callbacks.afterCallback = HttpCallback.afterCallback(URI.create(getURI(baseURI, AFTER)));
-        }
+    public ParticipantCallbacks augmentTerminationCallbacks(ParticipantCallbacks callbacks) {
+        return ParticipantCallbackGeneratorFactory.select().getCallbacks(this, callbacks);
     }
 
-    private String getURI(String baseURI, String path) {
-        return String.format("%s/%s", baseURI, path);
+    public boolean hasCompleteMethod() {
+        return completeMethod != null;
+    }
+
+    public boolean hasCompensateMethod() {
+        return compensateMethod != null;
+    }
+
+    public boolean hasStatusMethod() {
+        return statusMethod != null;
+    }
+
+    public boolean hasForgetMethod() {
+        return forgetMethod != null;
+    }
+
+    public boolean hasAfterLRAMethod() {
+        return afterLRAMethod != null;
     }
 
     boolean hasNonJaxRsMethods() {

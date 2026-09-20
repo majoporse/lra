@@ -403,8 +403,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
             if (callbacks.hasAnyCallback() || participant != null) {
                 try {
                     if (participant != null) {
-                        participant.augmentTerminationCallbacks(callbacks,
-                                containerRequestContext.getUriInfo().getBaseUri());
+                        callbacks = participant.augmentTerminationCallbacks(callbacks);
                     }
 
                     StringBuilder previousParticipantData = new StringBuilder();

@@ -3,6 +3,7 @@ package io.narayana.lra.client.internal.proxy.nonjaxrs.listeners;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.Current;
+import io.narayana.lra.callbacks.CallbackResult;
 import io.narayana.lra.callbacks.contracts.kafka.AfterLRAKafkaCallback;
 import io.narayana.lra.callbacks.contracts.kafka.CompensateLRAKafkaCallback;
 import io.narayana.lra.callbacks.contracts.kafka.CompleteLRAKafkaCallback;
@@ -27,7 +28,7 @@ import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Message;
 
 @ApplicationScoped
-@IfBuildProperty(name = "quarkus.lra.client.kafka.enabled", stringValue = "true")
+@IfBuildProperty(name = "quarkus.lra.client.protocol", stringValue = "kafka")
 public class KafkaListener {
 
     private final ObjectMapper objectMapper;
@@ -35,7 +36,7 @@ public class KafkaListener {
     @Inject
     private LRAParticipantRegistry lraParticipantRegistry;
 
-    @Channel(LRAKafkaConstants.TOPIC_REPLY)
+    @Channel(LRAKafkaConstants.CHANNEL_CALLBACK)
     Emitter<String> replyEmitter;
 
     public KafkaListener() {
@@ -77,20 +78,33 @@ public class KafkaListener {
     }
 
     private void handleComplete(CompleteLRAKafkaCallback.Request request) {
-        getParticipant(request.participantId).compensate(Current.toURI(request.lraId),
-                Current.toURI(request.parentId));
+        CallbackResult result = getParticipant(request.participantId).complete(
+                Current.toURI(request.lraId), Current.toURI(request.parentId));
+        sendReply(request.getReplyTopic(), new CompleteLRAKafkaCallback.Reply(request.getCorrelationId(), result));
     }
 
     private void handleCompensate(CompensateLRAKafkaCallback.Request request) {
+        CallbackResult result = getParticipant(request.participantId).compensate(
+                Current.toURI(request.lraId), Current.toURI(request.parentId));
+        sendReply(request.getReplyTopic(), new CompensateLRAKafkaCallback.Reply(request.getCorrelationId(), result));
     }
 
     private void handleForget(ForgetLraKafkaCallback.Request request) {
+        CallbackResult result = getParticipant(request.participantId).forget(
+                Current.toURI(request.lraId), Current.toURI(request.parentId));
+        sendReply(request.getReplyTopic(), new ForgetLraKafkaCallback.Reply(request.getCorrelationId(), result));
     }
 
     private void handleAfter(AfterLRAKafkaCallback.Request request) {
+        CallbackResult result = getParticipant(request.participantId).afterLRA(
+                Current.toURI(request.lraId), request.endStatus);
+        sendReply(request.getReplyTopic(), new AfterLRAKafkaCallback.Reply(request.getCorrelationId(), result));
     }
 
     private void handleStatus(StatusLraKafkaCallback.Request request) {
+        CallbackResult result = getParticipant(request.participantId).status(
+                Current.toURI(request.lraId), Current.toURI(request.parentId));
+        sendReply(request.getReplyTopic(), new StatusLraKafkaCallback.Reply(request.getCorrelationId(), result));
     }
 
     private void sendReply(String replyTopic, Object reply) {
