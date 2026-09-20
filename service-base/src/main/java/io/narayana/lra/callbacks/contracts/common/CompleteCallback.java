@@ -1,11 +1,12 @@
 package io.narayana.lra.callbacks.contracts.common;
 
 import java.net.URI;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 
 /**
- * Common contract for a participant {@code @Forget} notification.
+ * Common contract for a participant {@code @Complete} notification.
  */
-public class Forget {
+public class CompleteCallback {
     public static class Request extends ParticipantRequest {
         public Request() {
         }
@@ -17,7 +18,10 @@ public class Forget {
 
     public static class Reply extends ParticipantReply {
         public Reply() {
-            super(null);
+        }
+
+        public Reply(ParticipantStatus status) {
+            super(status);
         }
     }
 }

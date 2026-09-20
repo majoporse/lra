@@ -6,11 +6,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.callbacks.contracts.common.ParticipantReply;
 import io.narayana.lra.callbacks.contracts.common.ParticipantRequest;
-import io.narayana.lra.callbacks.contracts.kafka.AfterLRAKafka;
-import io.narayana.lra.callbacks.contracts.kafka.CompensateKafka;
-import io.narayana.lra.callbacks.contracts.kafka.CompleteKafka;
-import io.narayana.lra.callbacks.contracts.kafka.ForgetKafka;
-import io.narayana.lra.callbacks.contracts.kafka.StatusKafka;
+import io.narayana.lra.callbacks.contracts.kafka.AfterLRAKafkaCallback;
+import io.narayana.lra.callbacks.contracts.kafka.CompensateKafkaCallback;
+import io.narayana.lra.callbacks.contracts.kafka.CompleteKafkaCallback;
+import io.narayana.lra.callbacks.contracts.kafka.ForgetKafkaCallback;
+import io.narayana.lra.callbacks.contracts.kafka.StatusKafkaCallback;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.inject.spi.CDI;
 import java.net.URI;
@@ -30,11 +30,11 @@ public class KafkaCallback implements LRACallback {
      * exchanged with the client-side listener.
      */
     public enum Operation {
-        COMPENSATE(CompensateKafka.TYPE),
-        COMPLETE(CompleteKafka.TYPE),
-        STATUS(StatusKafka.TYPE),
-        FORGET(ForgetKafka.TYPE),
-        AFTER_LRA(AfterLRAKafka.TYPE);
+        COMPENSATE(CompensateKafkaCallback.TYPE),
+        COMPLETE(CompleteKafkaCallback.TYPE),
+        STATUS(StatusKafkaCallback.TYPE),
+        FORGET(ForgetKafkaCallback.TYPE),
+        AFTER_LRA(AfterLRAKafkaCallback.TYPE);
 
         private final String messageType;
 
@@ -131,20 +131,20 @@ public class KafkaCallback implements LRACallback {
 
         switch (operation) {
             case COMPENSATE:
-                return new CompensateKafka.Request(correlationId, replyTopic, lraUri, parentUri, recoveryUrl,
+                return new CompensateKafkaCallback.Request(correlationId, replyTopic, lraUri, parentUri, recoveryUrl,
                         compensatorData);
             case COMPLETE:
-                return new CompleteKafka.Request(correlationId, replyTopic, lraUri, parentUri, recoveryUrl,
+                return new CompleteKafkaCallback.Request(correlationId, replyTopic, lraUri, parentUri, recoveryUrl,
                         compensatorData);
             case STATUS:
-                return new StatusKafka.Request(correlationId, replyTopic, lraUri, parentUri, recoveryUrl,
+                return new StatusKafkaCallback.Request(correlationId, replyTopic, lraUri, parentUri, recoveryUrl,
                         compensatorData);
             case FORGET:
-                return new ForgetKafka.Request(correlationId, replyTopic, lraUri, parentUri, recoveryUrl,
+                return new ForgetKafkaCallback.Request(correlationId, replyTopic, lraUri, parentUri, recoveryUrl,
                         compensatorData);
             case AFTER_LRA:
                 String payload = context.getPayload();
-                return new AfterLRAKafka.Request(correlationId, replyTopic, lraUri, parentUri,
+                return new AfterLRAKafkaCallback.Request(correlationId, replyTopic, lraUri, parentUri,
                         recoveryUrl, compensatorData,
                         payload == null ? null : LRAStatus.valueOf(payload));
             default:
@@ -197,11 +197,11 @@ public class KafkaCallback implements LRACallback {
     private CallbackResult mapReply(String replyJson) {
         try {
             return switch (operation) {
-                case COMPENSATE -> mapEndResult(objectMapper.readValue(replyJson, CompensateKafka.Reply.class));
-                case COMPLETE -> mapEndResult(objectMapper.readValue(replyJson, CompleteKafka.Reply.class));
-                case STATUS -> mapStatusResult(objectMapper.readValue(replyJson, StatusKafka.Reply.class));
-                case FORGET -> mapAckResult(objectMapper.readValue(replyJson, ForgetKafka.Reply.class).getError());
-                case AFTER_LRA -> mapAckResult(objectMapper.readValue(replyJson, AfterLRAKafka.Reply.class).getError());
+                case COMPENSATE -> mapEndResult(objectMapper.readValue(replyJson, CompensateKafkaCallback.Reply.class));
+                case COMPLETE -> mapEndResult(objectMapper.readValue(replyJson, CompleteKafkaCallback.Reply.class));
+                case STATUS -> mapStatusResult(objectMapper.readValue(replyJson, StatusKafkaCallback.Reply.class));
+                case FORGET -> mapAckResult(objectMapper.readValue(replyJson, ForgetKafkaCallback.Reply.class).getError());
+                case AFTER_LRA -> mapAckResult(objectMapper.readValue(replyJson, AfterLRAKafkaCallback.Reply.class).getError());
                 default -> new CallbackResult(CallbackStatus.ERROR);
             };
         } catch (Exception e) {
@@ -211,11 +211,11 @@ public class KafkaCallback implements LRACallback {
         }
     }
 
-    private CallbackResult mapEndResult(CompensateKafka.Reply reply) {
+    private CallbackResult mapEndResult(CompensateKafkaCallback.Reply reply) {
         return mapEndResult(reply, reply.getError());
     }
 
-    private CallbackResult mapEndResult(CompleteKafka.Reply reply) {
+    private CallbackResult mapEndResult(CompleteKafkaCallback.Reply reply) {
         return mapEndResult(reply, reply.getError());
     }
 
@@ -232,7 +232,7 @@ public class KafkaCallback implements LRACallback {
         };
     }
 
-    private CallbackResult mapStatusResult(StatusKafka.Reply reply) {
+    private CallbackResult mapStatusResult(StatusKafkaCallback.Reply reply) {
         if (reply.getError() != null || reply.status == null) {
             return new CallbackResult(CallbackStatus.ERROR, reply.getError());
         }
