@@ -4,6 +4,8 @@ import io.narayana.lra.callbacks.ParticipantCallbacks;
 import java.net.URI;
 
 public class JoinLRAKafka {
+    public static final String TYPE = "join";
+
     public static class Request extends io.narayana.lra.contracts.common.JoinLRA.Request implements LRAKafkaRequest {
         public String correlationId = "";
         public String replyTopic = "";

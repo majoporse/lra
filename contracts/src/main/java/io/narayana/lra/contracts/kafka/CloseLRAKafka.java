@@ -4,6 +4,8 @@ import java.net.URI;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 public class CloseLRAKafka {
+    public static final String TYPE = "close";
+
     public static class Request extends io.narayana.lra.contracts.common.CloseLRA.Request implements LRAKafkaRequest {
         public String correlationId = "";
         public String replyTopic = "";

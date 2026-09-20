@@ -150,7 +150,7 @@ public class KafkaLRAClient {
         StartLRAKafka.Request request = new StartLRAKafka.Request(nextCorrelationId(), replyTopic, clientID,
                 timeoutMillis,
                 parentLRA == null ? null : UUID.fromString(LRAConstants.getLRAUid(parentLRA)));
-        StartLRAKafka.Reply reply = send(LRAKafkaConstants.TYPE_START, request, StartLRAKafka.Reply.class, false);
+        StartLRAKafka.Reply reply = send(StartLRAKafka.TYPE, request, StartLRAKafka.Reply.class, false);
 
         checkError(reply);
         return reply.lraId;
@@ -160,21 +160,21 @@ public class KafkaLRAClient {
     public void closeLRA(URI lraId, String compensator, String userData) {
         CloseLRAKafka.Request request = new CloseLRAKafka.Request(nextCorrelationId(), replyTopic,
                 lraId, compensator, userData);
-        send(LRAKafkaConstants.TYPE_CLOSE, request, CloseLRAKafka.Reply.class, FIRE_AND_FORGET);
+        send(CloseLRAKafka.TYPE, request, CloseLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 
     //    @Override
     public void cancelLRA(URI lraId, String compensator, String userData) {
         CancelLRAKafka.Request request = new CancelLRAKafka.Request(nextCorrelationId(), replyTopic,
                 lraId, compensator, userData);
-        send(LRAKafkaConstants.TYPE_CANCEL, request, CancelLRAKafka.Reply.class, FIRE_AND_FORGET);
+        send(CancelLRAKafka.TYPE, request, CancelLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 
     //    @Override
     public void leaveLRA(URI lraId, String body) {
         LeaveLRAKafka.Request request = new LeaveLRAKafka.Request(nextCorrelationId(), replyTopic,
                 lraId, body);
-        send(LRAKafkaConstants.TYPE_LEAVE, request, LeaveLRAKafka.Reply.class, FIRE_AND_FORGET);
+        send(LeaveLRAKafka.TYPE, request, LeaveLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 
     //    @Override
@@ -184,7 +184,7 @@ public class KafkaLRAClient {
         JoinLRAKafka.Request request = new JoinLRAKafka.Request(
                 nextCorrelationId(), replyTopic, lraId, timeLimit, callbacks, userData.toString(), partId);
 
-        JoinLRAKafka.Reply reply = send(LRAKafkaConstants.TYPE_JOIN, request, JoinLRAKafka.Reply.class, false);
+        JoinLRAKafka.Reply reply = send(JoinLRAKafka.TYPE, request, JoinLRAKafka.Reply.class, false);
 
         checkError(reply);
 
@@ -204,7 +204,7 @@ public class KafkaLRAClient {
     public LRAStatus getStatus(URI lraId) {
         StatusLRAKafka.Request request = new StatusLRAKafka.Request(nextCorrelationId(), replyTopic,
                 lraId.toASCIIString());
-        StatusLRAKafka.Reply reply = send(LRAKafkaConstants.TYPE_STATUS, request, StatusLRAKafka.Reply.class,
+        StatusLRAKafka.Reply reply = send(StatusLRAKafka.TYPE, request, StatusLRAKafka.Reply.class,
                 !FIRE_AND_FORGET);
 
         checkError(reply);

@@ -16,14 +16,6 @@ public final class LRAKafkaConstants {
     public static final String CHANNEL_CALLBACK = "lra-callback";
     public static final String TOPIC_CALLBACK_REPLY = "lra-callback-reply";
 
-    // Message types for the request envelope
-    public static final String TYPE_START = "start";
-    public static final String TYPE_CLOSE = "close";
-    public static final String TYPE_CANCEL = "cancel";
-    public static final String TYPE_LEAVE = "leave";
-    public static final String TYPE_JOIN = "join";
-    public static final String TYPE_STATUS = "status";
-
     // Config keys
     public static final String CONFIG_SERVICE_ID = "quarkus.lra.client-topic";
     public static final String CONFIG_COORDINATOR_CALLBACK_TOPIC = "quarkus.lra.coordinator-callback-topic";

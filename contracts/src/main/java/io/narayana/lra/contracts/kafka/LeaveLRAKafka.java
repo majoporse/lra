@@ -3,6 +3,8 @@ package io.narayana.lra.contracts.kafka;
 import java.net.URI;
 
 public class LeaveLRAKafka {
+    public static final String TYPE = "leave";
+
     public static class Request extends io.narayana.lra.contracts.common.LeaveLRA.Request implements LRAKafkaRequest {
         public String correlationId = "";
         public String replyTopic = "";

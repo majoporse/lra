@@ -4,6 +4,8 @@ import io.narayana.lra.contracts.common.CancelLRA;
 import java.net.URI;
 
 public class CancelLRAKafka {
+    public static final String TYPE = "cancel";
+
     public static class Request extends CancelLRA.Request implements LRAKafkaRequest {
         public String correlationId = "";
         public String replyTopic = "";
