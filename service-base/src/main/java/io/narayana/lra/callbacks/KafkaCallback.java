@@ -95,7 +95,11 @@ public class KafkaCallback implements LRACallback {
     private final String topic;
     private final String targetUid;
     private final Operation operation;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @JsonProperty("type")
+    public String getType() {
+        return "kafka";
+    }
 
     @JsonCreator
     public KafkaCallback(
@@ -196,6 +200,7 @@ public class KafkaCallback implements LRACallback {
 
     private CallbackResult mapReply(String replyJson) {
         try {
+            var objectMapper = new ObjectMapper();
             return switch (operation) {
                 case COMPENSATE -> mapEndResult(objectMapper.readValue(replyJson, CompensateKafkaCallback.Reply.class));
                 case COMPLETE -> mapEndResult(objectMapper.readValue(replyJson, CompleteKafkaCallback.Reply.class));
