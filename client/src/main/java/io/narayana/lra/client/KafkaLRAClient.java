@@ -15,6 +15,7 @@ import io.narayana.lra.contracts.kafka.LeaveLRAKafka;
 import io.narayana.lra.contracts.kafka.StartLRAKafka;
 import io.narayana.lra.contracts.kafka.StatusLRAKafka;
 import io.narayana.lra.logging.LRALogger;
+import io.quarkus.arc.properties.IfBuildProperty;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.WebApplicationException;
@@ -36,6 +37,7 @@ import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Message;
 
 @ApplicationScoped
+@IfBuildProperty(name = "quarkus.lra.kafka.enabled", stringValue = "true")
 public class KafkaLRAClient {
     private static final long REPLY_TIMEOUT_SECONDS = 30;
     private static final boolean FIRE_AND_FORGET = true;
