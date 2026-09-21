@@ -1,7 +1,6 @@
 package io.narayana.lra.contracts.kafka;
 
 import io.narayana.lra.contracts.common.StartLRA;
-
 import java.net.URI;
 import java.util.UUID;
 

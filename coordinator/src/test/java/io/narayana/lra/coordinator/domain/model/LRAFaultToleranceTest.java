@@ -44,6 +44,7 @@ import java.net.URI;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -954,8 +955,8 @@ public class LRAFaultToleranceTest extends LRATestBase {
      */
     @Test
     public void testGetStatusNonExistentLRA() {
-        URI fakeLra = URI.create(String.format("http://localhost:%d/%s/non-existent-uid",
-                ports[0], COORDINATOR_PATH_NAME));
+        URI fakeLra = URI.create(String.format("http://localhost:%d/%s/%s",
+                ports[0], COORDINATOR_PATH_NAME, UUID.randomUUID()));
         try {
             LRAStatus status = lraClient.getStatus(fakeLra);
             fail("getStatus on non-existent LRA should throw, but returned " + status);

@@ -11,7 +11,6 @@ import static io.narayana.lra.LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME;
 import static io.narayana.lra.LRAConstants.PARTICIPANT_TIMEOUT;
 import static io.narayana.lra.LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
 import static io.narayana.lra.LRAConstants.STATUS_PARAM_NAME;
-import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST;
 import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
 import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
@@ -31,7 +30,6 @@ import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
 import io.narayana.lra.contracts.http.StartLRAHttp;
 import io.narayana.lra.contracts.http.StatusLRAHttp;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
-import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.coordinator.security.JwtTokenContext;
@@ -54,12 +52,7 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
-import java.net.MalformedURLException;
 import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URL;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
@@ -102,13 +95,11 @@ public class Coordinator extends Application {
     private static final boolean allowParticipantData = initAllowParticipantData();
 
     private final LRAService lraService;
-    private final HttpLRAService httpLraService;
     private final RecoveryCoordinator recoveryCoordinator;
     private final NestedCoordinator nestedCoordinator;
 
     public Coordinator() {
         lraService = LRARecoveryModule.getService();
-        httpLraService = LRARecoveryModule.getHttpService();
         recoveryCoordinator = new RecoveryCoordinator();
         nestedCoordinator = new NestedCoordinator();
     }
@@ -167,11 +158,8 @@ public class Coordinator extends Application {
             @APIResponse(responseCode = "417", description = "The requested version provided in HTTP Header is not supported by this end point", content = @Content(schema = @Schema(implementation = String.class))),
     })
     public StatusLRAHttp.Reply getLRAStatus(
-            @Parameter(name = "LraId", description = "The unique identifier of the LRA." +
-                    "Expecting to be a valid URL where the participant can be contacted at. If not in URL format it will be considered "
-                    +
-                    "to be an id which will be declared to exist at URL where coordinator is deployed at.", required = true) @PathParam("LraId") String lraId) {
-        LongRunningAction transaction = httpLraService.getTransaction(toURI(lraId));
+            @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") UUID lraId) {
+        LongRunningAction transaction = lraService.getTransaction(lraId);
         LRAStatus status = transaction.getLRAStatus();
 
         if (status == null) {
@@ -192,9 +180,8 @@ public class Coordinator extends Application {
             @APIResponse(responseCode = "417", description = "The requested version provided in HTTP Header is not supported by this end point", content = @Content(schema = @Schema(implementation = String.class))),
     })
     public GetLRAInfoLRAHttp.Reply getLRAInfo(
-            @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") String lraId) {
-        URI lraIdURI = toURI(lraId);
-        LRAData lraData = httpLraService.getLRA(lraIdURI);
+            @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") UUID lraId) {
+        LRAData lraData = lraService.getLRA(lraId);
         return new GetLRAInfoLRAHttp.Reply(lraData);
     }
 
@@ -239,12 +226,12 @@ public class Coordinator extends Application {
         if (parentId != null) {
             // the startLRA call will have imported the parent LRA
             String compensatorUrl = String.format("%s/%s/%s", coordinatorUrl, LRAConstants.NESTED_COORDINATOR_PATH_NAME,
-                    LRAConstants.getLRAUid(lraId));
+                    lra.getId());
 
-            if (!httpLraService.hasTransaction(toURI(parentId.toString()))) {
+            if (!lraService.hasTransaction(parentId)) {
 
                 try (Client client = JwtTokenContext.newClient()) {
-                    try (Response response = client.target(toURI(parentId.toString()))
+                    try (Response response = client.target(coordinatorUri(parentId))
                             .request()
                             .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, CURRENT_API_VERSION_STRING)
                             .async()
@@ -271,7 +258,7 @@ public class Coordinator extends Application {
             }
         }
 
-        Current.push(lraId, parentId);
+        Current.push(lra.getId(), parentId);
 
         return new StartLRAHttp.Reply(lraId, parentId);
     }
@@ -291,14 +278,14 @@ public class Coordinator extends Application {
             @APIResponse(responseCode = "417", description = "The requested version provided in HTTP Header is not supported by this end point", content = @Content(schema = @Schema(implementation = String.class))),
     })
     public RenewTimeLimitLRAHttp.Reply renewTimeLimit(
-            @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") String lraId,
+            @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") UUID lraId,
             @RequestBody RenewTimeLimitLRAHttp.Request body) {
         try {
-            var status = httpLraService.renewTimeLimit(toURI(lraId), body.timeLimit);
+            var status = lraService.renewTimeLimit(lraId, body.timeLimit);
             if (status < 200 || status >= 300) {
                 throw new WebApplicationException(status);
             }
-            return new RenewTimeLimitLRAHttp.Reply(lraId);
+            return new RenewTimeLimitLRAHttp.Reply(String.valueOf(lraId));
         } catch (Exception e) {
             throw e;
         }
@@ -340,14 +327,13 @@ public class Coordinator extends Application {
                     + " The client should retry the request.", content = @Content(schema = @Schema(implementation = String.class))),
     })
     public CloseLRAHttp.Reply closeLRA(
-            @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") String lraId,
+            @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") UUID lraId,
             CloseLRAHttp.Request body) {
 
         var participantId = body.participantId;
         var userData = body.userData;
         try {
-            URI lraURI = toURI(lraId);
-            LRAData lraData = httpLraService.endLRA(lraURI, false, false, participantId, userData);
+            LRAData lraData = lraService.endLRA(lraId, false, false, participantId, userData);
 
             var lraStatus = lraData.getStatus();
             if (!isTerminal(lraStatus) && !(lraStatus == LRAStatus.Closing || lraStatus == LRAStatus.Cancelling)) {
@@ -394,15 +380,14 @@ public class Coordinator extends Application {
                     + " The client should retry the request.", content = @Content(schema = @Schema(implementation = String.class))),
     })
     public CancelLRAHttp.Reply cancelLRA(
-            @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") String lraId,
+            @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") UUID lraId,
             @RequestBody CancelLRAHttp.Request body) {
 
         var compensator = body.compensator == null ? "" : body.compensator;
         var userData = body.userData == null ? "" : body.userData;
 
         try {
-            URI lraURI = toURI(lraId);
-            LRAData lraData = httpLraService.endLRA(lraURI, true, false, compensator, userData);
+            LRAData lraData = lraService.endLRA(lraId, true, false, compensator, userData);
             var lraStatus = lraData.getStatus();
 
             if (!isTerminal(lraStatus) && !(lraStatus == LRAStatus.Closing || lraStatus == LRAStatus.Cancelling)) {
@@ -438,7 +423,7 @@ public class Coordinator extends Application {
             @APIResponse(responseCode = "500", description = "Format of the compensator data (e.g. Link format) could not be processed", content = @Content(schema = @Schema(implementation = String.class))),
     })
     public JoinLRAHttp.Reply joinLRAViaBody(
-            @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") String lraId,
+            @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") UUID lraId,
             @RequestBody JoinLRAHttp.Request body) {
 
         var timeLimit = body.timeLimit == null ? 0 : body.timeLimit;
@@ -448,7 +433,7 @@ public class Coordinator extends Application {
 
         // test to see if the join request contains any participant specific data
         if (userData != null && !userData.isEmpty() && !isAllowParticipantData()) {
-            String errMsg = LRALogger.i18nLogger.error_participant_data_disallowed(lraId);
+            String errMsg = LRALogger.i18nLogger.error_participant_data_disallowed(String.valueOf(lraId));
             LRALogger.logger.error(errMsg);
 
             throw new WebApplicationException(errMsg, Response.status(PRECONDITION_FAILED)
@@ -462,10 +447,10 @@ public class Coordinator extends Application {
             sb.append(userData);
         }
 
-        return joinLRA(toURI(lraId), timeLimit, body.callbacks, sb, partId);
+        return joinLRA(lraId, timeLimit, body.callbacks, sb, partId);
     }
 
-    private JoinLRAHttp.Reply joinLRA(URI lraId, long timeLimit, ParticipantCallbacks callbacks,
+    private JoinLRAHttp.Reply joinLRA(UUID lraId, long timeLimit, ParticipantCallbacks callbacks,
             StringBuilder userData, String participantId) {
         final String recoveryUrlBase = String.format("%s%s/%s",
                 context.getBaseUri().toASCIIString(), COORDINATOR_PATH_NAME, RECOVERY_COORDINATOR_PATH_NAME);
@@ -478,7 +463,7 @@ public class Coordinator extends Application {
         int status;
 
         try {
-            status = httpLraService.joinLRA(recoveryUrl, lraId, timeLimit, callbacks, recoveryUrlBase, userData,
+            status = lraService.joinLRA(recoveryUrl, lraId, timeLimit, callbacks, recoveryUrlBase, userData,
                     participantId);
             if (status < 200 || status >= 300) {
                 String errMessage = String.format(
@@ -512,9 +497,9 @@ public class Coordinator extends Application {
             @APIResponse(responseCode = "417", description = "The requested version provided in HTTP Header is not supported by this end point", content = @Content(schema = @Schema(implementation = String.class))),
     })
     public LeaveLRAHttp.Reply leaveLRA(
-            @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") String lraId,
+            @Parameter(name = "LraId", description = "The unique identifier of the LRA", required = true) @PathParam("LraId") UUID lraId,
             LeaveLRAHttp.Request body) {
-        int status = httpLraService.leave(toURI(lraId), body.participantId);
+        int status = lraService.leave(lraId, body.participantId);
         if (status < 200 || status >= 300) {
             throw new WebApplicationException(status);
         }
@@ -527,35 +512,7 @@ public class Coordinator extends Application {
                 || status == LRAStatus.FailedToClose || status == LRAStatus.FailedToCancel;
     }
 
-    private URI toURI(String lraId) {
-        URL url;
-        // needed to decode string passed from clients
-        String decodedURL = URLDecoder.decode(lraId, StandardCharsets.UTF_8);
-
-        try {
-            // see if it already in the correct format
-            url = new URL(decodedURL);
-            url.toURI();
-        } catch (Exception e) {
-            try {
-                url = new URL(String.format("%s%s/%s", context.getBaseUri(), COORDINATOR_PATH_NAME, lraId));
-            } catch (MalformedURLException e1) {
-                String errMsg = LRALogger.i18nLogger.error_invalidStringFormatOfUrl(lraId, e1);
-                LRALogger.logger.error(errMsg);
-                throw new WebApplicationException(errMsg, Response.status(BAD_REQUEST)
-                        .entity(errMsg)
-                        .build());
-            }
-        }
-
-        try {
-            return url.toURI();
-        } catch (URISyntaxException e) {
-            String errMsg = LRALogger.i18nLogger.error_invalidStringFormatOfUrl(lraId, e);
-            LRALogger.logger.warn(errMsg);
-            throw new WebApplicationException(errMsg, Response.status(BAD_REQUEST)
-                    .entity(errMsg)
-                    .build());
-        }
+    private URI coordinatorUri(UUID lraId) {
+        return URI.create(String.format("%s%s/%s", context.getBaseUri(), COORDINATOR_PATH_NAME, lraId));
     }
 }

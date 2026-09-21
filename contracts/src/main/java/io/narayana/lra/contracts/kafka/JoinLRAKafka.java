@@ -2,7 +2,6 @@ package io.narayana.lra.contracts.kafka;
 
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.contracts.common.JoinLRA;
-
 import java.net.URI;
 
 public class JoinLRAKafka {

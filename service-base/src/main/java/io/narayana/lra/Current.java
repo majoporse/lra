@@ -226,13 +226,22 @@ public class Current {
      */
     public static void push(URI lraId, UUID parentLRA) {
         UUID id = lraId == null ? null : UUID.fromString(LRAConstants.getLRAUid(lraId));
+        push(id, parentLRA);
+    }
 
+    /**
+     * push the current context onto the stack of contexts for this thread
+     *
+     * @param lraId id of context to push (must not be null)
+     * @param parentLRA parent context of the pushed LRA (null when top level)
+     */
+    public static void push(UUID lraId, UUID parentLRA) {
         Current current = lraContexts.get();
 
         if (current == null) {
-            lraContexts.set(new Current(id, parentLRA));
-        } else if (findContext(current, id) == null) {
-            current.stack.push(new LRAContext(id, parentLRA));
+            lraContexts.set(new Current(lraId, parentLRA));
+        } else if (findContext(current, lraId) == null) {
+            current.stack.push(new LRAContext(lraId, parentLRA));
         }
     }
 

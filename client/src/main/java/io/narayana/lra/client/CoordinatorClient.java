@@ -28,6 +28,7 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
+import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
@@ -68,7 +69,7 @@ public interface CoordinatorClient {
     @Path("{LraId}/status")
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<StatusLRAHttp.Reply> getLRAStatus(
-            @PathParam("LraId") String lraId);
+            @PathParam("LraId") UUID lraId);
 
     /**
      * Get detailed information about a specific LRA
@@ -80,7 +81,7 @@ public interface CoordinatorClient {
     @Path("{LraId}")
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<GetLRAInfoLRAHttp.Reply> getLRAInfo(
-            @PathParam("LraId") String lraId);
+            @PathParam("LraId") UUID lraId);
 
     /**
      * Start a new LRA
@@ -102,7 +103,7 @@ public interface CoordinatorClient {
     @PUT
     @Path("{LraId}/renew")
     CompletionStage<RenewTimeLimitLRAHttp.Reply> renewTimeLimit(
-            @PathParam("LraId") String lraId,
+            @PathParam("LraId") UUID lraId,
             RenewTimeLimitLRAHttp.Request body);
 
     /**
@@ -115,7 +116,7 @@ public interface CoordinatorClient {
     @Path("{LraId}")
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<JoinLRAHttp.Reply> joinLRA(
-            @PathParam("LraId") String lraId,
+            @PathParam("LraId") UUID lraId,
             JoinLRAHttp.Request body);
 
     /**
@@ -128,7 +129,7 @@ public interface CoordinatorClient {
     @Path("{LraId}/remove")
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<LeaveLRAHttp.Reply> leaveLRA(
-            @PathParam("LraId") String lraId,
+            @PathParam("LraId") UUID lraId,
             LeaveLRAHttp.Request body);
 
     /**
@@ -141,7 +142,7 @@ public interface CoordinatorClient {
     @Path("{LraId}/close")
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<CloseLRAHttp.Reply> closeLRA(
-            @PathParam("LraId") String lraId,
+            @PathParam("LraId") UUID lraId,
             CloseLRAHttp.Request body);
 
     /**
@@ -154,7 +155,7 @@ public interface CoordinatorClient {
     @Path("{LraId}/cancel")
     @Produces({ MediaType.APPLICATION_JSON })
     CompletionStage<CancelLRAHttp.Reply> cancelLRA(
-            @PathParam("LraId") String lraId,
+            @PathParam("LraId") UUID lraId,
             CancelLRAHttp.Request body);
 
     /**
@@ -166,7 +167,7 @@ public interface CoordinatorClient {
     @GET
     @Path("nested/{NestedLraId}/status")
     @Produces({ MediaType.APPLICATION_JSON })
-    CompletionStage<NestedStatusLRAHttp.Reply> getNestedLRAStatus(@PathParam("NestedLraId") String nestedLraId);
+    CompletionStage<NestedStatusLRAHttp.Reply> getNestedLRAStatus(@PathParam("NestedLraId") UUID nestedLraId);
 
     /**
      * Complete a nested LRA
@@ -177,7 +178,7 @@ public interface CoordinatorClient {
     @PUT
     @Path("nested/{NestedLraId}/complete")
     CompletionStage<NestedCompleteLRAHttp.Reply> completeNestedLRA(
-            @PathParam("NestedLraId") String nestedLraId);
+            @PathParam("NestedLraId") UUID nestedLraId);
 
     /**
      * Compensate a nested LRA
@@ -188,7 +189,7 @@ public interface CoordinatorClient {
     @PUT
     @Path("nested/{NestedLraId}/compensate")
     CompletionStage<NestedCompensateLRAHttp.Reply> compensateNestedLRA(
-            @PathParam("NestedLraId") String nestedLraId);
+            @PathParam("NestedLraId") UUID nestedLraId);
 
     /**
      * Forget a nested LRA
@@ -198,5 +199,5 @@ public interface CoordinatorClient {
      */
     @DELETE
     @Path("nested/{NestedLraId}/forget")
-    CompletionStage<NestedForgetLRAHttp.Reply> forgetNestedLRA(@PathParam("NestedLraId") String nestedLraId);
+    CompletionStage<NestedForgetLRAHttp.Reply> forgetNestedLRA(@PathParam("NestedLraId") UUID nestedLraId);
 }

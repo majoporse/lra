@@ -47,6 +47,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.eclipse.microprofile.lra.annotation.Compensate;
 import org.eclipse.microprofile.lra.annotation.Complete;
@@ -979,7 +980,7 @@ public class LRAStateModelTest extends LRATestBase {
      */
     @Test
     public void testNestedCompleteReturns410ForUnknown() {
-        URI fakeChild = URI.create(coordinatorPath + "/unknown-nested-lra?ParentLRA=fake");
+        URI fakeChild = URI.create(coordinatorPath + "/" + UUID.randomUUID() + "?ParentLRA=fake");
 
         try (Response response = rawNestedComplete(fakeChild)) {
             assertEquals(410, response.getStatus(),
@@ -992,7 +993,7 @@ public class LRAStateModelTest extends LRATestBase {
      */
     @Test
     public void testNestedCompensateReturns410ForUnknown() {
-        URI fakeChild = URI.create(coordinatorPath + "/unknown-nested-lra?ParentLRA=fake");
+        URI fakeChild = URI.create(coordinatorPath + "/" + UUID.randomUUID() + "?ParentLRA=fake");
 
         try (Response response = rawNestedCompensate(fakeChild)) {
             assertEquals(410, response.getStatus(),
@@ -1023,7 +1024,7 @@ public class LRAStateModelTest extends LRATestBase {
      */
     @Test
     public void testNestedStatusReturns410ForUnknown() {
-        URI fakeChild = URI.create(coordinatorPath + "/unknown-nested-lra?ParentLRA=fake");
+        URI fakeChild = URI.create(coordinatorPath + "/" + UUID.randomUUID() + "?ParentLRA=fake");
 
         try (Response response = rawNestedStatus(fakeChild)) {
             assertEquals(410, response.getStatus(),
@@ -1054,7 +1055,7 @@ public class LRAStateModelTest extends LRATestBase {
      */
     @Test
     public void testNestedForgetReturns410ForUnknown() {
-        URI fakeChild = URI.create(coordinatorPath + "/unknown-nested-lra?ParentLRA=fake");
+        URI fakeChild = URI.create(coordinatorPath + "/" + UUID.randomUUID() + "?ParentLRA=fake");
 
         try (Response response = rawNestedForget(fakeChild)) {
             assertEquals(410, response.getStatus(),
@@ -1145,8 +1146,7 @@ public class LRAStateModelTest extends LRATestBase {
     // --- Raw HTTP helpers for nested endpoints ---
 
     private String nestedUrl(URI childId) {
-        String encoded = java.net.URLEncoder.encode(childId.toASCIIString(), java.nio.charset.StandardCharsets.UTF_8);
-        return coordinatorPath + "/" + NESTED_COORDINATOR_PATH_NAME + "/" + encoded;
+        return coordinatorPath + "/" + NESTED_COORDINATOR_PATH_NAME + "/" + LRAConstants.getLRAUid(childId);
     }
 
     private Response rawNestedComplete(URI childId) {

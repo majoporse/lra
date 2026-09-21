@@ -58,8 +58,6 @@ import java.io.IOException;
 import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -561,13 +559,13 @@ public class LRATest extends LRATestBase {
     @Test
     public void testJoinLRAViaBody() {
         URI lraId = lraClient.startLRA(testName);
-        String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8); // must be valid
+        String lraIdSegment = LRAConstants.getLRAUid(lraId); // must be a valid UUID
         var body = new JoinLRAHttp.Request();
         body.partId = "";
         body.callbacks = new ParticipantCallbacks();
 
         try (Response response = client.target(coordinatorPath)
-                .path(encodedLraId)
+                .path(lraIdSegment)
                 .request()
                 // the request body should correspond to a valid compensator or be empty
                 .put(Entity.json(body))) {
@@ -1451,7 +1449,7 @@ public class LRATest extends LRATestBase {
     public void testRenewTimeLimitAllowsPostponing() {
         // start an LRA with a short timeout (10 seconds)
         URI lraId = lraClient.startLRA(null, testName, 10000L, ChronoUnit.MILLIS);
-        String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8);
+        String lraIdSegment = LRAConstants.getLRAUid(lraId);
 
         try {
             // wait a bit to ensure we're past the original start time
@@ -1459,7 +1457,7 @@ public class LRATest extends LRATestBase {
 
             // try to extend the timeout to 30 seconds (should succeed)
             try (Response response = client.target(coordinatorPath)
-                    .path(encodedLraId)
+                    .path(lraIdSegment)
                     .path("renew")
                     .request()
                     .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 30000L)))) {
@@ -1489,7 +1487,7 @@ public class LRATest extends LRATestBase {
     public void testRenewTimeLimitIgnoresShortening() {
         // start an LRA with a long timeout (30 seconds)
         URI lraId = lraClient.startLRA(null, testName, 30000L, ChronoUnit.MILLIS);
-        String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8);
+        String lraIdSegment = LRAConstants.getLRAUid(lraId);
 
         try {
             // wait a bit to ensure we're past the original start time
@@ -1497,7 +1495,7 @@ public class LRATest extends LRATestBase {
 
             // try to shorten the timeout to 5 seconds (should be ignored but return 200 OK)
             try (Response response = client.target(coordinatorPath)
-                    .path(encodedLraId)
+                    .path(lraIdSegment)
                     .path("renew")
                     .request()
                     .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 5000L)))) {
@@ -1528,7 +1526,7 @@ public class LRATest extends LRATestBase {
     public void testRenewTimeLimitMultipleOperations() {
         // start an LRA with a medium timeout (15 seconds)
         URI lraId = lraClient.startLRA(null, testName, 15000L, ChronoUnit.MILLIS);
-        String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8);
+        String lraIdSegment = LRAConstants.getLRAUid(lraId);
 
         try {
             // wait a bit to ensure we're past the original start time
@@ -1536,7 +1534,7 @@ public class LRATest extends LRATestBase {
 
             // first extend to 25 seconds (should work)
             try (Response response1 = client.target(coordinatorPath)
-                    .path(encodedLraId)
+                    .path(lraIdSegment)
                     .path("renew")
                     .request()
                     .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 25000L)))) {
@@ -1547,7 +1545,7 @@ public class LRATest extends LRATestBase {
 
             // then try to shorten to 10 seconds (should be ignored)
             try (Response response2 = client.target(coordinatorPath)
-                    .path(encodedLraId)
+                    .path(lraIdSegment)
                     .path("renew")
                     .request()
                     .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 10000L)))) {
@@ -1558,7 +1556,7 @@ public class LRATest extends LRATestBase {
 
             // finally extend to 40 seconds (should work again)
             try (Response response3 = client.target(coordinatorPath)
-                    .path(encodedLraId)
+                    .path(lraIdSegment)
                     .path("renew")
                     .request()
                     .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 40000L)))) {
@@ -1589,10 +1587,10 @@ public class LRATest extends LRATestBase {
     public void testRenewTimeLimitExtendsLRALife() {
         // start an LRA with a short timeout (1 seconds)
         URI lraId = lraClient.startLRA(null, testName, 1000L, ChronoUnit.MILLIS);
-        String encodedLraId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8);
+        String lraIdSegment = LRAConstants.getLRAUid(lraId);
         try {
             // try to extend the timeout to 30 seconds (should succeed)
-            try (Response response = client.target(coordinatorPath).path(encodedLraId).path("renew")
+            try (Response response = client.target(coordinatorPath).path(lraIdSegment).path("renew")
                     .request().put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 30000L)))) {
                 assertEquals(OK.getStatusCode(), response.getStatus(),
                         "Expected renewing LRA timeout to succeed when postponing");
@@ -1602,7 +1600,7 @@ public class LRATest extends LRATestBase {
                 assertEquals(LRAStatus.Active, status, "LRA should still be active after postponing timeout");
             }
             // reducing timelimit should not take effect
-            try (Response response = client.target(coordinatorPath).path(encodedLraId).path("renew")
+            try (Response response = client.target(coordinatorPath).path(lraIdSegment).path("renew")
                     .request().put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 10L)))) {
                 assertEquals(OK.getStatusCode(), response.getStatus(),
                         "Expected renewing LRA timeout to succeed but not having effect");

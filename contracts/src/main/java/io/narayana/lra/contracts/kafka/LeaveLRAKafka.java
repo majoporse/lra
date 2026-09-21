@@ -1,7 +1,6 @@
 package io.narayana.lra.contracts.kafka;
 
 import io.narayana.lra.contracts.common.LeaveLRA;
-
 import java.net.URI;
 
 public class LeaveLRAKafka {
