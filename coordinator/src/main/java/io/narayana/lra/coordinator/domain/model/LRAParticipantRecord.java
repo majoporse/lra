@@ -151,12 +151,8 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
             compensate = true;
         }
 
-        if (compensateCallback == null) {
-            return atEnd(TwoPhaseOutcome.FINISH_OK);
-        }
-
         if (compensate) {
-            if (isCompensated()) {
+            if (isCompensated() || compensateCallback == null) {
                 return atEnd(TwoPhaseOutcome.FINISH_OK); // the participant has already compensated
             }
 

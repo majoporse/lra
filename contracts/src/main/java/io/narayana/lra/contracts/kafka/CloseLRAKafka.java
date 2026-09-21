@@ -1,8 +1,7 @@
 package io.narayana.lra.contracts.kafka;
 
-import java.net.URI;
-
 import io.narayana.lra.contracts.common.CloseLRA;
+import java.net.URI;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 public class CloseLRAKafka {
