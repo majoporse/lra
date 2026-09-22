@@ -27,7 +27,7 @@ public class ClientLRAResponseFilter implements ClientResponseFilter {
         Object callingContext = requestContext.getProperty(LRA_HTTP_CONTEXT_HEADER);
 
         if (callingContext != null) {
-            Current.push((URI) callingContext);
+            Current.push((URI) callingContext, null);
         }
     }
 }

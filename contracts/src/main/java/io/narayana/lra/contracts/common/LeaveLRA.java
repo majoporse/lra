@@ -1,33 +1,30 @@
 package io.narayana.lra.contracts.common;
 
+import java.net.URI;
+
 public class LeaveLRA {
     public static class Request {
-        public String lraId;
-        public String body;
+        public URI lraId;
+        public String participantId;
 
         public Request() {
         }
 
-        public Request(String lraId, String body) {
+        public Request(URI lraId, String participantId) {
             this.lraId = lraId;
-            this.body = body;
-        }
-
-        public Request(String correlationId, String replyTopic, String lraId, String body) {
-            this(lraId, body);
+            this.participantId = participantId;
         }
     }
 
     public static class Reply {
 
+        public String status;
+
         public Reply() {
         }
 
-        public Reply(String error) {
-        }
-
-        public Reply(String correlationId, String error) {
-            this(error);
+        public Reply(String status) {
+            this.status = status;
         }
     }
 }

@@ -62,7 +62,6 @@ public class MpLraTckAuxiliaryArchiveAppender implements AuxiliaryArchiveAppende
         JavaArchive archive = ShrinkWrap.create(JavaArchive.class)
                 // Loads dependencies
                 .addPackages(false,
-                        "io.narayana.lra",
                         "io.narayana.lra.logging",
                         "io.narayana.lra.filter",
                         "io.narayana.lra.provider",
@@ -70,7 +69,9 @@ public class MpLraTckAuxiliaryArchiveAppender implements AuxiliaryArchiveAppende
                         "io.narayana.lra.client.internal",
                         "org.eclipse.microprofile.lra")
                 .addPackages(true,
+                        "io.narayana.lra",
                         "io.narayana.lra.client.internal.proxy",
+                        "io.narayana.lra.contracts",
                         "org.eclipse.microprofile.lra.annotation",
                         "io.smallrye.stork",
                         "io.smallrye.mutiny.helpers")

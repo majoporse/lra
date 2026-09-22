@@ -1,41 +1,28 @@
 package io.narayana.lra.contracts.common;
 
+import io.narayana.lra.callbacks.ParticipantCallbacks;
+import java.net.URI;
+
 public class JoinLRA {
     public static class Request {
-        public String lraId;
+        public URI lraId;
         public Long timeLimit;
-        public String compensateLink;
-        public String completeLink;
-        public String forgetLink;
-        public String leaveLink;
-        public String afterLink;
-        public String statusLink;
-        public String compensatorData;
+        public String partId;
+        public String userData;
+
+        public ParticipantCallbacks callbacks;
 
         public Request() {
         }
 
-        public Request(String lraId, Long timeLimit,
-                String compensateLink, String completeLink, String forgetLink,
-                String leaveLink, String afterLink, String statusLink,
-                String compensatorData) {
+        public Request(URI lraId, Long timeLimit,
+                ParticipantCallbacks callbacks,
+                String userData, String partId) {
             this.lraId = lraId;
             this.timeLimit = timeLimit;
-            this.compensateLink = compensateLink;
-            this.completeLink = completeLink;
-            this.forgetLink = forgetLink;
-            this.leaveLink = leaveLink;
-            this.afterLink = afterLink;
-            this.statusLink = statusLink;
-            this.compensatorData = compensatorData;
-        }
-
-        public Request(String correlationId, String replyTopic, String lraId, Long timeLimit,
-                String compensateLink, String completeLink, String forgetLink,
-                String leaveLink, String afterLink, String statusLink,
-                String compensatorData) {
-            this(lraId, timeLimit, compensateLink, completeLink, forgetLink,
-                    leaveLink, afterLink, statusLink, compensatorData);
+            this.callbacks = callbacks;
+            this.partId = partId;
+            this.userData = userData;
         }
     }
 
@@ -49,10 +36,6 @@ public class JoinLRA {
         public Reply(String recoveryUrl, String previousCompensatorData, String error) {
             this.recoveryUrl = recoveryUrl;
             this.previousCompensatorData = previousCompensatorData;
-        }
-
-        public Reply(String correlationId, String recoveryUrl, String previousCompensatorData, String error) {
-            this(recoveryUrl, previousCompensatorData, error);
         }
     }
 }

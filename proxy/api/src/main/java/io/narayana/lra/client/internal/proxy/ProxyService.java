@@ -162,7 +162,7 @@ public class ProxyService {
             long timeLimitInSeconds = Duration.of(timeLimit, unit).getSeconds();
             StringBuilder sb = new StringBuilder(compensatorData.orElse(""));
 
-            return narayanaLRAClient.joinLRA(lraId, timeLimitInSeconds, participantUri, sb);
+            return narayanaLRAClient.joinLRA(lraId, timeLimitInSeconds, participantUri, sb, "fixme");
         } catch (Exception e) {
             throw new WebApplicationException(e, Response.status(0)
                     .entity(lraId + ": Exception whilst joining with this LRA").build());

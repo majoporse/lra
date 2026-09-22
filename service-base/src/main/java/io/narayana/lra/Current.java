@@ -5,29 +5,30 @@
 
 package io.narayana.lra;
 
-import static io.narayana.lra.LRAConstants.PARENT_LRA_PARAM_NAME;
-import static io.narayana.lra.LRAConstants.QUERY_FIELD_SEPARATOR;
-import static io.narayana.lra.LRAConstants.QUERY_PAIR_SEPARATOR;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT_HEADER;
 
 import jakarta.ws.rs.container.ContainerResponseContext;
-import jakarta.ws.rs.core.MultivaluedMap;
-import jakarta.ws.rs.core.UriBuilder;
-import java.io.UnsupportedEncodingException;
 import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Stack;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+import org.eclipse.microprofile.config.Config;
+import org.eclipse.microprofile.config.ConfigProvider;
 
 // similar to ThreadActionData except it need to be available on the client side
 // for use by NarayanaLRAClient and ServerLRAFilter
 public class Current {
+    private static final Config CONFIG = ConfigProvider.getConfig();
+
+    private record LRAContext(
+            UUID lraId,
+            UUID parentLRA) {
+    }
+
     private static final ThreadLocal<Current> lraContexts = new ThreadLocal<>();
 
     /**
@@ -36,7 +37,7 @@ public class Current {
      * filter method runs on different thread (meaning it doesn't clear the right {@link ThreadLocal}) we still remove
      * it from the cache.
      */
-    private static final Map<URI, Integer> activeLRACache = new ConcurrentHashMap<>();
+    private static final Map<UUID, Integer> activeLRACache = new ConcurrentHashMap<>();
 
     private static final ThreadLocal<String> authToken = new ThreadLocal<>();
 
@@ -53,7 +54,7 @@ public class Current {
     }
 
     @SuppressWarnings("ConstantConditions")
-    public static void addActiveLRACache(URI lraId) {
+    public static void addActiveLRACache(UUID lraId) {
         if (lraId == null) {
             return;
         }
@@ -61,7 +62,7 @@ public class Current {
         activeLRACache.merge(lraId, 1, Integer::sum);
     }
 
-    public static void removeActiveLRACache(URI lraId) {
+    public static void removeActiveLRACache(UUID lraId) {
         if (lraId == null) {
             return;
         }
@@ -76,129 +77,89 @@ public class Current {
         });
     }
 
-    private final Stack<URI> stack;
-    private Map<String, Object> state;
+    private final Stack<LRAContext> stack;
 
-    private Current(URI url) {
+    private Current(UUID lraId, UUID parentLRA) {
         stack = new Stack<>();
-        stack.push(url);
+        stack.push(new LRAContext(lraId, parentLRA));
     }
 
-    public static Object putState(String key, Object value) {
-        Current current = lraContexts.get();
+    // given an LRA id extract the immediate parent context from the stack
+    public static UUID getFirstParent(UUID lraId) {
+        if (lraId == null) {
+            return null;
+        }
+        LRAContext context = findContext(lraContexts.get(), lraId);
 
-        if (current != null) {
-            return current.updateState(key, value);
+        return context == null ? null : context.parentLRA();
+    }
+
+    // find a context on the current thread's stack that matches the lra id
+    private static LRAContext findContext(Current current, UUID lraId) {
+        if (current == null || lraId == null) {
+            return null;
         }
 
-        return null;
-    }
-
-    public static Object getState(String key) {
-        Current current = lraContexts.get();
-
-        if (current != null && current.state != null) {
-            return current.state.get(key);
-        }
-
-        return null;
-    }
-
-    private static String getParents(URI uri) {
-        String query = uri.getQuery();
-
-        if (query != null) {
-            for (String nvpair : query.split(QUERY_PAIR_SEPARATOR)) {
-                if (nvpair.startsWith(PARENT_LRA_PARAM_NAME + QUERY_FIELD_SEPARATOR)) {
-                    return nvpair.split(QUERY_FIELD_SEPARATOR)[1];
-                }
+        for (LRAContext context : current.stack) {
+            if (lraId.equals(context.lraId())) {
+                return context;
             }
         }
 
         return null;
-    }
-
-    // construct the LRA URI including the parent hierarchy as a query parameter
-    public static URI buildFullLRAUrl(String baseURI, URI parentId) throws URISyntaxException {
-        // is the parent part of a hierarchy
-        String parents = Current.getParents(parentId); // gets the hierarchy form the query param
-        // we have the hierarchy so remove the query parameter
-        String gParent = new URI(parentId.getScheme(),
-                parentId.getAuthority(),
-                parentId.getPath(),
-                null, // skip the query string
-                parentId.getFragment())
-                .toASCIIString();
-
-        if (parents != null) {
-            gParent += parents + ","; // , separated list of the hierarchy
-        }
-
-        return UriBuilder.fromUri(baseURI).queryParam(PARENT_LRA_PARAM_NAME, gParent).build();
-    }
-
-    // given a URL extract the immediate parent of
-    public static String getFirstParent(URI parent) throws UnsupportedEncodingException {
-        String query = parent == null ? null : parent.getQuery();
-
-        if (query != null) {
-            for (String param : query.split(QUERY_PAIR_SEPARATOR)) {
-                if (param.startsWith(PARENT_LRA_PARAM_NAME + QUERY_FIELD_SEPARATOR)) {
-                    String parents = param.split(QUERY_FIELD_SEPARATOR, 2)[1];
-
-                    // parents is a comma separated list of parents (the first one is the direct parent)
-                    if (parents != null) {
-                        String[] pa = parents.split(",");
-
-                        if (pa.length > 0) {
-                            return URLDecoder.decode(pa[0], StandardCharsets.UTF_8);
-                        }
-                    }
-
-                    break;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    public Object updateState(String key, Object value) {
-        if (state == null) {
-            state = new HashMap<>();
-        }
-
-        return state.put(key, value);
     }
 
     private static void clearContext(Current current) {
-        if (current.state != null) {
-            current.state.clear();
-        }
-
         lraContexts.set(null);
     }
 
-    public static URI peek() {
+    public static UUID peek() {
         Current current = lraContexts.get();
-        URI peek = current != null ? current.stack.peek() : null;
+        LRAContext context = current != null && !current.stack.isEmpty() ? current.stack.peek() : null;
+        UUID lraId = context == null ? null : context.lraId();
 
-        if (peek != null && !activeLRACache.containsKey(peek)) {
+        if (lraId != null && !activeLRACache.containsKey(lraId)) {
             // we cleaned the Current on different thread, so we need to clear the context
             // that was set by previous request filter and wasn't cleaned by the response filter
             Current.popAll();
             return null;
         }
 
-        return peek;
+        return lraId;
     }
 
-    public static URI pop() {
-        Current current = lraContexts.get();
-        URI lraId = null;
+    // form the http URI of an LRA from its uid; the coordinator url is taken from the
+    // context that pushed the LRA on to the current thread
+    // the coordinator url used to form LRA ids, derived from configuration
+    public static String getCoordinatorUrl() {
+        String base = CONFIG.getOptionalValue("lra.coordinator.url", String.class)
+                .orElse("http://localhost:8080/" + LRAConstants.COORDINATOR_PATH_NAME);
+        int comma = base.indexOf(',');
+        if (comma != -1) {
+            base = base.substring(0, comma);
+        }
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        return base;
+    }
 
-        if (current != null) {
-            lraId = current.stack.pop(); // there must be at least one
+    // form the http URI of an LRA from its uid
+    public static URI toURI(UUID lraId) {
+        return lraId == null ? null : URI.create(getCoordinatorUrl() + "/" + lraId);
+    }
+
+    // the http URI of the current LRA on the calling thread (used when propagating the context)
+    public static URI peekURI() {
+        return toURI(peek());
+    }
+
+    public static UUID pop() {
+        Current current = lraContexts.get();
+        UUID lraId = null;
+
+        if (current != null && !current.stack.isEmpty()) {
+            lraId = current.stack.pop().lraId(); // there must be at least one
 
             if (current.stack.empty()) {
                 clearContext(current);
@@ -209,21 +170,22 @@ public class Current {
     }
 
     // dissassociate an LRA from the callers thread (including any child LRAs)
-    public static boolean pop(URI lra) {
+    public static boolean pop(UUID lra) {
         Current current = lraContexts.get();
+        LRAContext context = findContext(current, lra);
 
-        if (current == null || !current.stack.contains(lra)) {
+        if (current == null || context == null) {
             return false;
         }
 
-        current.stack.remove(lra);
+        current.stack.remove(context);
 
         // pop children
         // since child LRAs are contingent upon the parent, popping a parent should also pop the children
 
         // check every LRA associated with the calling thread and if it is a child of lra then pop it
         // the lra that is being popped is a parent of nextLRA:
-        current.stack.removeIf(nextLRA -> isParentOf(lra, nextLRA));
+        current.stack.removeIf(nextLRA -> isParentOf(lra, nextLRA.lraId()));
 
         if (current.stack.empty()) {
             clearContext(current);
@@ -234,48 +196,43 @@ public class Current {
 
     /*
      * return true if child is nested under parent
-     * ie if child contains a query param matching child
+     * ie if child has the parent anywhere in its parent tree
      */
-    private static boolean isParentOf(URI parent, URI child) {
-        String qs = child.getQuery();
-
-        if (qs == null) {
+    private static boolean isParentOf(UUID parent, UUID child) {
+        if (parent == null || child == null) {
             return false; // child is top level
         }
 
-        String theParent = parent.toASCIIString();
-        String[] params = qs.split(QUERY_PAIR_SEPARATOR);
+        Current current = lraContexts.get();
+        LRAContext context = findContext(current, child);
 
-        for (String param : params) {
-            String[] nvp = param.split(QUERY_FIELD_SEPARATOR);
-
-            if (nvp.length == 2 && nvp[0].contains(PARENT_LRA_PARAM_NAME)) { // ignore null parameter values
-                // Child has a parent. See if its parent matches theParent:
-                String parentCandidate = URLDecoder.decode(nvp[1], StandardCharsets.UTF_8);
-
-                if (parentCandidate.contains(theParent) || theParent.contains(parentCandidate)) {
-                    return true;
-                }
-            }
+        if (context == null || context.parentLRA() == null) {
+            return false; // reached the top of the hierarchy
         }
 
-        return false;
+        if (parent.equals(context.parentLRA())) {
+            return true;
+        }
+
+        // go through the whole parent tree recursively
+        return isParentOf(parent, context.parentLRA());
     }
 
     /**
      * push the current context onto the stack of contexts for this thread
      *
      * @param lraId id of context to push (must not be null)
+     * @param parentLRA parent context of the pushed LRA (null when top level)
      */
-    public static void push(URI lraId) {
+    public static void push(URI lraId, UUID parentLRA) {
+        UUID id = lraId == null ? null : UUID.fromString(LRAConstants.getLRAUid(lraId));
+
         Current current = lraContexts.get();
 
         if (current == null) {
-            lraContexts.set(new Current(lraId));
-        } else {
-            if (!current.stack.contains(lraId)) {
-                current.stack.push(lraId);
-            }
+            lraContexts.set(new Current(id, parentLRA));
+        } else if (findContext(current, id) == null) {
+            current.stack.push(new LRAContext(id, parentLRA));
         }
     }
 
@@ -286,7 +243,7 @@ public class Current {
             return new ArrayList<>();
         }
 
-        return new ArrayList<>(current.stack);
+        return current.stack.stream().map(context -> toURI(context.lraId())).collect(Collectors.toList());
     }
 
     /**
@@ -295,7 +252,7 @@ public class Current {
      * @param responseContext the header map to add the KRA context to
      */
     public static void updateLRAContext(ContainerResponseContext responseContext) {
-        URI lraId = Current.peek();
+        UUID lraId = Current.peek();
 
         if (lraId != null) {
             responseContext.getHeaders().put(LRA_HTTP_CONTEXT_HEADER, getContexts());
@@ -304,18 +261,8 @@ public class Current {
         }
     }
 
-    public static void updateLRAContext(URI lraId, MultivaluedMap<String, String> headers) {
-        headers.putSingle(LRA_HTTP_CONTEXT_HEADER, lraId.toString());
-        push(lraId);
-    }
-
     public static void popAll() {
         lraContexts.remove();
-    }
-
-    public static void clearContext(MultivaluedMap<String, String> headers) {
-        headers.remove(LRA_HTTP_CONTEXT_HEADER);
-        popAll();
     }
 
     public static <T> T getLast(List<T> objects) {

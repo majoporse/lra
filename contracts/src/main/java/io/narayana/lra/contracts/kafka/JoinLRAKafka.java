@@ -1,19 +1,23 @@
 package io.narayana.lra.contracts.kafka;
 
+import io.narayana.lra.callbacks.ParticipantCallbacks;
+import io.narayana.lra.contracts.common.JoinLRA;
+import java.net.URI;
+
 public class JoinLRAKafka {
-    public static class Request extends io.narayana.lra.contracts.common.JoinLRA.Request implements LRAKafkaRequest {
+    public static final String TYPE = "join";
+
+    public static class Request extends JoinLRA.Request implements LRAKafkaRequest {
         public String correlationId = "";
         public String replyTopic = "";
 
         public Request() {
         }
 
-        public Request(String correlationId, String replyTopic, String lraId, Long timeLimit,
-                String compensateLink, String completeLink, String forgetLink,
-                String leaveLink, String afterLink, String statusLink,
-                String compensatorData) {
-            super(lraId, timeLimit, compensateLink, completeLink, forgetLink,
-                    leaveLink, afterLink, statusLink, compensatorData);
+        public Request(String correlationId, String replyTopic, URI lraId, Long timeLimit,
+                ParticipantCallbacks callbacks,
+                String userData, String partId) {
+            super(lraId, timeLimit, callbacks, userData, partId);
             this.correlationId = correlationId;
             this.replyTopic = replyTopic;
         }
@@ -29,7 +33,7 @@ public class JoinLRAKafka {
         }
     }
 
-    public static class Reply extends io.narayana.lra.contracts.common.JoinLRA.Reply implements LRAKafkaReply {
+    public static class Reply extends JoinLRA.Reply implements LRAKafkaReply {
         public String correlationId;
         public String error;
 

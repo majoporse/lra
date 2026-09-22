@@ -1,37 +1,37 @@
 package io.narayana.lra.contracts.common;
 
+import java.net.URI;
+import java.util.UUID;
+
 public class StartLRA {
     public static class Request {
         public String clientId;
         public Long timeout;
-        public String parentLRA;
+        public UUID parentLRA;
 
         public Request() {
         }
 
-        public Request(String clientId, Long timeout, String parentLRA) {
+        public Request(String clientId, Long timeout, UUID parentLRA) {
             this.clientId = clientId;
             this.timeout = timeout;
             this.parentLRA = parentLRA;
         }
-
-        public Request(String correlationId, String replyTopic, String clientId, Long timeout, String parentLRA) {
-            this(clientId, timeout, parentLRA);
-        }
     }
 
     public static class Reply {
-        public String lraId;
+        public URI lraId;
+        public UUID parent;
+        public String error;
 
         public Reply() {
         }
 
-        public Reply(String lraId, String error) {
+        public Reply(URI lraId, UUID parent, String error) {
             this.lraId = lraId;
-        }
 
-        public Reply(String correlationId, String lraId, String error) {
-            this(lraId, error);
+            this.parent = parent;
+            this.error = error;
         }
     }
 }

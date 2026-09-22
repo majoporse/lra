@@ -1,14 +1,19 @@
 package io.narayana.lra.contracts.kafka;
 
+import io.narayana.lra.contracts.common.LeaveLRA;
+import java.net.URI;
+
 public class LeaveLRAKafka {
-    public static class Request extends io.narayana.lra.contracts.common.LeaveLRA.Request implements LRAKafkaRequest {
+    public static final String TYPE = "leave";
+
+    public static class Request extends LeaveLRA.Request implements LRAKafkaRequest {
         public String correlationId = "";
         public String replyTopic = "";
 
         public Request() {
         }
 
-        public Request(String correlationId, String replyTopic, String lraId, String body) {
+        public Request(String correlationId, String replyTopic, URI lraId, String body) {
             super(lraId, body);
             this.correlationId = correlationId;
             this.replyTopic = replyTopic;
@@ -25,7 +30,7 @@ public class LeaveLRAKafka {
         }
     }
 
-    public static class Reply extends io.narayana.lra.contracts.common.LeaveLRA.Reply implements LRAKafkaReply {
+    public static class Reply extends LeaveLRA.Reply implements LRAKafkaReply {
         public String correlationId;
         public String error;
 
