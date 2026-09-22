@@ -1,16 +1,16 @@
 package io.narayana.lra.contracts.common;
 
-import java.net.URI;
+import java.util.UUID;
 
 public class RenewTimeLimitLRA {
     public static class Request {
-        public URI lraId;
+        public UUID lraId;
         public long timeLimit;
 
         public Request() {
         }
 
-        public Request(URI lraId, long timeLimit) {
+        public Request(UUID lraId, long timeLimit) {
             this.lraId = lraId;
             this.timeLimit = timeLimit;
         }

@@ -430,10 +430,10 @@ public class NarayanaLRAClient implements AutoCloseable {
                 var response = client.startLRA(request)
                         .toCompletableFuture().get(START_TIMEOUT, TimeUnit.SECONDS);
 
-                URI lra = response.lraId;
+                UUID lraId = response.lraId;
+                URI lra = toLraUri(coordinatorInstance, lraId);
                 lraTrace(lra, "startLRA returned");
 
-                UUID lraId = UUID.fromString(LRAConstants.getLRAUid(lra));
                 Current.push(lraId, parentId);
                 Current.addActiveLRACache(lraId);
 
@@ -565,7 +565,7 @@ public class NarayanaLRAClient implements AutoCloseable {
             // Build the CoordinatorClient using the base coordinator URL
             CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(lraId));
 
-            var req = new LeaveLRAHttp.Request(lraId, body);
+            var req = new LeaveLRAHttp.Request(toUuid(lraId), body);
             var _response = client.leaveLRA(
                     toUuid(lraId),
                     req)
@@ -782,7 +782,7 @@ public class NarayanaLRAClient implements AutoCloseable {
             CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uriWithoutQuery));
 
             var body = new RenewTimeLimitLRAHttp.Request(
-                    uri,
+                    toUuid(uri),
                     timeLimit == null ? 0L : timeLimit);
             var _response = client.renewTimeLimit(
                     toUuid(uri),
@@ -984,7 +984,7 @@ public class NarayanaLRAClient implements AutoCloseable {
             CoordinatorClient client = createCoordinatorClient(LRAConstants.getLRACoordinatorUrl(uri));
 
             var request = new JoinLRAHttp.Request(
-                    uri,
+                    toUuid(uri),
                     timelimit,
                     links,
                     data == null ? "" : data,
@@ -1069,7 +1069,7 @@ public class NarayanaLRAClient implements AutoCloseable {
             // Call the appropriate endpoint (close or cancel) asynchronously
             if (confirm) {
                 var body = new CloseLRAHttp.Request(
-                        lra,
+                        lraUuid,
                         participantId == null ? "" : participantId,
                         userData == null ? "" : userData);
                 var _response = client.closeLRA(
@@ -1079,7 +1079,7 @@ public class NarayanaLRAClient implements AutoCloseable {
 
             } else {
                 var req = new CancelLRAHttp.Request(
-                        lra,
+                        lraUuid,
                         participantId == null ? "" : participantId,
                         userData == null ? "" : userData);
                 var _reply = client.cancelLRA(
@@ -1120,6 +1120,14 @@ public class NarayanaLRAClient implements AutoCloseable {
 
     private static UUID toUuid(URI lraId) {
         return lraId == null ? null : UUID.fromString(LRAConstants.getLRAUid(lraId));
+    }
+
+    private static URI toLraUri(URI coordinatorUrl, UUID lraId) {
+        String base = coordinatorUrl == null ? Current.getCoordinatorUrl() : coordinatorUrl.toASCIIString();
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        return URI.create(base + "/" + lraId);
     }
 
     private void validateURI(URI uri, boolean nullAllowed, String message) {

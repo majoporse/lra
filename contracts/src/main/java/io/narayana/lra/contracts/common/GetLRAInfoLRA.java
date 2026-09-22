@@ -1,16 +1,16 @@
 package io.narayana.lra.contracts.common;
 
 import io.narayana.lra.LRAData;
-import java.net.URI;
+import java.util.UUID;
 
 public class GetLRAInfoLRA {
     public static class Request {
-        public URI lraId;
+        public UUID lraId;
 
         public Request() {
         }
 
-        public Request(URI lraId) {
+        public Request(UUID lraId) {
             this.lraId = lraId;
         }
     }

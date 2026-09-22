@@ -2,7 +2,7 @@ package io.narayana.lra.contracts.kafka;
 
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.contracts.common.JoinLRA;
-import java.net.URI;
+import java.util.UUID;
 
 public class JoinLRAKafka {
     public static final String TYPE = "join";
@@ -14,7 +14,7 @@ public class JoinLRAKafka {
         public Request() {
         }
 
-        public Request(String correlationId, String replyTopic, URI lraId, Long timeLimit,
+        public Request(String correlationId, String replyTopic, UUID lraId, Long timeLimit,
                 ParticipantCallbacks callbacks,
                 String userData, String partId) {
             super(lraId, timeLimit, callbacks, userData, partId);

@@ -1,19 +1,20 @@
 package io.narayana.lra.contracts.common;
 
+import java.util.UUID;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 public class StatusLRA {
     public static class Request {
-        public String lraId;
+        public UUID lraId;
 
         public Request() {
         }
 
-        public Request(String lraId) {
+        public Request(UUID lraId) {
             this.lraId = lraId;
         }
 
-        public Request(String correlationId, String replyTopic, String lraId) {
+        public Request(String correlationId, String replyTopic, UUID lraId) {
             this(lraId);
         }
     }

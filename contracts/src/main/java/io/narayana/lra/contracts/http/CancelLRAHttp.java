@@ -1,14 +1,14 @@
 package io.narayana.lra.contracts.http;
 
 import io.narayana.lra.contracts.common.CancelLRA;
-import java.net.URI;
+import java.util.UUID;
 
 public class CancelLRAHttp {
     public static class Request extends CancelLRA.Request {
         public Request() {
         }
 
-        public Request(URI lraId, String compensator, String userData) {
+        public Request(UUID lraId, String compensator, String userData) {
             super(lraId, compensator, userData);
         }
     }

@@ -1,7 +1,6 @@
 package io.narayana.lra.contracts.kafka;
 
 import io.narayana.lra.contracts.common.StartLRA;
-import java.net.URI;
 import java.util.UUID;
 
 public class StartLRAKafka {
@@ -38,7 +37,7 @@ public class StartLRAKafka {
         public Reply() {
         }
 
-        public Reply(String correlationId, URI lraId, String error) {
+        public Reply(String correlationId, UUID lraId, String error) {
             super(lraId, null, error);
             this.correlationId = correlationId;
             this.error = error;

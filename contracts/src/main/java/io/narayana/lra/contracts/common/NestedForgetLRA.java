@@ -1,15 +1,15 @@
 package io.narayana.lra.contracts.common;
 
-import java.net.URI;
+import java.util.UUID;
 
 public class NestedForgetLRA {
     public static class Request {
-        public URI nestedLraId;
+        public UUID nestedLraId;
 
         public Request() {
         }
 
-        public Request(URI nestedLraId) {
+        public Request(UUID nestedLraId) {
             this.nestedLraId = nestedLraId;
         }
     }

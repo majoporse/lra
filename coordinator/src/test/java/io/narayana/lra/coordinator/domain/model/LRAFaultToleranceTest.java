@@ -354,7 +354,7 @@ public class LRAFaultToleranceTest extends LRATestBase {
     private Response rawCloseLRA(URI lraId) {
         String lraUrl = lraId.toASCIIString().split("\\?")[0];
         var body = new CloseLRAHttp.Request();
-        body.lraId = lraId;
+        body.lraId = toUuid(lraId);
         return client.target(String.format("%s/close", lraUrl))
                 .request()
                 .put(Entity.json(body));
@@ -695,7 +695,7 @@ public class LRAFaultToleranceTest extends LRATestBase {
         // try to leave with a participant URL that was never enrolled
         try (Response response = client.target(String.format("%s/remove", lraUrl))
                 .request()
-                .put(Entity.json(new LeaveLRAHttp.Request(lraId, "http://nonexistent:99999/not-enrolled")))) {
+                .put(Entity.json(new LeaveLRAHttp.Request(toUuid(lraId), "http://nonexistent:99999/not-enrolled")))) {
             assertEquals(400, response.getStatus(),
                     "Leave with unenrolled participant should return 400");
         }
@@ -727,7 +727,7 @@ public class LRAFaultToleranceTest extends LRATestBase {
         // try to leave from the now-closed LRA
         try (Response response = client.target(String.format("%s/remove", lraUrl))
                 .request()
-                .put(Entity.json(new LeaveLRAHttp.Request(lraId, "http://localhost/some-participant")))) {
+                .put(Entity.json(new LeaveLRAHttp.Request(toUuid(lraId), "http://localhost/some-participant")))) {
             assertTrue(response.getStatus() == 404 || response.getStatus() == 412,
                     "Leave from non-active LRA should return 404 or 412, got " + response.getStatus());
         }
@@ -1083,5 +1083,9 @@ public class LRAFaultToleranceTest extends LRATestBase {
         assertNotNull(status, "LRA should still exist when participant times out");
         assertTrue(status == LRAStatus.Cancelling || status == LRAStatus.FailedToCancel,
                 "LRA should be Cancelling or FailedToCancel when participant times out, but was " + status);
+    }
+
+    private static UUID toUuid(URI lraId) {
+        return lraId == null ? null : UUID.fromString(LRAConstants.getLRAUid(lraId));
     }
 }

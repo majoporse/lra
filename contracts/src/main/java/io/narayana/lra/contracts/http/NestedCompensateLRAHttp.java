@@ -1,7 +1,7 @@
 package io.narayana.lra.contracts.http;
 
 import io.narayana.lra.contracts.common.NestedCompensateLRA;
-import java.net.URI;
+import java.util.UUID;
 import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 
 public class NestedCompensateLRAHttp {
@@ -9,7 +9,7 @@ public class NestedCompensateLRAHttp {
         public Request() {
         }
 
-        public Request(URI nestedLRAId) {
+        public Request(UUID nestedLRAId) {
             super(nestedLRAId);
         }
     }

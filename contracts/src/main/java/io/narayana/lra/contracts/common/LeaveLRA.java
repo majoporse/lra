@@ -1,16 +1,16 @@
 package io.narayana.lra.contracts.common;
 
-import java.net.URI;
+import java.util.UUID;
 
 public class LeaveLRA {
     public static class Request {
-        public URI lraId;
+        public UUID lraId;
         public String participantId;
 
         public Request() {
         }
 
-        public Request(URI lraId, String participantId) {
+        public Request(UUID lraId, String participantId) {
             this.lraId = lraId;
             this.participantId = participantId;
         }

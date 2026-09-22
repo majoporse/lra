@@ -1,6 +1,7 @@
 package io.narayana.lra.contracts.kafka;
 
 import io.narayana.lra.contracts.common.StatusLRA;
+import java.util.UUID;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 public class StatusLRAKafka {
@@ -13,7 +14,7 @@ public class StatusLRAKafka {
         public Request() {
         }
 
-        public Request(String correlationId, String replyTopic, String lraId) {
+        public Request(String correlationId, String replyTopic, UUID lraId) {
             super(lraId);
             this.correlationId = correlationId;
             this.replyTopic = replyTopic;

@@ -1,6 +1,7 @@
 package io.narayana.lra.contracts.http;
 
 import io.narayana.lra.contracts.common.StatusLRA;
+import java.util.UUID;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 public class StatusLRAHttp {
@@ -8,7 +9,7 @@ public class StatusLRAHttp {
         public Request() {
         }
 
-        public Request(String lraId) {
+        public Request(UUID lraId) {
             super(lraId);
         }
     }

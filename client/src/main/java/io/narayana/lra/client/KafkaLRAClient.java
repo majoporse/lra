@@ -2,6 +2,7 @@ package io.narayana.lra.client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.contracts.kafka.CancelLRAKafka;
@@ -155,27 +156,27 @@ public class KafkaLRAClient {
         StartLRAKafka.Reply reply = send(StartLRAKafka.TYPE, request, StartLRAKafka.Reply.class, false);
 
         checkError(reply);
-        return reply.lraId;
+        return Current.toURI(reply.lraId);
     }
 
     //    @Override
     public void closeLRA(URI lraId, String compensator, String userData) {
         CloseLRAKafka.Request request = new CloseLRAKafka.Request(nextCorrelationId(), replyTopic,
-                lraId, compensator, userData);
+                toUuid(lraId), compensator, userData);
         send(CloseLRAKafka.TYPE, request, CloseLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 
     //    @Override
     public void cancelLRA(URI lraId, String compensator, String userData) {
         CancelLRAKafka.Request request = new CancelLRAKafka.Request(nextCorrelationId(), replyTopic,
-                lraId, compensator, userData);
+                toUuid(lraId), compensator, userData);
         send(CancelLRAKafka.TYPE, request, CancelLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 
     //    @Override
     public void leaveLRA(URI lraId, String body) {
         LeaveLRAKafka.Request request = new LeaveLRAKafka.Request(nextCorrelationId(), replyTopic,
-                lraId, body);
+                toUuid(lraId), body);
         send(LeaveLRAKafka.TYPE, request, LeaveLRAKafka.Reply.class, FIRE_AND_FORGET);
     }
 
@@ -184,7 +185,7 @@ public class KafkaLRAClient {
             StringBuilder userData, String partId) {
 
         JoinLRAKafka.Request request = new JoinLRAKafka.Request(
-                nextCorrelationId(), replyTopic, lraId, timeLimit, callbacks, userData.toString(), partId);
+                nextCorrelationId(), replyTopic, toUuid(lraId), timeLimit, callbacks, userData.toString(), partId);
 
         JoinLRAKafka.Reply reply = send(JoinLRAKafka.TYPE, request, JoinLRAKafka.Reply.class, false);
 
@@ -202,10 +203,14 @@ public class KafkaLRAClient {
         return uri != null ? uri.toASCIIString() : null;
     }
 
+    private static UUID toUuid(URI lraId) {
+        return lraId == null ? null : UUID.fromString(LRAConstants.getLRAUid(lraId));
+    }
+
     //    @Override
     public LRAStatus getStatus(URI lraId) {
         StatusLRAKafka.Request request = new StatusLRAKafka.Request(nextCorrelationId(), replyTopic,
-                lraId.toASCIIString());
+                toUuid(lraId));
         StatusLRAKafka.Reply reply = send(StatusLRAKafka.TYPE, request, StatusLRAKafka.Reply.class,
                 !FIRE_AND_FORGET);
 

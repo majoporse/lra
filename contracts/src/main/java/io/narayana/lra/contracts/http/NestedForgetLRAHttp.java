@@ -1,14 +1,14 @@
 package io.narayana.lra.contracts.http;
 
 import io.narayana.lra.contracts.common.NestedForgetLRA;
-import java.net.URI;
+import java.util.UUID;
 
 public class NestedForgetLRAHttp {
     public static class Request extends NestedForgetLRA.Request {
         public Request() {
         }
 
-        public Request(URI nestedLRAId) {
+        public Request(UUID nestedLRAId) {
             super(nestedLRAId);
         }
     }

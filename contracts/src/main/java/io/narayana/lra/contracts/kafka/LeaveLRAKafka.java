@@ -1,7 +1,7 @@
 package io.narayana.lra.contracts.kafka;
 
 import io.narayana.lra.contracts.common.LeaveLRA;
-import java.net.URI;
+import java.util.UUID;
 
 public class LeaveLRAKafka {
     public static final String TYPE = "leave";
@@ -13,7 +13,7 @@ public class LeaveLRAKafka {
         public Request() {
         }
 
-        public Request(String correlationId, String replyTopic, URI lraId, String body) {
+        public Request(String correlationId, String replyTopic, UUID lraId, String body) {
             super(lraId, body);
             this.correlationId = correlationId;
             this.replyTopic = replyTopic;

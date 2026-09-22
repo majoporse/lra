@@ -1,11 +1,11 @@
 package io.narayana.lra.contracts.common;
 
 import io.narayana.lra.callbacks.ParticipantCallbacks;
-import java.net.URI;
+import java.util.UUID;
 
 public class JoinLRA {
     public static class Request {
-        public URI lraId;
+        public UUID lraId;
         public Long timeLimit;
         public String partId;
         public String userData;
@@ -15,7 +15,7 @@ public class JoinLRA {
         public Request() {
         }
 
-        public Request(URI lraId, Long timeLimit,
+        public Request(UUID lraId, Long timeLimit,
                 ParticipantCallbacks callbacks,
                 String userData, String partId) {
             this.lraId = lraId;

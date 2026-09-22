@@ -64,7 +64,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.StringTokenizer;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
@@ -318,17 +318,14 @@ public class LRATest extends LRATestBase {
         Response r2 = client.target(coordinatorPath + "/start").request().post(Entity.json(request));
         assertEquals(Response.Status.OK.getStatusCode(), r2.getStatus(), "Expected 201");
         var response = r2.readEntity(StartLRAHttp.Reply.class);
-        var lraId = response.lraId.toString();
+        UUID lraId = response.lraId;
         Assertions.assertNotNull(lraId, "missing context header");
-
-        // RestEasy adds brackets and , to delimit multiple values for a particular header key
-        lraId = new StringTokenizer(lraId, "[,]").nextToken();
 
         // close the LRA
         var closeBody = new CloseLRAHttp.Request();
-        closeBody.lraId = response.lraId;
+        closeBody.lraId = lraId;
 
-        Response r3 = client.target(String.format("%s/close", lraId)).request().put(Entity.json(closeBody));
+        Response r3 = client.target(String.format("%s/%s/close", coordinatorPath, lraId)).request().put(Entity.json(closeBody));
         int status = r3.getStatus();
         assertTrue(status == OK.getStatusCode() || status == Response.Status.NOT_FOUND.getStatusCode(),
                 "Problem closing LRA: ");
@@ -536,7 +533,7 @@ public class LRATest extends LRATestBase {
             }
 
             String json = "";
-            URI lraId = null;
+            UUID lraId = null;
 
             try {
                 json = response.readEntity(String.class);
@@ -547,7 +544,7 @@ public class LRATest extends LRATestBase {
 
                 lraId = v.lraId;
                 // clean up
-                lraClient.closeLRA(lraId);
+                lraClient.closeLRA(URI.create(coordinatorPath + "/" + v.lraId));
             } catch (JsonProcessingException e) {
                 fail("Unable to parse JSON response: " + json);
             } catch (WebApplicationException e) {
@@ -1460,7 +1457,7 @@ public class LRATest extends LRATestBase {
                     .path(lraIdSegment)
                     .path("renew")
                     .request()
-                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 30000L)))) {
+                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(toUuid(lraId), 30000L)))) {
 
                 assertEquals(OK.getStatusCode(), response.getStatus(),
                         "Expected renewing LRA timeout to succeed when postponing");
@@ -1498,7 +1495,7 @@ public class LRATest extends LRATestBase {
                     .path(lraIdSegment)
                     .path("renew")
                     .request()
-                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 5000L)))) {
+                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(toUuid(lraId), 5000L)))) {
 
                 assertEquals(OK.getStatusCode(), response.getStatus(),
                         "Expected renewing LRA timeout to return OK even when shortening is ignored");
@@ -1537,7 +1534,7 @@ public class LRATest extends LRATestBase {
                     .path(lraIdSegment)
                     .path("renew")
                     .request()
-                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 25000L)))) {
+                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(toUuid(lraId), 25000L)))) {
 
                 assertEquals(OK.getStatusCode(), response1.getStatus(),
                         "First timeout extension should succeed");
@@ -1548,7 +1545,7 @@ public class LRATest extends LRATestBase {
                     .path(lraIdSegment)
                     .path("renew")
                     .request()
-                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 10000L)))) {
+                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(toUuid(lraId), 10000L)))) {
 
                 assertEquals(OK.getStatusCode(), response2.getStatus(),
                         "Shortening attempt should return OK but be ignored");
@@ -1559,7 +1556,7 @@ public class LRATest extends LRATestBase {
                     .path(lraIdSegment)
                     .path("renew")
                     .request()
-                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 40000L)))) {
+                    .put(Entity.json(new RenewTimeLimitLRAHttp.Request(toUuid(lraId), 40000L)))) {
 
                 assertEquals(OK.getStatusCode(), response3.getStatus(),
                         "Second timeout extension should succeed");
@@ -1591,7 +1588,7 @@ public class LRATest extends LRATestBase {
         try {
             // try to extend the timeout to 30 seconds (should succeed)
             try (Response response = client.target(coordinatorPath).path(lraIdSegment).path("renew")
-                    .request().put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 30000L)))) {
+                    .request().put(Entity.json(new RenewTimeLimitLRAHttp.Request(toUuid(lraId), 30000L)))) {
                 assertEquals(OK.getStatusCode(), response.getStatus(),
                         "Expected renewing LRA timeout to succeed when postponing");
                 // verify LRA is still active after initial timelimit
@@ -1601,7 +1598,7 @@ public class LRATest extends LRATestBase {
             }
             // reducing timelimit should not take effect
             try (Response response = client.target(coordinatorPath).path(lraIdSegment).path("renew")
-                    .request().put(Entity.json(new RenewTimeLimitLRAHttp.Request(lraId, 10L)))) {
+                    .request().put(Entity.json(new RenewTimeLimitLRAHttp.Request(toUuid(lraId), 10L)))) {
                 assertEquals(OK.getStatusCode(), response.getStatus(),
                         "Expected renewing LRA timeout to succeed but not having effect");
                 // verify LRA is still active after the call
@@ -1918,6 +1915,10 @@ public class LRATest extends LRATestBase {
             assertEquals(NOT_FOUND.getStatusCode(), e.getResponse().getStatus(),
                     "Should return 404 for non-existent LRA");
         }
+    }
+
+    private static UUID toUuid(URI lraId) {
+        return lraId == null ? null : UUID.fromString(LRAConstants.getLRAUid(lraId));
     }
 
 }

@@ -1,18 +1,18 @@
 package io.narayana.lra.contracts.common;
 
-import java.net.URI;
+import java.util.UUID;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 public class CloseLRA {
     public static class Request {
-        public URI lraId;
+        public UUID lraId;
         public String participantId;
         public String userData;
 
         public Request() {
         }
 
-        public Request(URI lraId, String participantId, String userData) {
+        public Request(UUID lraId, String participantId, String userData) {
             this.lraId = lraId;
             this.participantId = participantId;
             this.userData = userData;

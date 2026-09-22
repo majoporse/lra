@@ -1,7 +1,6 @@
 package io.narayana.lra.contracts.http;
 
 import io.narayana.lra.contracts.common.StartLRA;
-import java.net.URI;
 import java.util.UUID;
 
 public class StartLRAHttp {
@@ -18,7 +17,7 @@ public class StartLRAHttp {
         public Reply() {
         }
 
-        public Reply(URI lraId, UUID parent) {
+        public Reply(UUID lraId, UUID parent) {
             super(lraId, parent, null);
         }
     }

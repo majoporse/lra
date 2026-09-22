@@ -2,7 +2,7 @@ package io.narayana.lra.contracts.http;
 
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.contracts.common.JoinLRA;
-import java.net.URI;
+import java.util.UUID;
 
 public class JoinLRAHttp {
     public static class Request extends JoinLRA.Request {
@@ -11,7 +11,7 @@ public class JoinLRAHttp {
         }
 
         public Request(
-                URI lraId,
+                UUID lraId,
                 Long timeLimit,
                 ParticipantCallbacks participantCallbacks,
                 String userData,

@@ -221,7 +221,7 @@ public class Coordinator extends Application {
         var clientId = body.clientId == null ? "" : body.clientId;
         String coordinatorUrl = String.format("%s%s", context.getBaseUri(), COORDINATOR_PATH_NAME);
         LongRunningAction lra = lraService.startLRA(coordinatorUrl, parentId, clientId, timelimit);
-        URI lraId = URI.create(coordinatorUrl + "/" + lra.getId().toString());
+        UUID lraId = lra.getId();
 
         if (parentId != null) {
             // the startLRA call will have imported the parent LRA

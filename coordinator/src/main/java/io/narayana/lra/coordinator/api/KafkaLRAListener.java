@@ -13,7 +13,6 @@ import io.narayana.lra.contracts.kafka.LeaveLRAKafka;
 import io.narayana.lra.contracts.kafka.StartLRAKafka;
 import io.narayana.lra.contracts.kafka.StatusLRAKafka;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
-import io.narayana.lra.coordinator.domain.service.HttpLRAService;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
@@ -21,7 +20,6 @@ import io.quarkus.arc.properties.IfBuildProperty;
 import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.core.Response;
-import java.net.URI;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
@@ -35,7 +33,6 @@ import org.eclipse.microprofile.reactive.messaging.Message;
 public class KafkaLRAListener {
 
     private final LRAService lraService;
-    private final HttpLRAService httpLraService;
     private final ObjectMapper objectMapper;
 
     @Channel(LRAKafkaConstants.TOPIC_REPLY)
@@ -43,7 +40,6 @@ public class KafkaLRAListener {
 
     public KafkaLRAListener() {
         this.lraService = LRARecoveryModule.getService();
-        this.httpLraService = LRARecoveryModule.getHttpService();
         this.objectMapper = new ObjectMapper();
     }
 
@@ -91,7 +87,7 @@ public class KafkaLRAListener {
             String coordinatorUrl = "http://localhost:8080/" + LRAConstants.COORDINATOR_PATH_NAME;
             UUID parentId = request.parentLRA;
             LongRunningAction lra = lraService.startLRA(coordinatorUrl, parentId, request.clientId, request.timeout);
-            reply = new StartLRAKafka.Reply(request.getCorrelationId(), HttpLRAService.toURI(lra), null);
+            reply = new StartLRAKafka.Reply(request.getCorrelationId(), lra.getId(), null);
         } catch (Exception e) {
             reply = new StartLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
         }
@@ -103,8 +99,7 @@ public class KafkaLRAListener {
         CloseLRAKafka.Reply reply;
 
         try {
-            URI lraId = request.lraId;
-            LRAData lraData = httpLraService.endLRA(lraId, false, false, request.participantId, request.userData);
+            LRAData lraData = lraService.endLRA(request.lraId, false, false, request.participantId, request.userData);
             reply = new CloseLRAKafka.Reply(request.getCorrelationId(), lraData.getStatus(), null);
         } catch (Exception e) {
             reply = new CloseLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
@@ -117,8 +112,7 @@ public class KafkaLRAListener {
         CancelLRAKafka.Reply reply;
 
         try {
-            URI lraId = request.lraId;
-            LRAData lraData = httpLraService.endLRA(lraId, true, false, request.compensator, request.userData);
+            LRAData lraData = lraService.endLRA(request.lraId, true, false, request.compensator, request.userData);
             reply = new CancelLRAKafka.Reply(request.getCorrelationId(), lraData.getStatus().name(), null);
         } catch (Exception e) {
             reply = new CancelLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());
@@ -131,8 +125,7 @@ public class KafkaLRAListener {
         LeaveLRAKafka.Reply reply;
 
         try {
-            URI lraId = request.lraId;
-            //            httpLraService.leave(lraId, equest.body);
+            lraService.leave(request.lraId, request.participantId);
             reply = new LeaveLRAKafka.Reply(request.getCorrelationId(), null);
         } catch (Exception e) {
             reply = new LeaveLRAKafka.Reply(request.getCorrelationId(), e.getMessage());
@@ -145,7 +138,6 @@ public class KafkaLRAListener {
         JoinLRAKafka.Reply reply;
 
         try {
-            URI lraId = request.lraId;
             String recoveryUrlBase = "http://localhost:8080/" + LRAConstants.COORDINATOR_PATH_NAME + "/"
                     + LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
             StringBuilder recoveryUrl = new StringBuilder();
@@ -153,7 +145,7 @@ public class KafkaLRAListener {
 
             String partId = "";
 
-            int status = httpLraService.joinLRA(recoveryUrl, lraId, request.timeLimit,
+            int status = lraService.joinLRA(recoveryUrl, request.lraId, request.timeLimit,
                     request.callbacks, recoveryUrlBase, compensatorData, partId);
 
             if (status == Response.Status.OK.getStatusCode()) {
@@ -174,8 +166,7 @@ public class KafkaLRAListener {
         StatusLRAKafka.Reply reply;
 
         try {
-            URI lraId = URI.create(request.lraId);
-            LongRunningAction lra = httpLraService.getTransaction(lraId);
+            LongRunningAction lra = lraService.getTransaction(request.lraId);
             LRAStatus status = lra.getLRAStatus();
             if (status == null) {
                 status = LRAStatus.Active;

@@ -1,7 +1,7 @@
 package io.narayana.lra.contracts.kafka;
 
 import io.narayana.lra.contracts.common.CloseLRA;
-import java.net.URI;
+import java.util.UUID;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 public class CloseLRAKafka {
@@ -14,7 +14,7 @@ public class CloseLRAKafka {
         public Request() {
         }
 
-        public Request(String correlationId, String replyTopic, URI lraId, String compensator, String userData) {
+        public Request(String correlationId, String replyTopic, UUID lraId, String compensator, String userData) {
             super(lraId, compensator, userData);
             this.correlationId = correlationId;
             this.replyTopic = replyTopic;
