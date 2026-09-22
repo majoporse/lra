@@ -90,7 +90,7 @@ class RecoveringLRA extends LongRunningAction {
                         default:
                             if (LRALogger.logger.isInfoEnabled()) {
                                 LRALogger.logger.infof("RecoveringLRA.replayPhase2 for %s ended with status: %s",
-                                        getId().toASCIIString(), getLRAStatus());
+                                        getId().toString(), getLRAStatus());
                             }
                             break;
                     }

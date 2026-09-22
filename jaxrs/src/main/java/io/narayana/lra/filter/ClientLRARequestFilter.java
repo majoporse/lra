@@ -12,7 +12,6 @@ import jakarta.ws.rs.client.ClientRequestContext;
 import jakarta.ws.rs.client.ClientRequestFilter;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.ext.Provider;
-import java.net.URI;
 import org.eclipse.microprofile.config.ConfigProvider;
 
 @Provider
@@ -34,7 +33,7 @@ public class ClientLRARequestFilter implements ClientRequestFilter {
             return;
         }
 
-        URI lraId = Current.peek();
+        var lraId = Current.peekURI();
 
         if (lraId != null) {
             if (canPropagate) {

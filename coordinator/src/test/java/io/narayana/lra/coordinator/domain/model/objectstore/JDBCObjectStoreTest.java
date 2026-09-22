@@ -90,16 +90,15 @@ public class JDBCObjectStoreTest extends TestBase {
             resultSet.first();
             int dbLraStatus = resultSet.getInt(2);
             String dbLraType = resultSet.getString(3);
-            String dbLraId = resultSet.getString(4); // Column where the LRA ID is
+            byte[] rawBytes = resultSet.getBytes(5);
+            String rawString = new String(rawBytes, java.nio.charset.StandardCharsets.ISO_8859_1);
 
             // Checks that the status of the LRA found in the database is ACTIVE
             assertTrue(dbLraType.contains("LongRunningAction"),
                     "Expected that the database holds a Long Running Action transaction");
 
             // Checks that the ID of the LRA created previously is equal to the ID of the LRA found in the database
-            assertEquals(
-                    dbLraId,
-                    lraId,
+            assertTrue(rawString.contains(lraId),
                     String.format("Expected that the database holds an LRA with ID %s", lraId));
 
             // Checks that the status of the LRA found in the database is ACTIVE

@@ -139,9 +139,9 @@ public class LRAWithParticipantsTest extends LRATestBase {
         // this simulates the service 1 from the JBTM-3908
         URI lraId = lraClient.startLRA(null, "testTimeLimit", 1000L, ChronoUnit.MILLIS);
         // Service 2 calls PUT /lra-coordinator/{LraId} to join the Saga.
-        lraClient.joinLRA(lraId, null, URI.create("http://localhost:8081/service2/test"), null);
+        lraClient.joinLRA(lraId, null, URI.create("http://localhost:8081/service2/test"), null, "service2");
         // Service 3 calls PUT /lra-coordinator/{LraId} to join the same Saga.
-        lraClient.joinLRA(lraId, null, URI.create("http://localhost:8081/service3/test"), null);
+        lraClient.joinLRA(lraId, null, URI.create("http://localhost:8081/service3/test"), null, "service3");
         // A timeout exception occurs in Service 1, leading it to call PUT
         // /lra-coordinator/{LraId}/cancel to cancel the Saga.
         // The LRA Coordinator calls the compensation API /saga/compensate registered
@@ -164,7 +164,7 @@ public class LRAWithParticipantsTest extends LRATestBase {
             // /lra-coordinator/{LraId} to attempt to join the Saga.
             // Exception is thrown because a timed-out lra cannot be joined
             assertThrows(WebApplicationException.class,
-                    () -> lraClient.joinLRA(lraId, null, URI.create("http://localhost:8081/service4/test"), null));
+                    () -> lraClient.joinLRA(lraId, null, URI.create("http://localhost:8081/service4/test"), null, "service4"));
             joinAttempted = true;
             lock.notify();
         }

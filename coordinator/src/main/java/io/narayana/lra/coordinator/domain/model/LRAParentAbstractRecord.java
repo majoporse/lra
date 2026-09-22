@@ -16,9 +16,8 @@ import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
 import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * record stored with a parent LRA which a child LRA will use to notify
@@ -26,8 +25,8 @@ import java.util.Objects;
  */
 public class LRAParentAbstractRecord extends AbstractRecord {
     private boolean committed;
-    private URI parentId;
-    private URI childId;
+    private UUID parentId;
+    private UUID childId;
     private LRAService lraService;
 
     public LRAParentAbstractRecord() {
@@ -56,8 +55,8 @@ public class LRAParentAbstractRecord extends AbstractRecord {
         boolean saved = super.save_state(os, i);
         if (saved) {
             try {
-                os.packString(parentId.toASCIIString());
-                os.packString(childId.toASCIIString());
+                os.packString(parentId.toString());
+                os.packString(childId.toString());
                 os.packBoolean(committed);
             } catch (IOException e) {
                 LRALogger.logger.warn(LRALogger.i18nLogger.warn_saveState(e.getMessage()));
@@ -73,10 +72,10 @@ public class LRAParentAbstractRecord extends AbstractRecord {
         boolean restored = super.restore_state(os, i);
         if (restored) {
             try {
-                parentId = new URI(Objects.requireNonNull(os.unpackString()));
-                childId = new URI(Objects.requireNonNull(os.unpackString()));
+                parentId = UUID.fromString(Objects.requireNonNull(os.unpackString()));
+                childId = UUID.fromString(Objects.requireNonNull(os.unpackString()));
                 committed = os.unpackBoolean();
-            } catch (IOException | URISyntaxException e) {
+            } catch (IOException e) {
                 LRALogger.i18nLogger.warn_restoreState(e.getMessage());
                 return false;
             }
