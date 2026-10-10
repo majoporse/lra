@@ -6,33 +6,19 @@
 package io.narayana.lra.filter;
 
 import static io.narayana.lra.LRAConstants.ENLIST_PARTICIPANT_CLIENT_MAX_RETRY;
-import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
-import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT_HEADER;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_PARENT_CONTEXT_HEADER;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVERY_HEADER;
-import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.Type.MANDATORY;
-import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.Type.NESTED;
 
-import io.narayana.lra.AnnotationResolver;
-import io.narayana.lra.BearerTokenResolver;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
-import io.narayana.lra.PropagateToken;
-import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.client.LRAParticipantData;
 import io.narayana.lra.client.NarayanaLRAClient;
-import io.narayana.lra.client.ParticipantIdProvider;
-import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipant;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.context.ContextNotActiveException;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.ProcessingException;
-import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.container.ContainerResponseContext;
@@ -47,47 +33,21 @@ import jakarta.ws.rs.ext.Provider;
 import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.time.Duration;
-import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.EnumSet;
 import java.util.List;
-import java.util.StringJoiner;
-import java.util.regex.Pattern;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
-import org.eclipse.microprofile.lra.annotation.AfterLRA;
-import org.eclipse.microprofile.lra.annotation.Compensate;
-import org.eclipse.microprofile.lra.annotation.Complete;
-import org.eclipse.microprofile.lra.annotation.Forget;
-import org.eclipse.microprofile.lra.annotation.LRAStatus;
-import org.eclipse.microprofile.lra.annotation.Status;
-import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
-import org.eclipse.microprofile.lra.annotation.ws.rs.Leave;
 
 @Provider
 @ApplicationScoped
 public class ServerLRAFilter implements ContainerRequestFilter, ContainerResponseFilter {
-    private static final String CANCEL_ON_FAMILY_PROP = "CancelOnFamily";
-    private static final String CANCEL_ON_PROP = "CancelOn";
-    private static final String TERMINAL_LRA_PROP = "terminateLRA";
-    private static final String SUSPENDED_LRA_PROP = "suspendLRA";
-    private static final String CURRENT_LRA_PROP = "currentLRA";
-    private static final String NEW_LRA_PROP = "newLRA";
-    private static final String ABORT_WITH_PROP = "abortWith";
     private static final String PARTICIPANT_LINK_PROP = "compensatorURI";
-    private static final Pattern START_END_QUOTES_PATTERN = Pattern.compile("^\"|\"$");
-    private static final long DEFAULT_TIMEOUT_MILLIS = 0L;
 
     @Context
     protected ResourceInfo resourceInfo;
 
     @Inject
     private LRAParticipantRegistry lraParticipantRegistry;
-
-    private NarayanaLRAClient lraClient;
 
     @Inject
     LRAParticipantData data;
@@ -96,20 +56,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
     @ConfigProperty(name = ENLIST_PARTICIPANT_CLIENT_MAX_RETRY, defaultValue = "3")
     int enlistMaxRetries;
 
-    private boolean isTxInvalid(ContainerRequestContext containerRequestContext, LRA.Type type, URI lraId,
-            boolean shouldNotBeNull, ArrayList<Progress> progress) {
-        if (lraId == null && shouldNotBeNull) {
-            abortWith(containerRequestContext, null, Response.Status.PRECONDITION_FAILED.getStatusCode(),
-                    type.name() + " but no tx", progress);
-            return true;
-        } else if (lraId != null && !shouldNotBeNull) {
-            abortWith(containerRequestContext, lraId.toASCIIString(), Response.Status.PRECONDITION_FAILED.getStatusCode(),
-                    type.name() + " but found tx", progress);
-            return true;
-        }
-
-        return false;
-    }
+    private ServerLRAProcessor processor;
 
     @Override
     public void filter(ContainerRequestContext containerRequestContext) {
@@ -117,354 +64,176 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
         // conditions. This facilitates async because filters for asynchronous JAX-RS methods are
         // not allowed to throw exceptions.
         Method method = resourceInfo.getResourceMethod();
-        MultivaluedMap<String, String> headers = containerRequestContext.getHeaders();
-        LRA.Type type = null;
-        LRA transactional = AnnotationResolver.resolveAnnotation(LRA.class, method);
-        URI lraId;
-        URI newLRA = null;
-        Long timeout = null;
+        ServerLRAContext context = new ServerLRAContext(method, resourceInfo.getResourceClass());
 
-        URI suspendedLRA = null;
-        URI incomingLRA = null;
-        URI recoveryUrl;
-        boolean isLongRunning = false;
-        boolean requiresActiveLRA = false;
-        ArrayList<Progress> progress = null;
+        // make the context available to the response filter
+        containerRequestContext.setProperty(ServerLRAContext.PROPERTY_NAME, context);
 
-        if (transactional == null) {
-            transactional = method.getDeclaringClass().getDeclaredAnnotation(LRA.class);
+        if (populateContext(containerRequestContext, context)) {
+            getProcessor().processRequest(context);
         }
 
-        if (AnnotationResolver.isAnnotationPresent(PropagateToken.class, method)
-                || method.getDeclaringClass().isAnnotationPresent(PropagateToken.class)) {
-            String authHeader = containerRequestContext.getHeaderString(HttpHeaders.AUTHORIZATION);
-            if (authHeader != null && authHeader.regionMatches(true, 0, "Bearer ", 0, 7)) {
-                String token = authHeader.substring(7);
-                if (BearerTokenResolver.isPlausibleJwt(token)) {
-                    Current.setAuthToken(token);
-                } else {
-                    LRALogger.logger.warnf("@PropagateToken: Authorization header does not contain a valid JWT structure");
-                }
-            }
-        }
+        applyRequestContext(containerRequestContext, context);
+    }
 
-        if (transactional != null) {
-            type = transactional.value();
-            isLongRunning = !transactional.end();
-            Response.Status.Family[] cancel0nFamily = transactional.cancelOnFamily();
-            Response.Status[] cancel0n = transactional.cancelOn();
+    @Override
+    public void filter(ContainerRequestContext requestContext, ContainerResponseContext responseContext) {
+        // a request is leaving the container so clear any context on the thread and fix up the LRA response header
+        ServerLRAContext context = (ServerLRAContext) requestContext.getProperty(ServerLRAContext.PROPERTY_NAME);
 
-            if (cancel0nFamily.length != 0) {
-                containerRequestContext.setProperty(CANCEL_ON_FAMILY_PROP, cancel0nFamily);
-            }
-
-            if (cancel0n.length != 0) {
-                containerRequestContext.setProperty(CANCEL_ON_PROP, cancel0n);
-            }
-
-            if (transactional.timeLimit() != 0) {
-                timeout = Duration.of(transactional.timeLimit(), transactional.timeUnit()).toMillis();
-            }
-        }
-
-        boolean endAnnotation = AnnotationResolver.isAnnotationPresent(Complete.class, method)
-                || AnnotationResolver.isAnnotationPresent(Compensate.class, method)
-                || AnnotationResolver.isAnnotationPresent(Leave.class, method)
-                || AnnotationResolver.isAnnotationPresent(Status.class, method)
-                || AnnotationResolver.isAnnotationPresent(Forget.class, method)
-                || AnnotationResolver.isAnnotationPresent(AfterLRA.class, method);
-
-        if (headers.containsKey(LRA_HTTP_CONTEXT_HEADER)) {
-            try {
-                incomingLRA = new URI(Current.getLast(headers.get(LRA_HTTP_CONTEXT_HEADER)));
-            } catch (URISyntaxException e) {
-                String msg = String.format("header %s contains an invalid URL %s",
-                        LRA_HTTP_CONTEXT_HEADER, Current.getLast(headers.get(LRA_HTTP_CONTEXT_HEADER)));
-
-                abortWith(containerRequestContext, null, Response.Status.PRECONDITION_FAILED.getStatusCode(),
-                        msg, null);
-                return; // user error, bail out
-            }
-
-            if (AnnotationResolver.isAnnotationPresent(Leave.class, method)) {
-                // leave the LRA
-                var body = ParticipantIdProvider.getParticipantId(resourceInfo.getResourceClass());
-                progress = new ArrayList<>();
-
-                try {
-                    getLRAClient().leaveLRA(incomingLRA, body);
-                    progress.add(new Progress(ProgressStep.Left, null)); // leave succeeded
-                } catch (WebApplicationException e) {
-                    progress.add(new Progress(ProgressStep.LeaveFailed, e.getMessage())); // leave may have failed
-                    abortWith(containerRequestContext, incomingLRA.toASCIIString(),
-                            e.getResponse().getStatus(),
-                            e.getMessage(), progress);
-                    return; // the error will be handled or reported via the response filter
-                } catch (ProcessingException e) { // a remote coordinator was unavailable
-                    progress.add(new Progress(ProgressStep.LeaveFailed, e.getMessage())); // leave may have failed
-                    abortWith(containerRequestContext, incomingLRA.toASCIIString(),
-                            Response.Status.INTERNAL_SERVER_ERROR.getStatusCode(),
-                            e.getMessage(), progress);
-                    return; // the error will be handled or reported via the response filter
-                }
-
-                // let the participant know which lra he left by leaving the header intact
-            }
-        }
-
-        if (type == null) {
-            if (!endAnnotation) {
-                Current.popAll();
-                headers.remove(LRA_HTTP_CONTEXT_HEADER);
-            }
-
-            if (incomingLRA != null) {
-                containerRequestContext.setProperty(SUSPENDED_LRA_PROP, incomingLRA);
-                containerRequestContext.setProperty(CURRENT_LRA_PROP, incomingLRA);
-                Current.push(incomingLRA, null);
-                Current.addActiveLRACache(incomingLRA);
-            }
-
-            return; // not transactional
-        }
-
-        // check the incoming request for an LRA context
-        if (!headers.containsKey(LRA_HTTP_CONTEXT_HEADER)) {
-            Object lraContext = containerRequestContext.getProperty(LRA_HTTP_CONTEXT_HEADER);
-
-            if (lraContext != null) {
-                incomingLRA = (URI) lraContext;
-            }
-        }
-
-        if (endAnnotation && incomingLRA == null) {
+        if (context == null) {
+            // the request filter did not run (or did not produce a context); nothing to report
+            Current.updateLRAContext(responseContext);
+            Current.popAll();
+            Current.clearAuthToken();
             return;
         }
 
-        if (incomingLRA != null) {
-            // set the parent context header using the full parent LRA protocol URI
-            URI firstParent = Current.getFirstParent(incomingLRA);
+        boolean isCancel = isJaxRsCancel(context, responseContext.getStatus());
 
-            if (firstParent != null) {
-                // parent and child run on the same coordinator so the parent id is the
-                // LRA protocol URI of the parent
-                headers.putSingle(LRA_HTTP_PARENT_CONTEXT_HEADER, firstParent.toASCIIString());
+        try {
+            getProcessor().processResponse(context, isCancel);
+
+            invalidateRequestContextHeader(requestContext, context);
+
+            if (responseContext.getStatus() == Response.Status.OK.getStatusCode()
+                    && resourceInfo.getResourceMethod() != null
+                    && NarayanaLRAClient.isAsyncCompletion(resourceInfo.getResourceMethod())) {
+                LRALogger.i18nLogger.warn_lraParticipantqForAsync(
+                        resourceInfo.getResourceMethod().getDeclaringClass().getName(),
+                        resourceInfo.getResourceMethod().getName(),
+                        Response.Status.ACCEPTED.getStatusCode(),
+                        Response.Status.OK.getStatusCode());
+            }
+
+            /*
+             * report any failed steps (ie if progress contains any failures) to the caller.
+             * If either filter encountered a failure they may have completed partial actions, and
+             * we need tell the caller which steps failed and which ones succeeded.
+             */
+            if (context.getProgress() != null) {
+                String failureMessage = getProcessor().processFailures(context);
+
+                if (failureMessage != null) {
+                    responseContext.setEntity(failureMessage);
+
+                    LRALogger.logger.warn(failureMessage); // any other failure(s) will already have been logged
+                }
+            }
+        } finally {
+            if (context.getSuspendedContextLRA() != null) {
+                Current.push(context.getSuspendedContextLRA(), null);
+            }
+
+            Current.updateLRAContext(responseContext);
+
+            Current.popAll();
+            Current.removeActiveLRACache(context.getCurrentLRA());
+            Current.clearAuthToken();
+        }
+    }
+
+    // translate the transport state of the request into the context handed to the processor
+    private boolean populateContext(ContainerRequestContext requestContext, ServerLRAContext context) {
+        MultivaluedMap<String, String> headers = requestContext.getHeaders();
+
+        context.setAuthHeader(requestContext.getHeaderString(HttpHeaders.AUTHORIZATION));
+
+        if (headers.containsKey(LRA_HTTP_CONTEXT_HEADER)) {
+            String header = Current.getLast(headers.get(LRA_HTTP_CONTEXT_HEADER));
+
+            try {
+                context.setIncomingLRA(new URI(header));
+            } catch (URISyntaxException e) {
+                String msg = String.format("header %s contains an invalid URL %s", LRA_HTTP_CONTEXT_HEADER, header);
+
+                Method method = context.getMethod();
+                LRALogger.i18nLogger.warn_lraFilterContainerRequest(msg,
+                        method.getDeclaringClass().getName() + "#" + method.getName(), "context");
+
+                context.setAborted(true);
+                context.setAbortStatusCode(Response.Status.PRECONDITION_FAILED.getStatusCode());
+                context.setAbortMessage(msg);
+
+                return false;
+            }
+        } else {
+            Object lraContext = requestContext.getProperty(LRA_HTTP_CONTEXT_HEADER);
+
+            if (lraContext != null) {
+                context.setContextPropertyLRA((URI) lraContext);
+            }
+        }
+
+        context.setUriPrefix(() -> createUriPrefix(requestContext, resourceInfo.getResourceClass()));
+        context.setBaseUri(requestContext.getUriInfo().getBaseUri());
+
+        return true;
+    }
+
+    // translate the decisions taken by the processor into the request (headers and properties)
+    private void applyRequestContext(ContainerRequestContext requestContext, ServerLRAContext context) {
+        MultivaluedMap<String, String> headers = requestContext.getHeaders();
+
+        if (context.isParentHeaderHandled()) {
+            if (context.getParentLRA() != null) {
+                headers.putSingle(LRA_HTTP_PARENT_CONTEXT_HEADER, context.getParentLRA().toASCIIString());
             } else {
                 headers.remove(LRA_HTTP_PARENT_CONTEXT_HEADER);
             }
         }
 
-        switch (type) {
-            case MANDATORY: // a txn must be present
-                if (isTxInvalid(containerRequestContext, type, incomingLRA, true, progress)) {
-                    // isTxInvalid will have called abortWith (thus aborting the rest of the filter chain)
-                    return; // any previous actions (e.g. the leave request) will be reported via the response filter
-                }
-
-                lraId = incomingLRA;
-                requiresActiveLRA = true;
-
-                break;
-            case NEVER: // a txn must not be present
-                if (isTxInvalid(containerRequestContext, type, incomingLRA, false, progress)) {
-                    // isTxInvalid will have called abortWith (thus aborting the rest of the filter chain)
-                    return; // any previous actions (the leave request) will be reported via the response filter
-                }
-
-                lraId = null; // must not run with any context
-
-                break;
-            case NOT_SUPPORTED:
-                suspendedLRA = incomingLRA;
-                lraId = null; // must not run with any context
-
-                break;
-            case NESTED:
-                // FALLTHROUGH
-            case REQUIRED:
-                if (incomingLRA != null) {
-                    if (type == NESTED) {
-                        headers.putSingle(LRA_HTTP_PARENT_CONTEXT_HEADER, incomingLRA.toASCIIString());
-
-                        // if there is an LRA present nest a new LRA under it
-                        suspendedLRA = incomingLRA;
-
-                        if (progress == null) {
-                            progress = new ArrayList<>();
-                        }
-
-                        newLRA = lraId = startLRA(containerRequestContext, incomingLRA, method, timeout, progress);
-
-                        if (newLRA == null) {
-                            // startLRA will have called abortWith on the request context
-                            // the failure plus any previous actions (the leave request) will be reported via the response filter
-                            return;
-                        }
-                    } else {
-                        lraId = incomingLRA;
-                        // incomingLRA will be resumed
-                        requiresActiveLRA = true;
-                    }
-
-                } else {
-                    progress = new ArrayList<>();
-                    newLRA = lraId = startLRA(containerRequestContext, null, method, timeout, progress);
-
-                    if (newLRA == null) {
-                        // startLRA will have called abortWith on the request context
-                        // the failure and any previous actions (the leave request) will be reported via the response filter
-                        return;
-                    }
-                }
-
-                break;
-            case REQUIRES_NEW:
-                //                    previous = AtomicAction.suspend();
-                suspendedLRA = incomingLRA;
-
-                if (progress == null) {
-                    progress = new ArrayList<>();
-                }
-                newLRA = lraId = startLRA(containerRequestContext, null, method, timeout, progress);
-
-                if (newLRA == null) {
-                    // startLRA will have called abortWith on the request context
-                    // the failure and any previous actions (the leave request) will be reported via the response filter
-                    return;
-                }
-
-                break;
-            case SUPPORTS:
-                lraId = incomingLRA;
-
-                // incomingLRA will be resumed if not null
-
-                break;
-            default:
-                lraId = incomingLRA;
-        }
-
-        if (lraId == null) {
-            // the method call needs to run without a transaction
-            Current.popAll();
+        if (context.isClearContextHeader()) {
             headers.remove(LRA_HTTP_CONTEXT_HEADER);
-
-            if (suspendedLRA != null) {
-                containerRequestContext.setProperty(SUSPENDED_LRA_PROP, suspendedLRA);
-            }
-
-            return; // non transactional
+        } else if (context.getCurrentLRA() != null) {
+            headers.putSingle(LRA_HTTP_CONTEXT_HEADER, context.getCurrentLRA().toString());
         }
 
-        if (!isLongRunning) {
-            containerRequestContext.setProperty(TERMINAL_LRA_PROP, lraId);
+        if (context.getRecoveryUrl() != null) {
+            headers.putSingle(LRA_HTTP_RECOVERY_HEADER, context.getRecoveryUrl());
         }
 
-        // store state with the current thread
-        Current.push(lraId, null); // make the current LRA available to the called method
-        headers.putSingle(LRA_HTTP_CONTEXT_HEADER, lraId.toString());
-
-        if (newLRA != null) {
-            if (suspendedLRA != null) {
-                containerRequestContext.setProperty(SUSPENDED_LRA_PROP, incomingLRA);
-            }
-
-            containerRequestContext.setProperty(NEW_LRA_PROP, newLRA);
+        if (context.getCallbacks() != null) {
+            // store the registration link in case the participant wants to associate data with the enlistment in the LRA
+            requestContext.setProperty(PARTICIPANT_LINK_PROP, context.getCallbacks());
         }
 
-        if (!endAnnotation) { // don't enlist for methods marked with Compensate, Complete or Leave
-            ParticipantCallbacks callbacks = NarayanaLRAClient.getTerminationCallbacks(
-                    resourceInfo.getResourceClass(),
-                    createUriPrefix(containerRequestContext, resourceInfo.getResourceClass()));
-            long timeLimit = timeout != null && callbacks.hasCompensateOrComplete()
-                    ? timeout
-                    : DEFAULT_TIMEOUT_MILLIS;
+        if (context.isAborted()) {
+            // the response filter will set the entity body
+            requestContext.abortWith(Response.status(context.getAbortStatusCode())
+                    .entity(context.getAbortMessage()).build());
+        }
+    }
 
-            LRAParticipant participant = lraParticipantRegistry != null
-                    ? lraParticipantRegistry.getParticipant(resourceInfo.getResourceClass().getName())
-                    : null;
+    // the response filter invalidates the caller's context header once the LRA has been finished
+    private void invalidateRequestContextHeader(ContainerRequestContext requestContext, ServerLRAContext context) {
+        if (context.isCurrentLRACancelled()
+                && context.getCurrentLRA().toASCIIString().equals(
+                        Current.getLast(requestContext.getHeaders().get(LRA_HTTP_CONTEXT_HEADER)))) {
+            // the callers context was ended so invalidate it
+            requestContext.getHeaders().remove(LRA_HTTP_CONTEXT_HEADER);
+        }
 
-            if (callbacks.hasAnyCallback() || participant != null) {
-                try {
-                    if (participant != null) {
-                        participant.augmentTerminationCallbacks(callbacks,
-                                containerRequestContext.getUriInfo().getBaseUri());
-                    }
+        if (context.isTerminalLRAClosed()) {
+            requestContext.getHeaders().remove(LRA_HTTP_CONTEXT_HEADER);
+        }
+    }
 
-                    StringBuilder previousParticipantData = new StringBuilder();
+    private boolean isJaxRsCancel(ServerLRAContext context, int status) {
+        Response.Status.Family[] cancelOnFamily = context.getCancelOnFamily();
+        Response.Status[] cancelOn = context.getCancelOn();
 
-                    // store the registration link in case the participant wants to associate data with the enlistment in the LRA
-                    containerRequestContext.setProperty(PARTICIPANT_LINK_PROP, callbacks);
-
-                    // The coordinator needs to hold a lock to enlist an participant. This lock is only waited on for a small amount of
-                    // time (potentially even zero time). This means if multiple participants try to enlist at the same time, enlistment
-                    // may fail. We therefore re-try a configurable amount of times.
-                    for (int i = 0;; i++) {
-                        try {
-                            recoveryUrl = getLRAClient().enlistCompensator(lraId, timeLimit, callbacks,
-                                    previousParticipantData,
-                                    ParticipantIdProvider.getParticipantId(resourceInfo.getResourceClass()));
-                            break;
-                        } catch (WebApplicationException e) {
-
-                            String logMessage = "The coordinator service is unavailable; failing in enlisting the compensator for "
-                                    + lraId +
-                                    ", ENLIST_PARTICIPANT_CLIENT_MAX_RETRY (via MP config property \"lra.participant.client.max.retry\") set to "
-                                    +
-                                    enlistMaxRetries + ". ";
-
-                            if (e.getResponse().getStatus() != SERVICE_UNAVAILABLE.getStatusCode() || i >= enlistMaxRetries) {
-
-                                LRALogger.logger.warn(logMessage + "Not retrying.");
-
-                                throw e;
-                            }
-
-                            LRALogger.logger.warn(logMessage + " Attempt " + (i + 1) + " of " + enlistMaxRetries + ".");
-                        }
-                    }
-
-                    if (previousParticipantData.length() != 0) {
-                        // this participant has previously updated the LRAParticipantData bean so make it available for this invocation
-                        setUserDefinedData(previousParticipantData.toString());
-                    }
-
-                    progress = updateProgress(progress, ProgressStep.Joined, null);
-
-                    headers.putSingle(LRA_HTTP_RECOVERY_HEADER,
-                            START_END_QUOTES_PATTERN.matcher(recoveryUrl.toASCIIString()).replaceAll(""));
-                } catch (WebApplicationException e) {
-                    String reason = e.getResponse().readEntity(String.class);
-
-                    progress = updateProgress(progress, ProgressStep.JoinFailed, reason);
-                    abortWith(containerRequestContext, lraId.toASCIIString(),
-                            e.getResponse().getStatus(),
-                            String.format("%s: %s", e.getClass().getSimpleName(), reason), progress);
-                    // the failure plus any previous actions (such as leave and start requests) will be reported via the response filter
-                } catch (ProcessingException e) {
-                    progress = updateProgress(progress, ProgressStep.JoinFailed, e.getMessage()); // a remote coordinator was unavailable
-                    abortWith(containerRequestContext, lraId.toASCIIString(),
-                            Response.Status.INTERNAL_SERVER_ERROR.getStatusCode(),
-                            String.format("%s %s,", e.getClass().getSimpleName(), e.getMessage()), progress);
-                    // the failure plus any previous actions (such as leave and start requests) will be reported via the response filter
-                }
-            } else if (requiresActiveLRA && getLRAClient().getStatus(lraId) != LRAStatus.Active) {
-                Current.popAll();
-                headers.remove(LRA_HTTP_CONTEXT_HEADER);
-                Current.pop(lraId);
-                containerRequestContext.removeProperty(SUSPENDED_LRA_PROP);
-
-                if (type == MANDATORY) {
-                    abortWith(containerRequestContext, lraId.toASCIIString(),
-                            Response.Status.PRECONDITION_FAILED.getStatusCode(),
-                            "LRA should have been active: ", progress);
-                    // any previous actions (such as leave and start requests) will be reported via the response filter
-                }
+        if (cancelOnFamily != null) {
+            if (Arrays.stream(cancelOnFamily).anyMatch(f -> Response.Status.Family.familyOf(status) == f)) {
+                return true;
             }
         }
 
-        containerRequestContext.setProperty(CURRENT_LRA_PROP, lraId);
-        Current.addActiveLRACache(lraId);
+        if (cancelOn != null) {
+            return Arrays.stream(cancelOn).anyMatch(f -> status == f.getStatusCode());
+        }
+
+        return false;
     }
 
     private String createUriPrefix(ContainerRequestContext containerRequestContext, Class<?> resourceClass) {
@@ -492,307 +261,12 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                 });
     }
 
-    @Override
-    public void filter(ContainerRequestContext requestContext, ContainerResponseContext responseContext) {
-        // a request is leaving the container so clear any context on the thread and fix up the LRA response header
-        ArrayList<Progress> progress = cast(requestContext.getProperty(ABORT_WITH_PROP));
-        Object suspendedLRA = requestContext.getProperty(SUSPENDED_LRA_PROP);
-        URI current = (URI) requestContext.getProperty(CURRENT_LRA_PROP);
-        URI toClose = (URI) requestContext.getProperty(TERMINAL_LRA_PROP);
-        boolean isCancel = isJaxRsCancel(requestContext, responseContext);
-        // the service method has finished but the user data may have changed
-        String userData = getUserDefinedData();
-        String participantId = ParticipantIdProvider.getParticipantId(resourceInfo.getResourceClass());
-
-        try {
-            if (current != null && isCancel) {
-                try {
-                    // do not attempt to cancel if the request filter tried but failed to start a new LRA
-                    if (progress == null || progressDoesNotContain(progress, ProgressStep.StartFailed)) {
-                        getLRAClient().cancelLRA(current);
-                        progress = updateProgress(progress, ProgressStep.Ended, null);
-                    }
-                } catch (NotFoundException ignore) {
-                    // must already be cancelled (if the intercepted method caused it to cancel)
-                    // or completed (if the intercepted method caused it to complete)
-                    progress = updateProgress(progress, ProgressStep.Ended, null);
-                } catch (WebApplicationException e) {
-                    progress = updateProgress(progress, ProgressStep.CancelFailed, e.getMessage());
-                } catch (ProcessingException e) {
-                    Method method = resourceInfo.getResourceMethod();
-                    LRALogger.i18nLogger.warn_lraFilterContainerRequest("ProcessingException: " + e.getMessage(),
-                            method.getDeclaringClass().getName() + "#" + method.getName(), current.toASCIIString());
-
-                    progress = updateProgress(progress, ProgressStep.CancelFailed, e.getMessage());
-                    toClose = null;
-                } finally {
-                    if (current.toASCIIString().equals(
-                            Current.getLast(requestContext.getHeaders().get(LRA_HTTP_CONTEXT_HEADER)))) {
-                        // the callers context was ended so invalidate it
-                        requestContext.getHeaders().remove(LRA_HTTP_CONTEXT_HEADER);
-                    }
-
-                    if (toClose != null && toClose.toASCIIString().equals(current.toASCIIString())) {
-                        toClose = null; // don't attempt to finish the LRA twice
-                    }
-                }
-            }
-
-            if (toClose != null) {
-                try {
-                    // do not attempt to close or cancel if the request filter tried but failed to start a new LRA
-                    if (progress == null || progressDoesNotContain(progress, ProgressStep.StartFailed)) {
-                        if (isCancel) {
-                            getLRAClient().cancelLRA(toClose, participantId, userData);
-                        } else {
-                            getLRAClient().closeLRA(toClose, participantId, userData);
-                        }
-
-                        progress = updateProgress(progress, ProgressStep.Ended, null);
-                    }
-                } catch (WebApplicationException e) {
-                    if (e.getResponse().getStatus() == NOT_FOUND.getStatusCode()) {
-                        // must already be cancelled (if the intercepted method caused it to cancel)
-                        // or completed (if the intercepted method caused it to complete
-                        progress = updateProgress(progress, ProgressStep.Ended, null);
-                    } else {
-                        // same as ProcessingException case
-                        progress = updateProgress(progress,
-                                isCancel ? ProgressStep.CancelFailed : ProgressStep.CloseFailed, e.getMessage());
-                    }
-                } catch (ProcessingException e) {
-                    progress = updateProgress(progress,
-                            isCancel ? ProgressStep.CancelFailed : ProgressStep.CloseFailed, e.getMessage());
-                } finally {
-                    requestContext.getHeaders().remove(LRA_HTTP_CONTEXT_HEADER);
-
-                    if (toClose.toASCIIString().equals(
-                            Current.getLast(requestContext.getHeaders().get(LRA_HTTP_CONTEXT_HEADER)))) {
-                        // the callers context was ended so invalidate it
-                        requestContext.getHeaders().remove(LRA_HTTP_CONTEXT_HEADER);
-                    }
-                }
-            }
-
-            if (responseContext.getStatus() == Response.Status.OK.getStatusCode()
-                    && resourceInfo.getResourceMethod() != null
-                    && NarayanaLRAClient.isAsyncCompletion(resourceInfo.getResourceMethod())) {
-                LRALogger.i18nLogger.warn_lraParticipantqForAsync(
-                        resourceInfo.getResourceMethod().getDeclaringClass().getName(),
-                        resourceInfo.getResourceMethod().getName(),
-                        Response.Status.ACCEPTED.getStatusCode(),
-                        Response.Status.OK.getStatusCode());
-            }
-
-            /*
-             * report any failed steps (ie if progress contains any failures) to the caller.
-             * If either filter encountered a failure they may have completed partial actions, and
-             * we need tell the caller which steps failed and which ones succeeded. We use a
-             * different warning code for each scenario:
-             */
-            if (progress != null) {
-                String failureMessage = processLRAOperationFailures(progress);
-
-                if (failureMessage != null) {
-                    responseContext.setEntity(failureMessage);
-
-                    LRALogger.logger.warn(failureMessage); // any other failure(s) will already have been logged
-                }
-            }
-        } finally {
-            if (suspendedLRA != null) {
-                Current.push((URI) suspendedLRA, null);
-            }
-
-            Current.updateLRAContext(responseContext);
-
-            Current.popAll();
-            Current.removeActiveLRACache(current);
-            Current.clearAuthToken();
-        }
-    }
-
-    private NarayanaLRAClient getLRAClient() {
-        if (lraClient == null) {
+    private ServerLRAProcessor getProcessor() {
+        if (processor == null) {
             // no need to lock
-            lraClient = new NarayanaLRAClient();
+            processor = new ServerLRAProcessor(lraParticipantRegistry, data, enlistMaxRetries);
         }
 
-        return lraClient;
-    }
-
-    private boolean isJaxRsCancel(ContainerRequestContext requestContext, ContainerResponseContext responseContext) {
-        int status = responseContext.getStatus();
-        Response.Status.Family[] cancel0nFamily = (Response.Status.Family[]) requestContext.getProperty(CANCEL_ON_FAMILY_PROP);
-        Response.Status[] cancel0n = (Response.Status[]) requestContext.getProperty(CANCEL_ON_PROP);
-
-        if (cancel0nFamily != null) {
-            if (Arrays.stream(cancel0nFamily).anyMatch(f -> Response.Status.Family.familyOf(status) == f)) {
-                return true;
-            }
-        }
-
-        if (cancel0n != null) {
-            return Arrays.stream(cancel0n).anyMatch(f -> status == f.getStatusCode());
-        }
-
-        return false;
-    }
-
-    // the request filter may perform multiple and in failure scenarios the LRA may be left in an ambiguous state:
-    // the following structure is used to track progress so that such failures can be reported in the response
-    // filter processing
-    private enum ProgressStep {
-        Left("leave succeeded"),
-        LeaveFailed("leave failed"),
-        Started("start succeeded"),
-        StartFailed("start failed"),
-        Joined("join succeeded"),
-        JoinFailed("join failed"),
-        Ended("end succeeded"),
-        CloseFailed("close failed"),
-        CancelFailed("cancel failed");
-
-        final String status;
-
-        ProgressStep(final String status) {
-            this.status = status;
-        }
-
-        @Override
-        public String toString() {
-            return status;
-        }
-    }
-
-    // list of steps (both successful and unsuccessful) performed so far by the request and response filter
-    // and is used for error reporting
-    private static class Progress {
-        static EnumSet<ProgressStep> failures = EnumSet.of(
-                ProgressStep.LeaveFailed,
-                ProgressStep.StartFailed,
-                ProgressStep.JoinFailed,
-                ProgressStep.CloseFailed,
-                ProgressStep.CancelFailed);
-
-        ProgressStep progress;
-        String reason;
-
-        public Progress(ProgressStep progress, String reason) {
-            this.progress = progress;
-            this.reason = reason;
-        }
-
-        public boolean wasSuccessful() {
-            return !failures.contains(progress);
-        }
-    }
-
-    // convert the list of steps carried out by the filters into a warning message
-    // the successful operations are logged at debug and the unsuccessful operations are reported back to the caller.
-    // The reason we log multiple failures is that one failure can trigger other operations that may also fail,
-    // eg enlisting with an LRA could fail followed by a failure to cancel the LRA
-    private String processLRAOperationFailures(ArrayList<Progress> progress) {
-        StringJoiner badOps = new StringJoiner(", ");
-        StringBuilder code = new StringBuilder("-");
-
-        progress.forEach(p -> {
-            code.append(p.progress.ordinal());
-            badOps.add(String.format("%s (%s)", p.progress.name(), p.reason));
-        });
-
-        /*
-         * Previously we returned a string which enabled the reader to distinguish between successful and
-         * unsuccessful state transitions but a more fruitful approach is to report problems via i18n message ids
-         * and leave successful ops and implicit
-         */
-
-        if (badOps.length() != 0) {
-            return LRALogger.i18nLogger.warn_LRAStatusInDoubt(String.format("%s: %s", code, badOps));
-        }
-
-        return null;
-    }
-
-    private boolean progressDoesNotContain(ArrayList<Progress> progress, ProgressStep step) {
-        return progress.stream().noneMatch(p -> p.progress == step);
-    }
-
-    // add another step to the list of steps performed so far
-    private ArrayList<Progress> updateProgress(ArrayList<Progress> progress, ProgressStep step, String reason) {
-        if (reason == null) {
-            LRALogger.logger.debug(step.toString());
-        } else {
-
-            if (progress == null) {
-                progress = new ArrayList<>();
-            }
-
-            progress.add(new Progress(step, reason));
-        }
-
-        return progress;
-    }
-
-    // the processing performed by the request filter caused the request to abort (without executing application code)
-    private void abortWith(ContainerRequestContext containerRequestContext, String lraId, int statusCode,
-            String message, Collection<Progress> reasons) {
-        // the response filter will set the entity body
-        containerRequestContext.abortWith(Response.status(statusCode).entity(message).build());
-        // make the reason for the failure available to the response filter
-        containerRequestContext.setProperty(ABORT_WITH_PROP, reasons);
-
-        Method method = resourceInfo.getResourceMethod();
-        LRALogger.i18nLogger.warn_lraFilterContainerRequest(message,
-                method.getDeclaringClass().getName() + "#" + method.getName(),
-                lraId == null ? "context" : lraId);
-    }
-
-    @SuppressWarnings("unchecked")
-    public static <T extends Collection<?>> T cast(Object obj) {
-        return (T) obj;
-    }
-
-    private URI startLRA(ContainerRequestContext containerRequestContext, URI parentLRA, Method method, Long timeout,
-            ArrayList<Progress> progress) {
-        // timeout should already have been converted to milliseconds
-        String clientId = method.getDeclaringClass().getName() + "#" + method.getName();
-
-        try {
-            URI lra = getLRAClient().startLRA(parentLRA, clientId, timeout, ChronoUnit.MILLIS, false);
-            updateProgress(progress, ProgressStep.Started, null);
-            return lra;
-        } catch (WebApplicationException e) {
-            String msg = e.getResponse().readEntity(String.class);
-
-            updateProgress(progress, ProgressStep.StartFailed, msg);
-
-            abortWith(containerRequestContext, null,
-                    e.getResponse().getStatus(),
-                    msg,
-                    progress);
-        }
-
-        return null;
-    }
-
-    private String getUserDefinedData() {
-        try {
-            return data != null ? data.getData() : null;
-        } catch (ContextNotActiveException e) {
-            LRALogger.i18nLogger.warn_missingContexts("LRAParticipantData is not usable in this (probably async) context.");
-        }
-
-        return null;
-    }
-
-    private void setUserDefinedData(String userDefinedData) {
-        try {
-            if (data != null) {
-                data.setData(userDefinedData);
-            }
-        } catch (ContextNotActiveException e) {
-            LRALogger.i18nLogger.warn_missingContexts("LRAParticipantData is not usable in this (probably async) context.");
-        }
+        return processor;
     }
 }
