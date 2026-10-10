@@ -106,7 +106,6 @@ public class ServerLRAProcessor {
     // @LRA
     private void handleLRA(ServerLRAContext context, LRA transactional) {
         context.setType(transactional.value());
-        context.setLongRunning(!transactional.end());
 
         Response.Status.Family[] cancelOnFamily = transactional.cancelOnFamily();
         Response.Status[] cancelOn = transactional.cancelOn();
@@ -149,16 +148,10 @@ public class ServerLRAProcessor {
             return;
         }
 
-        if (!context.isLongRunning()) {
-            context.setTerminalLRA(context.getCurrentLRA());
-        }
+        context.setEndLRA(transactional.end());
 
         // store state with the current thread
         Current.push(context.getCurrentLRA(), null); // make the current LRA available to the called method
-
-        if (context.getNewLRA() != null && context.getSuspendedLRA() != null) {
-            context.setSuspendedContextLRA(context.getIncomingLRA());
-        }
 
         if (!context.isEndAnnotation()) { // don't enlist for methods marked with Compensate, Complete or Leave
             handleEnlistment(context);
@@ -187,8 +180,8 @@ public class ServerLRAProcessor {
         if (current != null && isCancel) {
             context.setCurrentLRACancelled(true);
             handleCancellation(context, current);
-        } else if (context.getTerminalLRA() != null) {
-            context.setTerminalLRAClosed(true);
+        } else if (context.isEndLRA()) {
+            context.setEndLRAClosed(true);
             handleClose(context);
         }
     }
@@ -302,8 +295,7 @@ public class ServerLRAProcessor {
         }
 
         if (context.getIncomingLRA() != null) {
-            context.setSuspendedLRA(context.getIncomingLRA());
-            context.setSuspendedContextLRA(context.getIncomingLRA());
+            context.setSuspendedLRA(true);
             context.setCurrentLRA(context.getIncomingLRA());
             Current.push(context.getIncomingLRA(), null);
             Current.addActiveLRACache(context.getIncomingLRA());
@@ -331,7 +323,7 @@ public class ServerLRAProcessor {
 
                 break;
             case NOT_SUPPORTED:
-                context.setSuspendedLRA(context.getIncomingLRA());
+                context.setSuspendedLRA(context.getIncomingLRA() != null);
                 context.setCurrentLRA(null); // must not run with any context
 
                 break;
@@ -344,16 +336,14 @@ public class ServerLRAProcessor {
                         context.setParentLRA(context.getIncomingLRA());
 
                         // if there is an LRA present nest a new LRA under it
-                        context.setSuspendedLRA(context.getIncomingLRA());
-
                         URI newLRA = startLRA(context, context.getIncomingLRA());
 
                         if (newLRA == null) {
                             return;
                         }
 
-                        context.setNewLRA(newLRA);
                         context.setCurrentLRA(newLRA);
+                        context.setSuspendedLRA(true);
                     } else {
                         context.setCurrentLRA(context.getIncomingLRA());
                         // incomingLRA will be resumed
@@ -366,22 +356,19 @@ public class ServerLRAProcessor {
                         return;
                     }
 
-                    context.setNewLRA(newLRA);
                     context.setCurrentLRA(newLRA);
                 }
 
                 break;
             case REQUIRES_NEW:
-                context.setSuspendedLRA(context.getIncomingLRA());
-
                 URI newLRA = startLRA(context, null);
 
                 if (newLRA == null) {
                     return;
                 }
 
-                context.setNewLRA(newLRA);
                 context.setCurrentLRA(newLRA);
+                context.setSuspendedLRA(true);
 
                 break;
             case SUPPORTS:
@@ -399,10 +386,6 @@ public class ServerLRAProcessor {
         // the method call needs to run without a transaction
         Current.popAll();
         context.setClearContextHeader(true);
-
-        if (context.getSuspendedLRA() != null) {
-            context.setSuspendedContextLRA(context.getSuspendedLRA());
-        }
     }
 
     private void handleEnlistment(ServerLRAContext context) {
@@ -454,8 +437,7 @@ public class ServerLRAProcessor {
             Current.popAll();
             context.setClearContextHeader(true);
             Current.pop(context.getCurrentLRA());
-            context.setSuspendedLRA(null);
-            context.setSuspendedContextLRA(null);
+            context.setSuspendedLRA(false);
 
             if (context.getType() == MANDATORY) {
                 abort(context, context.getCurrentLRA().toASCIIString(),
@@ -485,12 +467,11 @@ public class ServerLRAProcessor {
                     method.getDeclaringClass().getName() + "#" + method.getName(), current.toASCIIString());
 
             updateProgress(context, ProgressStep.CancelFailed, e.getMessage());
-            context.setTerminalLRA(null);
         }
     }
 
     private void handleClose(ServerLRAContext context) {
-        URI toClose = context.getTerminalLRA();
+        URI toClose = context.getCurrentLRA();
 
         try {
             // do not attempt to close if the request filter tried but failed to start a new LRA

@@ -121,8 +121,8 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                 }
             }
         } finally {
-            if (context.getSuspendedContextLRA() != null) {
-                Current.push(context.getSuspendedContextLRA(), null);
+            if (context.isSuspendedLRA() && context.getIncomingLRA() != null) {
+                Current.push(context.getIncomingLRA(), null);
             }
 
             Current.updateLRAContext(responseContext);
@@ -214,7 +214,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
             requestContext.getHeaders().remove(LRA_HTTP_CONTEXT_HEADER);
         }
 
-        if (context.isTerminalLRAClosed()) {
+        if (context.isEndLRAClosed()) {
             requestContext.getHeaders().remove(LRA_HTTP_CONTEXT_HEADER);
         }
     }

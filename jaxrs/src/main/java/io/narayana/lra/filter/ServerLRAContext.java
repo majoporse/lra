@@ -10,7 +10,6 @@ import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Method;
 import java.net.URI;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.function.Supplier;
 import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
@@ -41,18 +40,15 @@ public class ServerLRAContext {
     private URI baseUri;
 
     private LRA.Type type;
-    private boolean longRunning;
+    private boolean endLRA;
     private Long timeout;
     private Response.Status[] cancelOn;
     private Response.Status.Family[] cancelOnFamily;
     private boolean endAnnotation;
     private boolean requiresActiveLRA;
 
-    private URI suspendedLRA;
-    private URI suspendedContextLRA;
     private URI currentLRA;
-    private URI newLRA;
-    private URI terminalLRA;
+    private boolean suspendedLRA;
     private URI parentLRA;
     private boolean parentHeaderHandled;
     private boolean clearContextHeader;
@@ -69,7 +65,7 @@ public class ServerLRAContext {
     private String abortMessage;
 
     private boolean currentLRACancelled;
-    private boolean terminalLRAClosed;
+    private boolean endLRAClosed;
 
     public ServerLRAContext(Method method, Class<?> resourceClass) {
         this.method = method;
@@ -132,12 +128,12 @@ public class ServerLRAContext {
         this.type = type;
     }
 
-    public boolean isLongRunning() {
-        return longRunning;
+    public boolean isEndLRA() {
+        return endLRA;
     }
 
-    public void setLongRunning(boolean longRunning) {
-        this.longRunning = longRunning;
+    public void setEndLRA(boolean endLRA) {
+        this.endLRA = endLRA;
     }
 
     public Long getTimeout() {
@@ -180,22 +176,6 @@ public class ServerLRAContext {
         this.requiresActiveLRA = requiresActiveLRA;
     }
 
-    public URI getSuspendedLRA() {
-        return suspendedLRA;
-    }
-
-    public void setSuspendedLRA(URI suspendedLRA) {
-        this.suspendedLRA = suspendedLRA;
-    }
-
-    public URI getSuspendedContextLRA() {
-        return suspendedContextLRA;
-    }
-
-    public void setSuspendedContextLRA(URI suspendedContextLRA) {
-        this.suspendedContextLRA = suspendedContextLRA;
-    }
-
     public URI getCurrentLRA() {
         return currentLRA;
     }
@@ -204,20 +184,12 @@ public class ServerLRAContext {
         this.currentLRA = currentLRA;
     }
 
-    public URI getNewLRA() {
-        return newLRA;
+    public boolean isSuspendedLRA() {
+        return suspendedLRA;
     }
 
-    public void setNewLRA(URI newLRA) {
-        this.newLRA = newLRA;
-    }
-
-    public URI getTerminalLRA() {
-        return terminalLRA;
-    }
-
-    public void setTerminalLRA(URI terminalLRA) {
-        this.terminalLRA = terminalLRA;
+    public void setSuspendedLRA(boolean suspendedLRA) {
+        this.suspendedLRA = suspendedLRA;
     }
 
     public URI getParentLRA() {
@@ -323,12 +295,12 @@ public class ServerLRAContext {
         this.currentLRACancelled = currentLRACancelled;
     }
 
-    public boolean isTerminalLRAClosed() {
-        return terminalLRAClosed;
+    public boolean isEndLRAClosed() {
+        return endLRAClosed;
     }
 
-    public void setTerminalLRAClosed(boolean terminalLRAClosed) {
-        this.terminalLRAClosed = terminalLRAClosed;
+    public void setEndLRAClosed(boolean endLRAClosed) {
+        this.endLRAClosed = endLRAClosed;
     }
 
     // the request filter may perform multiple steps and in failure scenarios the LRA may be left in an
@@ -360,23 +332,12 @@ public class ServerLRAContext {
     // list of steps (both successful and unsuccessful) performed so far by the request and response filter
     // and is used for error reporting
     public static class Progress {
-        static EnumSet<ProgressStep> failures = EnumSet.of(
-                ProgressStep.LeaveFailed,
-                ProgressStep.StartFailed,
-                ProgressStep.JoinFailed,
-                ProgressStep.CloseFailed,
-                ProgressStep.CancelFailed);
-
         ProgressStep progress;
         String reason;
 
         public Progress(ProgressStep progress, String reason) {
             this.progress = progress;
             this.reason = reason;
-        }
-
-        public boolean wasSuccessful() {
-            return !failures.contains(progress);
         }
     }
 }
