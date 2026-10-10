@@ -12,7 +12,6 @@ import jakarta.enterprise.concurrent.spi.ThreadContextSnapshot;
 import jakarta.enterprise.inject.Vetoed;
 import java.net.URI;
 import java.util.Map;
-import java.util.UUID;
 
 @Vetoed // never a CDI bean
 public class ClientLRAContextProviderEE implements ThreadContextProvider {
@@ -22,7 +21,7 @@ public class ClientLRAContextProviderEE implements ThreadContextProvider {
 
     @Override
     public ThreadContextSnapshot currentContext(Map<String, String> props) {
-        UUID lraId = Current.peek();
+        URI lraId = Current.peek();
         if (lraId == null) {
             return NOOP_SNAPSHOT;
         }
@@ -36,7 +35,7 @@ public class ClientLRAContextProviderEE implements ThreadContextProvider {
                 LRALogger.logger.debugf("Pushing %s from thread %d to %d", lraId, originThreadId, executionThreadId);
 
                 // Executed in new Thread
-                Current.push(URI.create(lraId.toString()), null);
+                Current.push(lraId, null);
             }
 
             return () -> {
@@ -44,7 +43,7 @@ public class ClientLRAContextProviderEE implements ThreadContextProvider {
 
                 if (originThreadId != restorerThreadId && executionThreadId == restorerThreadId) {
                     // Executed in new Thread
-                    UUID oldLra = Current.pop();
+                    URI oldLra = Current.pop();
 
                     LRALogger.logger.debugf("Popping %s obtained from thread %d in %d", oldLra, originThreadId,
                             restorerThreadId);

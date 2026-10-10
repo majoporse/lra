@@ -33,7 +33,7 @@ public class ClientLRARequestFilter implements ClientRequestFilter {
             return;
         }
 
-        var lraId = Current.peekURI();
+        var lraId = Current.peek();
 
         if (lraId != null) {
             if (canPropagate) {

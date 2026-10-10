@@ -138,7 +138,7 @@ public class LRAService {
 
     private LRAData toLRAData(LongRunningAction lra) {
         LRAData data = lra.getLRAData();
-        data.setLraId(HttpLRAService.toURI(lra));
+        data.setLraId(LRAConstants.toLRAId(lra.getId()));
         return data;
     }
 

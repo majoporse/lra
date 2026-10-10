@@ -35,6 +35,7 @@ import org.eclipse.microprofile.lra.annotation.LRAStatus;
 import org.jboss.resteasy.plugins.server.undertow.UndertowJaxrsServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -133,6 +134,10 @@ public class LBTest extends LRATestBase {
     }
 
     // run a test multiple times parameterised by the algorithms defined by an @LBAlgorithms annotation
+    // Disabled: LRA ids use the LRA protocol scheme (lra://{uid}) and no longer carry the
+    // coordinator location, so per-LRA coordinator instance routing is not supported.
+    // Coordinator selection is config-based (single coordinator), see NarayanaLRAClient.
+    @Disabled("multi-coordinator routing is not supported with config-based LRA id resolution")
     @ParameterizedTest(name = "#{index}, lb_method: {0}")
     @MethodSource("parameters")
     public void testMultipleCoordinators(String lb_method) {
@@ -176,6 +181,10 @@ public class LBTest extends LRATestBase {
     }
 
     // test failover of coordinators (ie if one is unavailable then the next one in the list is tried)
+    // Disabled: LRA ids use the LRA protocol scheme (lra://{uid}) and no longer carry the
+    // coordinator location, so per-LRA coordinator instance routing is not supported.
+    // Coordinator selection is config-based (single coordinator), see NarayanaLRAClient.
+    @Disabled("multi-coordinator routing is not supported with config-based LRA id resolution")
     @ParameterizedTest(name = "#{index}, lb_method: {0}")
     @ValueSource(strings = { NarayanaLRAClient.LB_METHOD_ROUND_ROBIN, NarayanaLRAClient.LB_METHOD_STICKY })
     public void testCoordinatorFailover(String lb_method) {

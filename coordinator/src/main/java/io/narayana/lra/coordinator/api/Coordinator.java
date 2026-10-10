@@ -258,7 +258,8 @@ public class Coordinator extends Application {
             }
         }
 
-        Current.push(lra.getId(), parentId);
+        Current.push(LRAConstants.toLRAId(lra.getId()),
+                parentId == null ? null : LRAConstants.toLRAId(parentId));
 
         return new StartLRAHttp.Reply(lraId, parentId);
     }

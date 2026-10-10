@@ -7,7 +7,7 @@ package io.narayana.lra.arquillian.spi;
 
 import static io.narayana.lra.LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
 
-import io.narayana.lra.LRAConstants;
+import io.narayana.lra.Current;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.WebTarget;
@@ -60,10 +60,10 @@ public class NarayanaLRARecovery implements LRARecoveryService {
      */
     private boolean recoverLRAs(URI lraId) {
         // trigger a recovery scan
-
         try (Client recoveryCoordinatorClient = ClientBuilder.newClient()) {
-            URI lraCoordinatorUri = LRAConstants.getLRACoordinatorUrl(lraId);
-            URI recoveryCoordinatorUri = UriBuilder.fromUri(lraCoordinatorUri)
+            // the LRA id uses the LRA protocol scheme so the coordinator location
+            // is resolved from configuration
+            URI recoveryCoordinatorUri = UriBuilder.fromUri(Current.getCoordinatorUrl())
                     .path(RECOVERY_COORDINATOR_PATH_NAME).build();
             WebTarget recoveryTarget = recoveryCoordinatorClient.target(recoveryCoordinatorUri);
 

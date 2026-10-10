@@ -82,7 +82,8 @@ public class LRAFaultToleranceTest extends LRATestBase {
 
     private NarayanaLRAClient lraClient;
     private Client client;
-    private int[] ports = { 8081, 8082 };
+    private int[] ports = { 8081 };
+    private String coordinatorPath;
     public String testName;
 
     // ===================================================================
@@ -243,6 +244,7 @@ public class LRAFaultToleranceTest extends LRATestBase {
 
         lraClient = new NarayanaLRAClient();
         client = ClientBuilder.newClient();
+        coordinatorPath = TestPortProvider.generateURL('/' + COORDINATOR_PATH_NAME);
 
         compensateCount.set(0);
         completeCount.set(0);
@@ -307,14 +309,16 @@ public class LRAFaultToleranceTest extends LRATestBase {
     }
 
     private void enlistParticipantAtPath(URI lraId, String pathPrefix) {
-        String lraUrl = lraId.toASCIIString().split("\\?")[0];
         String prefix = TestPortProvider.generateURL(pathPrefix);
 
         var request = new JoinLRAHttp.Request();
         request.partId = "/test/base";
         request.callbacks = callbacksFor(prefix);
 
-        try (Response response = client.target(lraUrl).request().put(Entity.json(request))) {
+        try (Response response = client.target(coordinatorPath)
+                .path(LRAConstants.getLRAUid(lraId))
+                .request()
+                .put(Entity.json(request))) {
             assertEquals(200, response.getStatus(),
                     "Unexpected status enlisting participant: " + response);
             var responseEntity = response.readEntity(JoinLRAHttp.Reply.class);
@@ -324,14 +328,16 @@ public class LRAFaultToleranceTest extends LRATestBase {
     }
 
     private void enlistUnreachableParticipant(URI lraId) {
-        String lraUrl = lraId.toASCIIString().split("\\?")[0];
         String prefix = "http://localhost:39999/unreachable";
 
         var request = new JoinLRAHttp.Request();
         request.callbacks = callbacksFor(prefix);
         request.partId = "unreachable";
 
-        try (Response response = client.target(lraUrl).request().put(Entity.json(request))) {
+        try (Response response = client.target(coordinatorPath)
+                .path(LRAConstants.getLRAUid(lraId))
+                .request()
+                .put(Entity.json(request))) {
             var resEntity = response.readEntity(JoinLRAHttp.Reply.class);
             assertEquals(200, response.getStatus(),
                     "Unexpected status enlisting unreachable participant: " + resEntity.toString());
@@ -352,10 +358,9 @@ public class LRAFaultToleranceTest extends LRATestBase {
      * so that the caller can assert the HTTP status code.
      */
     private Response rawCloseLRA(URI lraId) {
-        String lraUrl = lraId.toASCIIString().split("\\?")[0];
         var body = new CloseLRAHttp.Request();
         body.lraId = toUuid(lraId);
-        return client.target(String.format("%s/close", lraUrl))
+        return client.target(coordinatorPath + "/" + LRAConstants.getLRAUid(lraId) + "/close")
                 .request()
                 .put(Entity.json(body));
     }
@@ -365,34 +370,30 @@ public class LRAFaultToleranceTest extends LRATestBase {
      * so that the caller can assert the HTTP status code.
      */
     private Response rawCancelLRA(URI lraId) {
-        String lraUrl = lraId.toASCIIString().split("\\?")[0];
         var body = new CancelLRAHttp.Request();
-        return client.target(String.format("%s/cancel", lraUrl))
+        return client.target(coordinatorPath + "/" + LRAConstants.getLRAUid(lraId) + "/cancel")
                 .request()
                 .put(Entity.json(body));
     }
 
     private Response rawCloseLRAWithVersion(URI lraId, String apiVersion) {
-        String lraUrl = lraId.toASCIIString().split("\\?")[0];
         var body = new CloseLRAHttp.Request();
-        return client.target(String.format("%s/close", lraUrl))
+        return client.target(coordinatorPath + "/" + LRAConstants.getLRAUid(lraId) + "/close")
                 .request()
                 .header(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME, apiVersion)
                 .put(Entity.json(body));
     }
 
     private Response rawCancelLRAWithVersion(URI lraId, String apiVersion) {
-        String lraUrl = lraId.toASCIIString().split("\\?")[0];
         var body = new CancelLRAHttp.Request();
-        return client.target(String.format("%s/cancel", lraUrl))
+        return client.target(coordinatorPath + "/" + LRAConstants.getLRAUid(lraId) + "/cancel")
                 .request()
                 .header(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME, apiVersion)
                 .put(Entity.json(body));
     }
 
     private Response rawGetStatusWithVersion(URI lraId, String apiVersion) {
-        String lraUrl = lraId.toASCIIString().split("\\?")[0];
-        return client.target(String.format("%s/status", lraUrl))
+        return client.target(coordinatorPath + "/" + LRAConstants.getLRAUid(lraId) + "/status")
                 .request()
                 .header(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME, apiVersion)
                 .get();
@@ -690,10 +691,8 @@ public class LRAFaultToleranceTest extends LRATestBase {
         URI lraId = lraClient.startLRA(testName);
         enlistParticipant(lraId);
 
-        String lraUrl = lraId.toASCIIString().split("\\?")[0];
-
         // try to leave with a participant URL that was never enrolled
-        try (Response response = client.target(String.format("%s/remove", lraUrl))
+        try (Response response = client.target(coordinatorPath + "/" + LRAConstants.getLRAUid(lraId) + "/remove")
                 .request()
                 .put(Entity.json(new LeaveLRAHttp.Request(toUuid(lraId), "http://nonexistent:99999/not-enrolled")))) {
             assertEquals(400, response.getStatus(),
@@ -722,10 +721,8 @@ public class LRAFaultToleranceTest extends LRATestBase {
             assertEquals(200, closeResponse.getStatus(), "Close should return 200");
         }
 
-        String lraUrl = lraId.toASCIIString().split("\\?")[0];
-
         // try to leave from the now-closed LRA
-        try (Response response = client.target(String.format("%s/remove", lraUrl))
+        try (Response response = client.target(coordinatorPath + "/" + LRAConstants.getLRAUid(lraId) + "/remove")
                 .request()
                 .put(Entity.json(new LeaveLRAHttp.Request(toUuid(lraId), "http://localhost/some-participant")))) {
             assertTrue(response.getStatus() == 404 || response.getStatus() == 412,
@@ -955,8 +952,7 @@ public class LRAFaultToleranceTest extends LRATestBase {
      */
     @Test
     public void testGetStatusNonExistentLRA() {
-        URI fakeLra = URI.create(String.format("http://localhost:%d/%s/%s",
-                ports[0], COORDINATOR_PATH_NAME, UUID.randomUUID()));
+        URI fakeLra = LRAConstants.toLRAId(UUID.randomUUID());
         try {
             LRAStatus status = lraClient.getStatus(fakeLra);
             fail("getStatus on non-existent LRA should throw, but returned " + status);
@@ -1015,27 +1011,6 @@ public class LRAFaultToleranceTest extends LRATestBase {
         LRAStatus statusAgain = getStatus(lraId);
         assertTrue(statusAgain == null || statusAgain == LRAStatus.Cancelled,
                 "Repeated getStatus after cancel should be stable, but was " + statusAgain);
-    }
-
-    // ===================================================================
-    // 8. setCurrentLRA Failure Tests
-    // ===================================================================
-
-    /**
-     * Calling setCurrentLRA with a malformed URI (not a valid LRA coordinator
-     * URL) should throw an exception rather than silently accepting it.
-     */
-    @Test
-    public void testSetCurrentLRAWithInvalidURI() {
-        try {
-            lraClient.setCurrentLRA(URI.create("not-a-valid-lra-url"));
-            fail("setCurrentLRA with invalid URI should throw");
-        } catch (WebApplicationException e) {
-            assertEquals(Status.BAD_REQUEST.getStatusCode(), e.getResponse().getStatus(),
-                    "setCurrentLRA with invalid URI should return 400");
-        } catch (IllegalStateException e) {
-            // the URI format is invalid and does not contain the coordinator path
-        }
     }
 
     // ===================================================================

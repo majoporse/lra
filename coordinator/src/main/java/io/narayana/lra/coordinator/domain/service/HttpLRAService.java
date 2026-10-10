@@ -40,25 +40,6 @@ public class HttpLRAService {
         return coordinatorUrl;
     }
 
-    // --- URI construction ---
-
-    public URI toURI(UUID lraId) {
-        String url = getCoordinatorUrl();
-        int comma = url.indexOf(',');
-        if (comma != -1) {
-            url = url.substring(0, comma);
-        }
-        return toURI(url, lraId);
-    }
-
-    public static URI toURI(LongRunningAction lra) {
-        return URI.create(lra.getCoordinatorUrl() + "/" + lra.getId().toString());
-    }
-
-    public static URI toURI(String coordinatorUrl, UUID lraId) {
-        return URI.create(coordinatorUrl + "/" + lraId.toString());
-    }
-
     // --- UUID extraction ---
 
     public UUID extractUUID(URI lraId) {

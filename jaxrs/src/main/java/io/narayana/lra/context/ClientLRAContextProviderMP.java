@@ -10,7 +10,6 @@ import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.inject.Vetoed;
 import java.net.URI;
 import java.util.Map;
-import java.util.UUID;
 import org.eclipse.microprofile.context.spi.ThreadContextProvider;
 import org.eclipse.microprofile.context.spi.ThreadContextSnapshot;
 
@@ -22,7 +21,7 @@ public class ClientLRAContextProviderMP implements ThreadContextProvider {
 
     @Override
     public ThreadContextSnapshot currentContext(Map<String, String> props) {
-        UUID lraId = Current.peek();
+        URI lraId = Current.peek();
         if (lraId == null) {
             return NOOP_SNAPSHOT;
         }
@@ -36,7 +35,7 @@ public class ClientLRAContextProviderMP implements ThreadContextProvider {
                 LRALogger.logger.debugf("Pushing %s from thread %d to %d", lraId, originThreadId, executionThreadId);
 
                 // Executed in new Thread
-                Current.push(URI.create(lraId.toString()), null);
+                Current.push(lraId, null);
             }
 
             return () -> {
@@ -44,7 +43,7 @@ public class ClientLRAContextProviderMP implements ThreadContextProvider {
 
                 if (originThreadId != restorerThreadId && executionThreadId == restorerThreadId) {
                     // Executed in new Thread
-                    UUID oldLra = Current.pop();
+                    URI oldLra = Current.pop();
 
                     LRALogger.logger.debugf("Popping %s obtained from thread %d in %d", oldLra, originThreadId,
                             restorerThreadId);

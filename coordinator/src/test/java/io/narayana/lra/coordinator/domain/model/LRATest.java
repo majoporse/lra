@@ -94,7 +94,7 @@ public class LRATest extends LRATestBase {
     private Client client;
     private String coordinatorPath;
     private String recoveryPath;
-    int[] ports = { 8081, 8082 };
+    int[] ports = { 8081 };
 
     public String testName;
 
@@ -367,7 +367,7 @@ public class LRATest extends LRATestBase {
         // cancel and validate that the response reports the status using the requested media type
         var body = new CancelLRAHttp.Request();
         try (Response r = client
-                .target(String.format("%s/cancel", lraId))
+                .target(String.format("%s/%s/cancel", coordinatorPath, LRAConstants.getLRAUid(lraId)))
                 .request()
                 .put(Entity.json(body))) {
 
@@ -444,7 +444,7 @@ public class LRATest extends LRATestBase {
 
         // request the status of the LRA that was just started
         try (Response r = client
-                .target(String.format("%s", lraId))
+                .target(String.format("%s/%s", coordinatorPath, LRAConstants.getLRAUid(lraId)))
                 .request()
                 .accept(MediaType.APPLICATION_JSON)
                 .get()) {
@@ -487,7 +487,7 @@ public class LRATest extends LRATestBase {
 
         // request the status of the LRA that was just started
         try (Response r = client
-                .target(String.format("%s/status", lraId))
+                .target(String.format("%s/%s/status", coordinatorPath, LRAConstants.getLRAUid(lraId)))
                 .request()
                 .accept(MediaType.APPLICATION_JSON) // MediaType.TEXT_PLAIN, the default, is tested elsewhere
                 .get()) {
@@ -544,7 +544,7 @@ public class LRATest extends LRATestBase {
 
                 lraId = v.lraId;
                 // clean up
-                lraClient.closeLRA(URI.create(coordinatorPath + "/" + v.lraId));
+                lraClient.closeLRA(LRAConstants.toLRAId(v.lraId));
             } catch (JsonProcessingException e) {
                 fail("Unable to parse JSON response: " + json);
             } catch (WebApplicationException e) {
@@ -636,7 +636,8 @@ public class LRATest extends LRATestBase {
             int res = r1.getStatus();
             if (res != OK.getStatusCode()) {
                 // clean up and fail
-                try (Response r = client.target(String.format("%s/cancel", lraUrl)).request().put(null)) {
+                String cancelUrl = coordinatorPath + "/" + LRAConstants.getLRAUid(lraUrl) + "/cancel";
+                try (Response r = client.target(cancelUrl).request().put(null)) {
                     if (r.getStatus() != OK.getStatusCode()) {
                         fail("move and cancel failed");
                     }
@@ -647,7 +648,8 @@ public class LRATest extends LRATestBase {
 
         // cancel the LRA
         var body = new CancelLRAHttp.Request();
-        try (Response r2 = client.target(String.format("%s/cancel", lraUrl)).request().put(Entity.json(body))) {
+        try (Response r2 = client.target(coordinatorPath + "/" + LRAConstants.getLRAUid(lraUrl) + "/cancel")
+                .request().put(Entity.json(body))) {
             int res = r2.getStatus();
             if (res != OK.getStatusCode()) {
                 fail("unable to cleanup: " + res);
@@ -1097,8 +1099,11 @@ public class LRATest extends LRATestBase {
 
             lraClient.closeLRA(lra);
 
+            // with the single coordinator deployment each LRA gets a distinct LRA protocol id
+            assertNotNull(lra, "LRA id should not be null");
+            assertEquals("lra", lra.getScheme(), "LRA id should use the LRA protocol scheme");
             if (prev != null) {
-                assertNotEquals(prev.getPort(), lra.getPort());
+                assertNotEquals(prev, lra, "each LRA should have a distinct id");
             }
             prev = lra;
         }
@@ -1378,7 +1383,14 @@ public class LRATest extends LRATestBase {
         request.partId = "/base/test";
         request.callbacks = callbacks;
 
-        try (Response response = client.target(lraUid).request().put(Entity.json(request))) {
+        // the LRA id is given in the LRA protocol form (lra://{uid}) so contact
+        // the coordinator using the configured coordinator path and the uid segment
+        String lraIdSegment = LRAConstants.getLRAUid(lraUid);
+
+        try (Response response = client.target(coordinatorPath)
+                .path(lraIdSegment)
+                .request()
+                .put(Entity.json(request))) {
             var entity = response.readEntity(JoinLRAHttp.Reply.class);
             assertEquals(200, response.getStatus(), "Unexpected status: " + response);
             String recoveryId = entity.recoveryUrl;
@@ -1883,7 +1895,7 @@ public class LRATest extends LRATestBase {
     @Test
     public void testGetLRAInfoNonExistent() {
         // Create a fake LRA URI that doesn't exist
-        URI fakeLraId = URI.create(coordinatorPath + "/00000000-0000-0000-0000-000000000000");
+        URI fakeLraId = LRAConstants.toLRAId(UUID.fromString("00000000-0000-0000-0000-000000000000"));
 
         try {
             lraClient.getLRAInfo(fakeLraId);
@@ -1903,7 +1915,7 @@ public class LRATest extends LRATestBase {
     @Test
     public void testRenewTimeLimitNonExistent() {
         // Create a fake LRA URI that doesn't exist
-        URI fakeLraId = URI.create(coordinatorPath + "/00000000-0000-0000-0000-000000000000");
+        URI fakeLraId = LRAConstants.toLRAId(UUID.fromString("00000000-0000-0000-0000-000000000000"));
 
         try {
             lraClient.renewTimeLimit(fakeLraId, 60000L);

@@ -55,7 +55,6 @@ import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.StringJoiner;
-import java.util.UUID;
 import java.util.regex.Pattern;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -220,11 +219,10 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
             }
 
             if (incomingLRA != null) {
-                UUID incomingLraId = uuidOf(incomingLRA);
                 containerRequestContext.setProperty(SUSPENDED_LRA_PROP, incomingLRA);
                 containerRequestContext.setProperty(CURRENT_LRA_PROP, incomingLRA);
                 Current.push(incomingLRA, null);
-                Current.addActiveLRACache(incomingLraId);
+                Current.addActiveLRACache(incomingLRA);
             }
 
             return; // not transactional
@@ -244,15 +242,13 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
         }
 
         if (incomingLRA != null) {
-            // set the parent context header using the full parent URI
-            var incomingId = uuidOf(incomingLRA);
-            UUID firstParent = Current.getFirstParent(incomingId);
+            // set the parent context header using the full parent LRA protocol URI
+            URI firstParent = Current.getFirstParent(incomingLRA);
 
             if (firstParent != null) {
                 // parent and child run on the same coordinator so the parent id is the
-                // coordinator url of the child plus the parent uid
-                headers.putSingle(LRA_HTTP_PARENT_CONTEXT_HEADER,
-                        LRAConstants.getLRACoordinatorUrl(incomingLRA) + "/" + firstParent);
+                // LRA protocol URI of the parent
+                headers.putSingle(LRA_HTTP_PARENT_CONTEXT_HEADER, firstParent.toASCIIString());
             } else {
                 headers.remove(LRA_HTTP_PARENT_CONTEXT_HEADER);
             }
@@ -376,18 +372,6 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
             containerRequestContext.setProperty(NEW_LRA_PROP, newLRA);
         }
 
-        try {
-            getLRAClient().setCurrentLRA(lraId); // make the current LRA available to the called method
-        } catch (Exception e) {
-            // should not happen since lraId has already been validated
-            // (perhaps we should not use the client API to set the context)
-            abortWith(containerRequestContext, lraId.toASCIIString(),
-                    Response.Status.BAD_REQUEST.getStatusCode(),
-                    e.getMessage(),
-                    progress);
-            return; // any previous actions (such as leave and start requests) will be reported via the response filter
-        }
-
         if (!endAnnotation) { // don't enlist for methods marked with Compensate, Complete or Leave
             ParticipantCallbacks callbacks = NarayanaLRAClient.getTerminationCallbacks(
                     resourceInfo.getResourceClass(),
@@ -467,7 +451,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
             } else if (requiresActiveLRA && getLRAClient().getStatus(lraId) != LRAStatus.Active) {
                 Current.popAll();
                 headers.remove(LRA_HTTP_CONTEXT_HEADER);
-                Current.pop(uuidOf(lraId));
+                Current.pop(lraId);
                 containerRequestContext.removeProperty(SUSPENDED_LRA_PROP);
 
                 if (type == MANDATORY) {
@@ -480,7 +464,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
         }
 
         containerRequestContext.setProperty(CURRENT_LRA_PROP, lraId);
-        Current.addActiveLRACache(uuidOf(lraId));
+        Current.addActiveLRACache(lraId);
     }
 
     private String createUriPrefix(ContainerRequestContext containerRequestContext, Class<?> resourceClass) {
@@ -623,7 +607,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
             Current.updateLRAContext(responseContext);
 
             Current.popAll();
-            Current.removeActiveLRACache(uuidOf(current));
+            Current.removeActiveLRACache(current);
             Current.clearAuthToken();
         }
     }
@@ -635,14 +619,6 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
         }
 
         return lraClient;
-    }
-
-    private static UUID uuidOf(URI lraId) {
-        try {
-            return lraId == null ? null : UUID.fromString(LRAConstants.getLRAUid(lraId));
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
     }
 
     private boolean isJaxRsCancel(ContainerRequestContext requestContext, ContainerResponseContext responseContext) {

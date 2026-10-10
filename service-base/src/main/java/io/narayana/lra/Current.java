@@ -54,20 +54,22 @@ public class Current {
     }
 
     @SuppressWarnings("ConstantConditions")
-    public static void addActiveLRACache(UUID lraId) {
-        if (lraId == null) {
+    public static void addActiveLRACache(URI lraId) {
+        UUID uuid = LRAConstants.toUuid(lraId);
+        if (uuid == null) {
             return;
         }
 
-        activeLRACache.merge(lraId, 1, Integer::sum);
+        activeLRACache.merge(uuid, 1, Integer::sum);
     }
 
-    public static void removeActiveLRACache(UUID lraId) {
-        if (lraId == null) {
+    public static void removeActiveLRACache(URI lraId) {
+        UUID uuid = LRAConstants.toUuid(lraId);
+        if (uuid == null) {
             return;
         }
 
-        activeLRACache.compute(lraId, (k, v) -> {
+        activeLRACache.compute(uuid, (k, v) -> {
             if (v == null) {
                 return null; // already absent; nothing to do
             }
@@ -85,13 +87,15 @@ public class Current {
     }
 
     // given an LRA id extract the immediate parent context from the stack
-    public static UUID getFirstParent(UUID lraId) {
-        if (lraId == null) {
+    public static URI getFirstParent(URI lraId) {
+        UUID uuid = LRAConstants.toUuid(lraId);
+        if (uuid == null) {
             return null;
         }
-        LRAContext context = findContext(lraContexts.get(), lraId);
+        LRAContext context = findContext(lraContexts.get(), uuid);
 
-        return context == null ? null : context.parentLRA();
+        UUID parentLRA = context == null ? null : context.parentLRA();
+        return parentLRA == null ? null : LRAConstants.toLRAId(parentLRA);
     }
 
     // find a context on the current thread's stack that matches the lra id
@@ -113,7 +117,8 @@ public class Current {
         lraContexts.set(null);
     }
 
-    public static UUID peek() {
+    // the uid of the current LRA on the calling thread (used when associating work with an LRA)
+    private static UUID peekUuid() {
         Current current = lraContexts.get();
         LRAContext context = current != null && !current.stack.isEmpty() ? current.stack.peek() : null;
         UUID lraId = context == null ? null : context.lraId();
@@ -128,7 +133,13 @@ public class Current {
         return lraId;
     }
 
-    // form the http URI of an LRA from its uid; the coordinator url is taken from the
+    // the LRA protocol URI of the current LRA on the calling thread (used when propagating the context)
+    public static URI peek() {
+        UUID lraId = peekUuid();
+        return lraId == null ? null : LRAConstants.toLRAId(lraId);
+    }
+
+    // form the URI of an LRA from its uid; the coordinator url is taken from the
     // context that pushed the LRA on to the current thread
     // the coordinator url used to form LRA ids, derived from configuration
     public static String getCoordinatorUrl() {
@@ -144,17 +155,7 @@ public class Current {
         return base;
     }
 
-    // form the http URI of an LRA from its uid
-    public static URI toURI(UUID lraId) {
-        return lraId == null ? null : URI.create(getCoordinatorUrl() + "/" + lraId);
-    }
-
-    // the http URI of the current LRA on the calling thread (used when propagating the context)
-    public static URI peekURI() {
-        return toURI(peek());
-    }
-
-    public static UUID pop() {
+    public static URI pop() {
         Current current = lraContexts.get();
         UUID lraId = null;
 
@@ -166,13 +167,18 @@ public class Current {
             }
         }
 
-        return lraId;
+        return lraId == null ? null : LRAConstants.toLRAId(lraId);
     }
 
     // dissassociate an LRA from the callers thread (including any child LRAs)
-    public static boolean pop(UUID lra) {
+    public static boolean pop(URI lra) {
+        UUID uuid = LRAConstants.toUuid(lra);
+        if (uuid == null) {
+            return false;
+        }
+
         Current current = lraContexts.get();
-        LRAContext context = findContext(current, lra);
+        LRAContext context = findContext(current, uuid);
 
         if (current == null || context == null) {
             return false;
@@ -185,7 +191,7 @@ public class Current {
 
         // check every LRA associated with the calling thread and if it is a child of lra then pop it
         // the lra that is being popped is a parent of nextLRA:
-        current.stack.removeIf(nextLRA -> isParentOf(lra, nextLRA.lraId()));
+        current.stack.removeIf(nextLRA -> isParentOf(uuid, nextLRA.lraId()));
 
         if (current.stack.empty()) {
             clearContext(current);
@@ -224,18 +230,11 @@ public class Current {
      * @param lraId id of context to push (must not be null)
      * @param parentLRA parent context of the pushed LRA (null when top level)
      */
-    public static void push(URI lraId, UUID parentLRA) {
-        UUID id = lraId == null ? null : UUID.fromString(LRAConstants.getLRAUid(lraId));
-        push(id, parentLRA);
+    public static void push(URI lraId, URI parentLRA) {
+        push(LRAConstants.toUuid(lraId), LRAConstants.toUuid(parentLRA));
     }
 
-    /**
-     * push the current context onto the stack of contexts for this thread
-     *
-     * @param lraId id of context to push (must not be null)
-     * @param parentLRA parent context of the pushed LRA (null when top level)
-     */
-    public static void push(UUID lraId, UUID parentLRA) {
+    private static void push(UUID lraId, UUID parentLRA) {
         Current current = lraContexts.get();
 
         if (current == null) {
@@ -252,7 +251,9 @@ public class Current {
             return new ArrayList<>();
         }
 
-        return current.stack.stream().map(context -> toURI(context.lraId())).collect(Collectors.toList());
+        return current.stack.stream()
+                .map(context -> (Object) LRAConstants.toLRAId(context.lraId()))
+                .collect(Collectors.toList());
     }
 
     /**
@@ -261,7 +262,7 @@ public class Current {
      * @param responseContext the header map to add the KRA context to
      */
     public static void updateLRAContext(ContainerResponseContext responseContext) {
-        UUID lraId = Current.peek();
+        URI lraId = Current.peek();
 
         if (lraId != null) {
             responseContext.getHeaders().put(LRA_HTTP_CONTEXT_HEADER, getContexts());

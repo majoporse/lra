@@ -222,7 +222,6 @@ public class LRAStateModelTest extends LRATestBase {
     }
 
     private void enlistFailingParticipant(URI lraId) {
-        String lraUid = lraId.toASCIIString().split("\\?")[0];
         String prefix = TestPortProvider.generateURL("/base/failing-test");
 
         var request = new JoinLRAHttp.Request();
@@ -230,7 +229,10 @@ public class LRAStateModelTest extends LRATestBase {
 
         request.partId = "/base/failing-test";
 
-        try (Response response = client.target(lraUid).request().put(Entity.json(request))) {
+        try (Response response = client.target(coordinatorPath)
+                .path(LRAConstants.getLRAUid(lraId))
+                .request()
+                .put(Entity.json(request))) {
             assertEquals(200, response.getStatus(),
                     "Unexpected status enlisting failing participant: " + response);
             var responseEntity = response.readEntity(JoinLRAHttp.Reply.class);
@@ -980,7 +982,7 @@ public class LRAStateModelTest extends LRATestBase {
      */
     @Test
     public void testNestedCompleteReturns410ForUnknown() {
-        URI fakeChild = URI.create(coordinatorPath + "/" + UUID.randomUUID() + "?ParentLRA=fake");
+        URI fakeChild = URI.create("lra://" + UUID.randomUUID() + "?ParentLRA=fake");
 
         try (Response response = rawNestedComplete(fakeChild)) {
             assertEquals(410, response.getStatus(),
@@ -993,7 +995,7 @@ public class LRAStateModelTest extends LRATestBase {
      */
     @Test
     public void testNestedCompensateReturns410ForUnknown() {
-        URI fakeChild = URI.create(coordinatorPath + "/" + UUID.randomUUID() + "?ParentLRA=fake");
+        URI fakeChild = URI.create("lra://" + UUID.randomUUID() + "?ParentLRA=fake");
 
         try (Response response = rawNestedCompensate(fakeChild)) {
             assertEquals(410, response.getStatus(),
@@ -1024,7 +1026,7 @@ public class LRAStateModelTest extends LRATestBase {
      */
     @Test
     public void testNestedStatusReturns410ForUnknown() {
-        URI fakeChild = URI.create(coordinatorPath + "/" + UUID.randomUUID() + "?ParentLRA=fake");
+        URI fakeChild = URI.create("lra://" + UUID.randomUUID() + "?ParentLRA=fake");
 
         try (Response response = rawNestedStatus(fakeChild)) {
             assertEquals(410, response.getStatus(),
@@ -1055,7 +1057,7 @@ public class LRAStateModelTest extends LRATestBase {
      */
     @Test
     public void testNestedForgetReturns410ForUnknown() {
-        URI fakeChild = URI.create(coordinatorPath + "/" + UUID.randomUUID() + "?ParentLRA=fake");
+        URI fakeChild = URI.create("lra://" + UUID.randomUUID() + "?ParentLRA=fake");
 
         try (Response response = rawNestedForget(fakeChild)) {
             assertEquals(410, response.getStatus(),
@@ -1130,14 +1132,16 @@ public class LRAStateModelTest extends LRATestBase {
     }
 
     private void enlistUnreachableParticipantInLRA(URI lraId) {
-        String lraUrl = lraId.toASCIIString().split("\\?")[0];
         String prefix = "http://localhost:39999/unreachable";
 
         var body = new JoinLRAHttp.Request();
         body.partId = "unreachable";
         body.callbacks = callbacksFor(prefix);
 
-        try (Response response = client.target(lraUrl).request().put(Entity.json(body))) {
+        try (Response response = client.target(coordinatorPath)
+                .path(LRAConstants.getLRAUid(lraId))
+                .request()
+                .put(Entity.json(body))) {
             assertEquals(200, response.getStatus(),
                     "Unexpected status enlisting unreachable participant: " + response.readEntity(String.class));
         }
