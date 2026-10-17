@@ -13,8 +13,10 @@ import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVER
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.client.LRAParticipantData;
-import io.narayana.lra.client.NarayanaLRAClient;
+import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipant;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
+import io.narayana.lra.filter.core.ServerLRAContext;
+import io.narayana.lra.filter.core.ServerLRAProcessor;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -35,7 +37,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.List;
-import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 @Provider
@@ -60,6 +61,11 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
 
     @Override
     public void filter(ContainerRequestContext containerRequestContext) {
+        if (LRAConstants.isInterceptorMode()) {
+            // LRA processing is delegated to the CDI interceptor (@LRA.Transaction beans)
+            return;
+        }
+
         // Note that this filter uses abortWith instead of throwing exceptions on encountering exceptional
         // conditions. This facilitates async because filters for asynchronous JAX-RS methods are
         // not allowed to throw exceptions.
@@ -78,6 +84,11 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
 
     @Override
     public void filter(ContainerRequestContext requestContext, ContainerResponseContext responseContext) {
+        if (LRAConstants.isInterceptorMode()) {
+            // the interceptor owns the LRA lifecycle (and the thread-local cleanup); do nothing
+            return;
+        }
+
         // a request is leaving the container so clear any context on the thread and fix up the LRA response header
         ServerLRAContext context = (ServerLRAContext) requestContext.getProperty(ServerLRAContext.PROPERTY_NAME);
 
@@ -98,7 +109,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
 
             if (responseContext.getStatus() == Response.Status.OK.getStatusCode()
                     && resourceInfo.getResourceMethod() != null
-                    && NarayanaLRAClient.isAsyncCompletion(resourceInfo.getResourceMethod())) {
+                    && LRAParticipant.isAsyncCompletion(resourceInfo.getResourceMethod())) {
                 LRALogger.i18nLogger.warn_lraParticipantqForAsync(
                         resourceInfo.getResourceMethod().getDeclaringClass().getName(),
                         resourceInfo.getResourceMethod().getName(),
@@ -237,7 +248,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
     }
 
     private String createUriPrefix(ContainerRequestContext containerRequestContext, Class<?> resourceClass) {
-        return ConfigProvider.getConfig().getOptionalValue(LRAConstants.NARAYANA_LRA_BASE_URI_PROPERTY_NAME, String.class)
+        return LRAConstants.getBaseUri()
                 .map(s -> {
                     String userUri = s.endsWith("/") ? s.substring(0, s.length() - 1) : s;
                     if (resourceClass.isAnnotationPresent(Path.class)) {

@@ -8,8 +8,10 @@ package io.narayana.lra;
 import io.narayana.lra.logging.LRALogger;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import org.eclipse.microprofile.config.ConfigProvider;
 
 public final class LRAConstants {
     // the scheme of the LRA protocol URI, e.g. lra://{lraId}
@@ -108,6 +110,45 @@ public final class LRAConstants {
      * Custom base URI if the client needs to override default base URI info taken from the Jakarta REST filters.
      */
     public static final String NARAYANA_LRA_BASE_URI_PROPERTY_NAME = "narayana.lra.base-uri";
+
+    /**
+     * When set to {@code true} the server side LRA processing is handled by the CDI interceptor
+     * ({@code @LRA.Transaction} beans) instead of the legacy JAX-RS {@code ServerLRAFilter}.
+     * Defaults to {@code false}, ie the legacy filter is used.
+     */
+    public static final String SERVER_FILTER_INTERCEPTOR_PROPERTY_NAME = "lra.server.filter.interceptor";
+
+    /**
+     * @return whether the CDI interceptor (instead of the legacy JAX-RS filter) owns the server
+     *         side LRA processing: {@value #SERVER_FILTER_INTERCEPTOR_PROPERTY_NAME}, defaulting to
+     *         {@code false}
+     */
+    public static boolean isInterceptorMode() {
+        try {
+            return ConfigProvider.getConfig()
+                    .getOptionalValue(SERVER_FILTER_INTERCEPTOR_PROPERTY_NAME, Boolean.class)
+                    .orElse(false);
+        } catch (Exception e) {
+            // no MicroProfile Config provider is installed; system properties are the lowest
+            // common denominator
+            return Boolean.parseBoolean(System.getProperty(SERVER_FILTER_INTERCEPTOR_PROPERTY_NAME, "false"));
+        }
+    }
+
+    /**
+     * @return the base URI used to build participant callback URIs (the address the LRA
+     *         coordinator can use to reach this application), or empty when not set
+     */
+    public static Optional<String> getBaseUri() {
+        try {
+            return ConfigProvider.getConfig()
+                    .getOptionalValue(NARAYANA_LRA_BASE_URI_PROPERTY_NAME, String.class);
+        } catch (Exception e) {
+            // no MicroProfile Config provider is installed; system properties are the lowest
+            // common denominator
+            return Optional.ofNullable(System.getProperty(NARAYANA_LRA_BASE_URI_PROPERTY_NAME));
+        }
+    }
 
     private static final Pattern UID_REGEXP_EXTRACT_MATCHER = Pattern.compile(".*/([^/?]+).*");
 

@@ -3,8 +3,9 @@
    SPDX-License-Identifier: Apache-2.0
  */
 
-package io.narayana.lra.filter;
+package io.narayana.lra.filter.core;
 
+import io.narayana.lra.api.LRA.Propagation;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Method;
@@ -12,7 +13,6 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
-import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
 
 /**
  * Holds the state that is produced and consumed while processing a single JAX-RS request/response
@@ -20,8 +20,8 @@ import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
  * <p>
  * The class deliberately avoids referencing the JAX-RS request/response container types (such as
  * {@code ContainerRequestContext}) so that the annotation handling logic in {@link ServerLRAProcessor}
- * can be reasoned about independently of the transport. {@link ServerLRAFilter} is responsible for
- * moving information between this context and the JAX-RS request/response.
+ * can be reasoned about independently of the transport. {@link io.narayana.lra.filter.ServerLRAFilter}
+ * is responsible for moving information between this context and the JAX-RS request/response.
  */
 public class ServerLRAContext {
 
@@ -39,7 +39,7 @@ public class ServerLRAContext {
     private Supplier<String> uriPrefix;
     private URI baseUri;
 
-    private LRA.Type type;
+    private Propagation type;
     private boolean endLRA;
     private Long timeout;
     private Response.Status[] cancelOn;
@@ -120,11 +120,11 @@ public class ServerLRAContext {
         this.baseUri = baseUri;
     }
 
-    public LRA.Type getType() {
+    public Propagation getType() {
         return type;
     }
 
-    public void setType(LRA.Type type) {
+    public void setType(Propagation type) {
         this.type = type;
     }
 

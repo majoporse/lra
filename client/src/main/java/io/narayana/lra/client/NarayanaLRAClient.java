@@ -5,14 +5,8 @@
 
 package io.narayana.lra.client;
 
-import static io.narayana.lra.LRAConstants.AFTER;
-import static io.narayana.lra.LRAConstants.COMPENSATE;
-import static io.narayana.lra.LRAConstants.COMPLETE;
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
-import static io.narayana.lra.LRAConstants.FORGET;
-import static io.narayana.lra.LRAConstants.LEAVE;
 import static io.narayana.lra.LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
-import static io.narayana.lra.LRAConstants.STATUS;
 import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST;
 import static jakarta.ws.rs.core.Response.Status.GONE;
 import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
@@ -41,20 +35,12 @@ import io.smallrye.stork.api.config.ConfigWithType;
 import io.smallrye.stork.servicediscovery.staticlist.StaticConfiguration;
 import jakarta.enterprise.context.RequestScoped;
 import jakarta.ws.rs.ClientErrorException;
-import jakarta.ws.rs.DELETE;
-import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
-import jakarta.ws.rs.POST;
-import jakarta.ws.rs.PUT;
-import jakarta.ws.rs.Path;
 import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.ServiceUnavailableException;
 import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.container.Suspended;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriBuilder;
-import java.lang.annotation.Annotation;
-import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -71,14 +57,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
-import org.eclipse.microprofile.lra.annotation.AfterLRA;
-import org.eclipse.microprofile.lra.annotation.Compensate;
-import org.eclipse.microprofile.lra.annotation.Complete;
-import org.eclipse.microprofile.lra.annotation.Forget;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
-import org.eclipse.microprofile.lra.annotation.Status;
-import org.eclipse.microprofile.lra.annotation.ws.rs.Leave;
 import org.eclipse.microprofile.rest.client.RestClientBuilder;
 
 /**
@@ -564,128 +544,6 @@ public class NarayanaLRAClient implements AutoCloseable {
             throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
                     .entity("leave LRA client request timed out, try again later").build());
         }
-    }
-
-    /**
-     * For a particular participant class it returns the participant callbacks derived from the
-     * provided base uri and the participant's annotations.
-     *
-     * @param compensatorClass participant class to examine.
-     * @param uriPrefix the uri that triggered this join request.
-     * @return the participant callbacks
-     */
-    public static ParticipantCallbacks getTerminationCallbacks(Class<?> compensatorClass, String uriPrefix) {
-        ParticipantCallbacks callbacks = new ParticipantCallbacks();
-        final boolean[] asyncTermination = { false };
-
-        Arrays.stream(compensatorClass.getMethods()).forEach(method -> {
-            Path pathAnnotation = method.getAnnotation(Path.class);
-
-            if (pathAnnotation != null) {
-
-                if (checkMethod(callbacks, method, COMPENSATE, pathAnnotation,
-                        method.getAnnotation(Compensate.class), uriPrefix) != 0
-                        && isAsyncCompletion(method)) {
-                    asyncTermination[0] = true;
-                }
-
-                if (checkMethod(callbacks, method, COMPLETE, pathAnnotation,
-                        method.getAnnotation(Complete.class), uriPrefix) != 0
-                        && isAsyncCompletion(method)) {
-                    asyncTermination[0] = true;
-                }
-                checkMethod(callbacks, method, STATUS, pathAnnotation,
-                        method.getAnnotation(Status.class), uriPrefix);
-                checkMethod(callbacks, method, FORGET, pathAnnotation,
-                        method.getAnnotation(Forget.class), uriPrefix);
-
-                checkMethod(callbacks, method, LEAVE, pathAnnotation, method.getAnnotation(Leave.class), uriPrefix);
-                checkMethod(callbacks, method, AFTER, pathAnnotation, method.getAnnotation(AfterLRA.class), uriPrefix);
-            }
-        });
-
-        if (asyncTermination[0] && callbacks.statusCallback == null && callbacks.forgetCallback == null) {
-            String logMsg = LRALogger.i18nLogger.error_asyncTerminationBeanMissStatusAndForget(compensatorClass);
-            LRALogger.logger.warn(logMsg);
-            throw new WebApplicationException(
-                    Response.status(BAD_REQUEST)
-                            .entity(logMsg)
-                            .build());
-        }
-
-        return callbacks;
-    }
-
-    /**
-     * Providing information if method is defined to be completed asynchronously.
-     * This means that {@link Suspended} annotation is available amongst the method parameters
-     * while the method is annotated with {@link Complete} or {@link Compensate}.
-     *
-     * @param method method to be checked for async completion
-     * @return true if method is to complete asynchronously, false if synchronously
-     */
-    public static boolean isAsyncCompletion(Method method) {
-        if (method.isAnnotationPresent(Complete.class) || method.isAnnotationPresent(Compensate.class)) {
-            for (Annotation[] ann : method.getParameterAnnotations()) {
-                for (Annotation an : ann) {
-                    if (Suspended.class.isAssignableFrom(an.annotationType())) {
-                        LRALogger.logger.warn("JAX-RS @Suspended annotation is untested");
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static int checkMethod(ParticipantCallbacks callbacks,
-            Method method, String rel,
-            Path pathAnnotation,
-            Annotation annotationClass,
-            String uriPrefix) {
-        /*
-         * If the annotationClass is null the requested participant annotation is not present,
-         * but we also need to check for conformance with the interoperability spec,
-         * ie look for paths of the form:
-         * `<participant URL>/compensate`
-         * `<participant URL>/complete`
-         * etc
-         */
-        if (annotationClass == null) {
-            // TODO support standard compenators with: && !pathAnnotation.value().endsWith(rel)) {
-            // ie ones that do not use the @Compensate annotation
-            return 0;
-        }
-
-        // the participant method must declare an HTTP verb annotation otherwise there is nothing to call
-        boolean hasHttpVerb = Arrays.stream(method.getDeclaredAnnotations()).anyMatch(annotation -> {
-            String name = annotation.annotationType().getName();
-
-            return name.equals(GET.class.getName()) || name.equals(PUT.class.getName())
-                    || name.equals(POST.class.getName()) || name.equals(DELETE.class.getName());
-        });
-
-        if (!hasHttpVerb) {
-            return 1;
-        }
-
-        String pathValue = pathAnnotation.value();
-        pathValue = pathValue.startsWith("/") ? pathValue : "/" + pathValue;
-        URI url = URI.create(String.format("%s%s", uriPrefix, pathValue));
-
-        switch (rel) {
-            case COMPENSATE -> callbacks.compensateCallback = HttpCallback.compensateCallback(url);
-            case COMPLETE -> callbacks.completeCallback = HttpCallback.completeCallback(url);
-            case STATUS -> callbacks.statusCallback = HttpCallback.statusCallback(url);
-            case FORGET -> callbacks.forgetCallback = HttpCallback.forgetCallback(url);
-            case AFTER -> callbacks.afterCallback = HttpCallback.afterCallback(url);
-            default -> {
-                // @Leave is handled directly by the client and is not part of the participant callbacks
-            }
-        }
-
-        return 1;
     }
 
     public LRAStatus getStatus(URI uri) throws WebApplicationException {

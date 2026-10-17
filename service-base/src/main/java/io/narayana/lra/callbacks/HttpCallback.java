@@ -22,6 +22,20 @@ public class HttpCallback implements LRACallback {
         ENDED
     }
 
+    /**
+     * Creates the callback of the given kind (the HTTP method and context type follow the LRA
+     * protocol for that kind).
+     */
+    public static HttpCallback of(CallbackType type, URI uri) {
+        return switch (type) {
+            case COMPENSATE -> compensateCallback(uri);
+            case COMPLETE -> completeCallback(uri);
+            case STATUS -> statusCallback(uri);
+            case FORGET -> forgetCallback(uri);
+            case AFTER -> afterCallback(uri);
+        };
+    }
+
     @JsonProperty("type")
     public String getType() {
         return "http";

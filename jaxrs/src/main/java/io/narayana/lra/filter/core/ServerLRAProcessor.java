@@ -3,48 +3,41 @@
    SPDX-License-Identifier: Apache-2.0
  */
 
-package io.narayana.lra.filter;
+package io.narayana.lra.filter.core;
 
+import static io.narayana.lra.api.LRA.Propagation.MANDATORY;
+import static io.narayana.lra.api.LRA.Propagation.NESTED;
 import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
 import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
-import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.Type.MANDATORY;
-import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.Type.NESTED;
 
-import io.narayana.lra.AnnotationResolver;
 import io.narayana.lra.BearerTokenResolver;
 import io.narayana.lra.Current;
-import io.narayana.lra.PropagateToken;
+import io.narayana.lra.api.LRA.Propagation;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.client.LRAParticipantData;
 import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.client.ParticipantIdProvider;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipant;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
-import io.narayana.lra.filter.ServerLRAContext.Progress;
-import io.narayana.lra.filter.ServerLRAContext.ProgressStep;
+import io.narayana.lra.filter.core.ServerLRAContext.Progress;
+import io.narayana.lra.filter.core.ServerLRAContext.ProgressStep;
+import io.narayana.lra.filter.resolver.LRAAnnotationResolver;
+import io.narayana.lra.filter.resolver.LRATransactionMetadata;
+import io.narayana.lra.filter.resolver.MicroProfileLRAAnnotationResolver;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.context.ContextNotActiveException;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Method;
 import java.net.URI;
-import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.StringJoiner;
 import java.util.regex.Pattern;
-import org.eclipse.microprofile.lra.annotation.AfterLRA;
-import org.eclipse.microprofile.lra.annotation.Compensate;
-import org.eclipse.microprofile.lra.annotation.Complete;
-import org.eclipse.microprofile.lra.annotation.Forget;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
-import org.eclipse.microprofile.lra.annotation.Status;
-import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
-import org.eclipse.microprofile.lra.annotation.ws.rs.Leave;
 
 /**
  * Implements the LRA annotation handling for a single JAX-RS request/response.
@@ -52,7 +45,8 @@ import org.eclipse.microprofile.lra.annotation.ws.rs.Leave;
  * This class is deliberately decoupled from the HTTP transport: it only operates on a
  * {@link ServerLRAContext} and never touches the JAX-RS request or response containers. Each LRA
  * annotation is handled by a dedicated method and the transport specific concerns (headers,
- * aborting the request, the response entity, ...) are dealt with by {@link ServerLRAFilter}.
+ * aborting the request, the response entity, ...) are dealt with by
+ * {@link io.narayana.lra.filter.ServerLRAFilter}.
  */
 public class ServerLRAProcessor {
 
@@ -62,14 +56,21 @@ public class ServerLRAProcessor {
     private final LRAParticipantRegistry lraParticipantRegistry;
     private final LRAParticipantData data;
     private final int enlistMaxRetries;
+    private final LRAAnnotationResolver resolver;
 
     private NarayanaLRAClient lraClient;
 
     public ServerLRAProcessor(LRAParticipantRegistry lraParticipantRegistry, LRAParticipantData data,
             int enlistMaxRetries) {
+        this(lraParticipantRegistry, data, enlistMaxRetries, new MicroProfileLRAAnnotationResolver());
+    }
+
+    public ServerLRAProcessor(LRAParticipantRegistry lraParticipantRegistry, LRAParticipantData data,
+            int enlistMaxRetries, LRAAnnotationResolver resolver) {
         this.lraParticipantRegistry = lraParticipantRegistry;
         this.data = data;
         this.enlistMaxRetries = enlistMaxRetries;
+        this.resolver = resolver;
     }
 
     /**
@@ -81,45 +82,44 @@ public class ServerLRAProcessor {
     public void processRequest(ServerLRAContext context) {
         Method method = context.getMethod();
 
-        // @PropagateToken is orthogonal to the LRA lifecycle
-        handlePropagateToken(context);
+        // token propagation is orthogonal to the LRA lifecycle
+        if (resolver.propagateToken(method)) {
+            handlePropagateToken(context);
+        }
 
-        // @Leave is applied first, whenever there is an incoming context (with or without @LRA)
-        if (isLeavePresent(method) && context.getIncomingLRA() != null) {
+        // leaving is applied first, whenever there is an incoming context (with or without a transaction)
+        if (resolver.isLeave(method) && context.getIncomingLRA() != null) {
             if (handleLeave(context)) {
                 return;
             }
         }
 
-        LRA lra = resolveLRA(method);
+        LRATransactionMetadata transaction = resolver.resolveTransaction(method);
 
-        if (lra != null) {
-            handleLRA(context, lra); // @LRA
+        if (transaction != null) {
+            handleTransaction(context, transaction); // the method starts or joins an LRA
         } else {
-            // @Compensate, @Complete, @Status, @Forget, @AfterLRA and @Leave run with the incoming context
-            // but do not enlist; methods with no LRA annotation only propagate any incoming context
-            context.setEndAnnotation(isParticipantCallback(method) || isLeavePresent(method));
+            // participant callbacks and @Leave run with the incoming context but do not enlist;
+            // methods with no LRA annotation only propagate any incoming context
+            context.setEndAnnotation(resolver.isParticipantCallback(method) || resolver.isLeave(method));
             handleNoType(context);
         }
     }
 
-    // @LRA
-    private void handleLRA(ServerLRAContext context, LRA transactional) {
-        context.setType(transactional.value());
+    // the method starts or joins an LRA
+    private void handleTransaction(ServerLRAContext context, LRATransactionMetadata metadata) {
+        context.setType(metadata.getPropagation());
 
-        Response.Status.Family[] cancelOnFamily = transactional.cancelOnFamily();
-        Response.Status[] cancelOn = transactional.cancelOn();
-
-        if (cancelOnFamily.length != 0) {
-            context.setCancelOnFamily(cancelOnFamily);
+        if (metadata.getCancelOnFamily() != null) {
+            context.setCancelOnFamily(metadata.getCancelOnFamily());
         }
 
-        if (cancelOn.length != 0) {
-            context.setCancelOn(cancelOn);
+        if (metadata.getCancelOn() != null) {
+            context.setCancelOn(metadata.getCancelOn());
         }
 
-        if (transactional.timeLimit() != 0) {
-            context.setTimeout(Duration.of(transactional.timeLimit(), transactional.timeUnit()).toMillis());
+        if (metadata.getTimeLimitMillis() != null) {
+            context.setTimeout(metadata.getTimeLimitMillis());
         }
 
         resolveEndAnnotation(context);
@@ -148,7 +148,7 @@ public class ServerLRAProcessor {
             return;
         }
 
-        context.setEndLRA(transactional.end());
+        context.setEndLRA(metadata.isEnd());
 
         // store state with the current thread
         Current.push(context.getCurrentLRA(), null); // make the current LRA available to the called method
@@ -221,40 +221,17 @@ public class ServerLRAProcessor {
 
     // @PropagateToken
     private void handlePropagateToken(ServerLRAContext context) {
-        Method method = context.getMethod();
+        String authHeader = context.getAuthHeader();
 
-        if (AnnotationResolver.isAnnotationPresent(PropagateToken.class, method)
-                || method.getDeclaringClass().isAnnotationPresent(PropagateToken.class)) {
-            String authHeader = context.getAuthHeader();
+        if (authHeader != null && authHeader.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            String token = authHeader.substring(7);
 
-            if (authHeader != null && authHeader.regionMatches(true, 0, "Bearer ", 0, 7)) {
-                String token = authHeader.substring(7);
-
-                if (BearerTokenResolver.isPlausibleJwt(token)) {
-                    Current.setAuthToken(token);
-                } else {
-                    LRALogger.logger.warnf("@PropagateToken: Authorization header does not contain a valid JWT structure");
-                }
+            if (BearerTokenResolver.isPlausibleJwt(token)) {
+                Current.setAuthToken(token);
+            } else {
+                LRALogger.logger.warnf("@PropagateToken: Authorization header does not contain a valid JWT structure");
             }
         }
-    }
-
-    private LRA resolveLRA(Method method) {
-        LRA transactional = AnnotationResolver.resolveAnnotation(LRA.class, method);
-
-        if (transactional == null) {
-            transactional = method.getDeclaringClass().getDeclaredAnnotation(LRA.class);
-        }
-
-        return transactional;
-    }
-
-    private boolean isParticipantCallback(Method method) {
-        return AnnotationResolver.isAnnotationPresent(Compensate.class, method)
-                || AnnotationResolver.isAnnotationPresent(Complete.class, method)
-                || AnnotationResolver.isAnnotationPresent(Status.class, method)
-                || AnnotationResolver.isAnnotationPresent(Forget.class, method)
-                || AnnotationResolver.isAnnotationPresent(AfterLRA.class, method);
     }
 
     // @Leave
@@ -315,7 +292,7 @@ public class ServerLRAProcessor {
 
                 break;
             case NEVER: // a txn must not be present
-                if (isTxInvalid(context, LRA.Type.NEVER, context.getIncomingLRA(), false)) {
+                if (isTxInvalid(context, Propagation.NEVER, context.getIncomingLRA(), false)) {
                     return;
                 }
 
@@ -389,24 +366,25 @@ public class ServerLRAProcessor {
     }
 
     private void handleEnlistment(ServerLRAContext context) {
-        ParticipantCallbacks callbacks = NarayanaLRAClient.getTerminationCallbacks(
-                context.getResourceClass(), context.getUriPrefix());
-        long timeLimit = context.getTimeout() != null && callbacks.hasCompensateOrComplete()
-                ? context.getTimeout()
-                : DEFAULT_TIMEOUT_MILLIS;
-
         LRAParticipant participant = lraParticipantRegistry != null
                 ? lraParticipantRegistry.getParticipant(context.getResourceClass().getName())
                 : null;
+
+        // the callbacks are built in one pass by the participant: its JAX-RS @Path endpoints
+        // always, plus the lra-participant-proxy callbacks when it is a registered non-JAX-RS
+        // participant (baseUri is the address the coordinator can reach this application at)
+        ParticipantCallbacks callbacks = (participant != null ? participant : new LRAParticipant(context.getResourceClass()))
+                .terminationCallbacks(context.getUriPrefix(),
+                        participant != null ? context.getBaseUri() : null);
+
+        long timeLimit = context.getTimeout() != null && callbacks.hasCompensateOrComplete()
+                ? context.getTimeout()
+                : DEFAULT_TIMEOUT_MILLIS;
 
         if (callbacks.hasAnyCallback() || participant != null) {
             context.setCallbacks(callbacks);
 
             try {
-                if (participant != null) {
-                    participant.augmentTerminationCallbacks(callbacks, context.getBaseUri());
-                }
-
                 StringBuilder previousParticipantData = new StringBuilder();
 
                 URI recoveryUrl = enlist(context, callbacks, timeLimit, previousParticipantData);
@@ -494,7 +472,7 @@ public class ServerLRAProcessor {
         }
     }
 
-    private boolean isTxInvalid(ServerLRAContext context, LRA.Type type, URI lraId, boolean shouldNotBeNull) {
+    private boolean isTxInvalid(ServerLRAContext context, Propagation type, URI lraId, boolean shouldNotBeNull) {
         if (lraId == null && shouldNotBeNull) {
             abort(context, null, PRECONDITION_FAILED.getStatusCode(), type.name() + " but no tx");
             return true;
@@ -557,17 +535,7 @@ public class ServerLRAProcessor {
     private void resolveEndAnnotation(ServerLRAContext context) {
         Method method = context.getMethod();
 
-        context.setEndAnnotation(
-                AnnotationResolver.isAnnotationPresent(Complete.class, method)
-                        || AnnotationResolver.isAnnotationPresent(Compensate.class, method)
-                        || AnnotationResolver.isAnnotationPresent(Leave.class, method)
-                        || AnnotationResolver.isAnnotationPresent(Status.class, method)
-                        || AnnotationResolver.isAnnotationPresent(Forget.class, method)
-                        || AnnotationResolver.isAnnotationPresent(AfterLRA.class, method));
-    }
-
-    private boolean isLeavePresent(Method method) {
-        return AnnotationResolver.isAnnotationPresent(Leave.class, method);
+        context.setEndAnnotation(resolver.isParticipantCallback(method) || resolver.isLeave(method));
     }
 
     private boolean progressDoesNotContain(ServerLRAContext context, ProgressStep step) {
