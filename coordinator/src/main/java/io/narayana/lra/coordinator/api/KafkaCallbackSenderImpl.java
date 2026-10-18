@@ -2,7 +2,9 @@ package io.narayana.lra.coordinator.api;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.narayana.lra.callbacks.CallbackFactory;
 import io.narayana.lra.callbacks.KafkaCallbackSender;
+import io.narayana.lra.callbacks.Protocol;
 import io.narayana.lra.contracts.kafka.LRAKafkaConstants;
 import io.narayana.lra.contracts.kafka.LRAKafkaEnvelope;
 import io.narayana.lra.logging.LRALogger;
@@ -29,7 +31,7 @@ import org.eclipse.microprofile.reactive.messaging.Message;
  * {@link KafkaLRAClient}.
  */
 @ApplicationScoped
-@IfBuildProperty(name = "quarkus.lra.kafka.enabled", stringValue = "true")
+@IfBuildProperty(name = CallbackFactory.PROTOCOL_PROPERTY, stringValue = Protocol.KAFKA_VALUE)
 public class KafkaCallbackSenderImpl implements KafkaCallbackSender {
 
     private final ObjectMapper objectMapper = new ObjectMapper();

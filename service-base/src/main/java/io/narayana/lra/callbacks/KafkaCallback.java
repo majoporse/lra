@@ -60,40 +60,52 @@ public class KafkaCallback implements LRACallback {
     /**
      * Factory for a compensate (@Compensate) callback.
      */
-    public static KafkaCallback compensateCallback(String topic, String targetUid) {
-        return new KafkaCallback(topic, targetUid, Operation.COMPENSATE);
+    public static KafkaCallback compensateCallback(String topic) {
+        return new KafkaCallback(topic, Operation.COMPENSATE);
+    }
+
+    /**
+     * Creates the callback of the given kind, all delivered on the participant's topic.
+     */
+    public static KafkaCallback of(CallbackType type, String topic) {
+        return switch (type) {
+            case COMPENSATE -> compensateCallback(topic);
+            case COMPLETE -> completeCallback(topic);
+            case STATUS -> statusCallback(topic);
+            case FORGET -> forgetCallback(topic);
+            case AFTER -> afterCallback(topic);
+        };
     }
 
     /**
      * Factory for a complete (@Complete) callback.
      */
-    public static KafkaCallback completeCallback(String topic, String targetUid) {
-        return new KafkaCallback(topic, targetUid, Operation.COMPLETE);
+    public static KafkaCallback completeCallback(String topic) {
+        return new KafkaCallback(topic, Operation.COMPLETE);
     }
 
     /**
      * Factory for a status (@Status) callback.
      */
-    public static KafkaCallback statusCallback(String topic, String targetUid) {
-        return new KafkaCallback(topic, targetUid, Operation.STATUS);
+    public static KafkaCallback statusCallback(String topic) {
+        return new KafkaCallback(topic, Operation.STATUS);
     }
 
     /**
      * Factory for a forget (@Forget) callback.
      */
-    public static KafkaCallback forgetCallback(String topic, String targetUid) {
-        return new KafkaCallback(topic, targetUid, Operation.FORGET);
+    public static KafkaCallback forgetCallback(String topic) {
+        return new KafkaCallback(topic, Operation.FORGET);
     }
 
     /**
      * Factory for an after LRA (@AfterLRA) notification callback.
      */
-    public static KafkaCallback afterCallback(String topic, String targetUid) {
-        return new KafkaCallback(topic, targetUid, Operation.AFTER_LRA);
+    public static KafkaCallback afterCallback(String topic) {
+        return new KafkaCallback(topic, Operation.AFTER_LRA);
     }
 
     private final String topic;
-    private final String targetUid;
     private final Operation operation;
 
     @JsonProperty("type")
@@ -104,10 +116,8 @@ public class KafkaCallback implements LRACallback {
     @JsonCreator
     public KafkaCallback(
             @JsonProperty("topic") String topic,
-            @JsonProperty("targetUid") String targetUid,
             @JsonProperty("operation") Operation operation) {
         this.topic = topic;
-        this.targetUid = targetUid;
         this.operation = operation != null ? operation : Operation.COMPLETE;
     }
 
@@ -253,11 +263,6 @@ public class KafkaCallback implements LRACallback {
 
     private CallbackResult mapAckResult(String error) {
         return error == null ? new CallbackResult(CallbackStatus.OK) : new CallbackResult(CallbackStatus.ERROR, error);
-    }
-
-    @Override
-    public String extractTargetUid() {
-        return targetUid;
     }
 
     @Override

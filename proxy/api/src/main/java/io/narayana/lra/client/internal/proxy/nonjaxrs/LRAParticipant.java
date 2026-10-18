@@ -13,8 +13,8 @@ import static io.narayana.lra.callbacks.CallbackType.STATUS;
 
 import io.narayana.lra.AnnotationResolver;
 import io.narayana.lra.api.LRA;
+import io.narayana.lra.callbacks.CallbackFactory;
 import io.narayana.lra.callbacks.CallbackType;
-import io.narayana.lra.callbacks.HttpCallback;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.inject.spi.CDI;
@@ -61,6 +61,7 @@ public class LRAParticipant {
     private final Class<?> javaClass;
     private final boolean transportNeutral; // whether this participant uses the io.narayana.lra.api annotations
     private final EnumMap<CallbackType, Method> callbackMethods = new EnumMap<>(CallbackType.class);
+    private final CallbackFactory callbackFactory = new CallbackFactory();
     private Object instance;
 
     private final Map<URI, ParticipantResult> participantStatusMap = new HashMap<>();
@@ -426,7 +427,7 @@ public class LRAParticipant {
         if (hasHttpVerb(method)) {
             String pathValue = pathAnnotation.value();
             pathValue = pathValue.startsWith("/") ? pathValue : "/" + pathValue;
-            callbacks.callback(type, HttpCallback.of(type, URI.create(uriPrefix + pathValue)));
+            callbacks.callback(type, callbackFactory.of(type, URI.create(uriPrefix + pathValue)));
         }
     }
 
@@ -443,7 +444,7 @@ public class LRAParticipant {
 
         for (CallbackType type : CallbackType.values()) {
             if (callbacks.callback(type) == null && callbackMethods.containsKey(type)) {
-                callbacks.callback(type, HttpCallback.of(type, URI.create(proxyPrefix + "/" + type.rel())));
+                callbacks.callback(type, callbackFactory.of(type, URI.create(proxyPrefix + "/" + type.rel())));
             }
         }
     }

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.callbacks.CallbackFactory;
+import io.narayana.lra.callbacks.Protocol;
 import io.narayana.lra.contracts.kafka.CancelLRAKafka;
 import io.narayana.lra.contracts.kafka.CloseLRAKafka;
 import io.narayana.lra.contracts.kafka.JoinLRAKafka;
@@ -29,7 +31,7 @@ import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Message;
 
 @ApplicationScoped
-@IfBuildProperty(name = "quarkus.lra.kafka.enabled", stringValue = "true")
+@IfBuildProperty(name = CallbackFactory.PROTOCOL_PROPERTY, stringValue = Protocol.KAFKA_VALUE)
 public class KafkaLRAListener {
 
     private final LRAService lraService;
@@ -87,6 +89,16 @@ public class KafkaLRAListener {
             String coordinatorUrl = "http://localhost:8080/" + LRAConstants.COORDINATOR_PATH_NAME;
             UUID parentId = request.parentLRA;
             LongRunningAction lra = lraService.startLRA(coordinatorUrl, parentId, request.clientId, request.timeout);
+
+            if (parentId != null) {
+                // the child LRA is enlisted as a participant of its parent: both belong to
+                // this coordinator, so the parent ends the child directly through its
+                // childLraId
+                String recoveryUrlBase = "http://localhost:8080/" + LRAConstants.COORDINATOR_PATH_NAME + "/"
+                        + LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
+                lraService.enlistChildWithParent(parentId, lra.getId(), recoveryUrlBase);
+            }
+
             reply = new StartLRAKafka.Reply(request.getCorrelationId(), lra.getId(), null);
         } catch (Exception e) {
             reply = new StartLRAKafka.Reply(request.getCorrelationId(), null, e.getMessage());

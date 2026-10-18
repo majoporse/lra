@@ -67,7 +67,6 @@ public class LongRunningAction extends BasicAction {
     private LocalDateTime finishTime;
     private ScheduledFuture<?> scheduledAbort;
     private final LRAService lraService;
-    LRAParentAbstractRecord par;
 
     private static long initParticipantEnlistTimeout() {
         try {
@@ -296,29 +295,7 @@ public class LongRunningAction extends BasicAction {
             String s = os.unpackString();
             id = s == null ? null : UUID.fromString(s);
             s = os.unpackString();
-            if (s == null) {
-                parentId = null;
-            } else {
-                parentId = UUID.fromString(s);
-
-                LongRunningAction localParent = lraService.lookupTransaction(parentId);
-
-                // if the parent LRA is in the same JVM as the nested LRA (remark, parents are saved before children)
-                // then it's possible to avoid JAX-RS calls by invoking transaction records directly instead:
-                if (localParent != null) {
-                    // this LRA has a parent that is in-VM, so we can optimise away the JAX-RS calls when moving the
-                    // LRA to an end state:
-                    if (par == null) {
-                        // this must be the restoration of state after a crash, otherwise par would have been set in
-                        // the constructor, so fix up the parent and child records (this code should be identical to
-                        // what the constructor does and should be pulled out into its own routine if changes occur):
-                        if (!linkChildWithParent(localParent)) {
-                            LRALogger.i18nLogger.warn_restoreState("add parent/child failed");
-                            return false;
-                        }
-                    }
-                }
-            }
+            parentId = s == null ? null : UUID.fromString(s);
             clientId = os.unpackString();
             coordinatorUrl = os.unpackString();
             startTime = os.unpackBoolean() ? LocalDateTime.ofInstant(Instant.ofEpochMilli(os.unpackLong()), ZoneOffset.UTC)
@@ -837,8 +814,12 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
-    public LRAParticipantRecord enlistParticipant(ParticipantCallbacks callbacks, String recoveryUrlBase,
-            long timeLimit, String compensatorData, String partId)
+    /**
+     * Enlist a participant into this LRA. When {@code childLraId} is non-null the participant is
+     * a nested LRA coordinated by this same coordinator and the callbacks are ignored.
+     */
+    public LRAParticipantRecord enlistParticipant(ParticipantCallbacks callbacks, UUID childLraId,
+            String recoveryUrlBase, long timeLimit, String compensatorData, String partId)
             throws UnsupportedEncodingException {
         ReentrantLock lock = tryTimedLockTransaction(participantEnlistTimeout);
         if (lock == null) {
@@ -852,7 +833,7 @@ public class LongRunningAction extends BasicAction {
                     participant.setCompensatorData(compensatorData);
                     return participant; // must have already been enlisted
                 }
-                participant = doEnlistParticipant(callbacks, recoveryUrlBase, timeLimit,
+                participant = doEnlistParticipant(callbacks, childLraId, recoveryUrlBase, timeLimit,
                         compensatorData, partId);
                 if (participant != null) {
                     // need to remember that there is a new participant
@@ -872,12 +853,15 @@ public class LongRunningAction extends BasicAction {
 
     }
 
-    private LRAParticipantRecord doEnlistParticipant(ParticipantCallbacks actions, String recoveryUrlBase,
-            long timeLimit, String compensatorData, String partId) {
+    private LRAParticipantRecord doEnlistParticipant(ParticipantCallbacks actions, UUID childLraId,
+            String recoveryUrlBase, long timeLimit, String compensatorData, String partId) {
         LRAParticipantRecord p = new LRAParticipantRecord(this, lraService,
-                actions.compensateCallback, actions.completeCallback,
-                actions.statusCallback, actions.forgetCallback, actions.afterCallback,
-                compensatorData, partId);
+                actions == null ? null : actions.compensateCallback,
+                actions == null ? null : actions.completeCallback,
+                actions == null ? null : actions.statusCallback,
+                actions == null ? null : actions.forgetCallback,
+                actions == null ? null : actions.afterCallback,
+                childLraId, compensatorData, partId);
         String pid = p.get_uid().fileStringForm();
 
         p.setRecoveryURI(recoveryUrlBase, getId().toString(), pid);
@@ -1116,21 +1100,9 @@ public class LongRunningAction extends BasicAction {
         int res = super.Begin(null);
         startTime = LocalDateTime.now(ZoneOffset.UTC);
 
-        if (parentId != null) {
-            // We want LRAs to be TopLevelActions (TLA).
-            // Normally if we were doing transaction to thread association we would pop the parent,
-            // however LRA does not use thread association (the context is passed explicitly,
-            // the reason for this is that services do not have access to ArjunaCore and use
-            // JAX-RS to propagate the context
-            LongRunningAction localParent = lraService.lookupTransaction(parentId);
-
-            if (localParent != null) {
-                // this parent is in-VM
-                if (!linkChildWithParent(localParent)) {
-                    return ActionStatus.INVALID;
-                }
-            }
-        }
+        // Note: a child LRA is linked to its parent by being enlisted as a participant of the
+        // parent (its childLraId), not by a record here. The parent and child are always
+        // coordinated by this same coordinator, so the parent ends the child directly.
 
         if (LRALogger.logger.isTraceEnabled()) {
             trace_progress("begin, deactivating");
@@ -1146,18 +1118,6 @@ public class LongRunningAction extends BasicAction {
         }
 
         return res;
-    }
-
-    private boolean linkChildWithParent(LongRunningAction localParent) {
-        par = new LRAParentAbstractRecord(localParent, this, lraService); // the new LRA we want parent to know about
-
-        if (localParent.add(par) != AddOutcome.AR_ADDED) {
-            return false;
-        }
-
-        LRAChildAbstractRecord childAR = new LRAChildAbstractRecord(par);
-
-        return add(childAR) != AddOutcome.AR_REJECTED;
     }
 
     public int setTimeLimit(Long timeLimit, boolean save) {

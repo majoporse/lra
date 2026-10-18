@@ -105,7 +105,7 @@ public class ObjStoreBrowserLRATest {
             callbacks.compensateCallback = HttpCallback.compensateCallback(
                     URI.create(participantUrl + "/compensate"));
             LRAParticipantRecord lraParticipant = lra.enlistParticipant(callbacks,
-                    "/recover", Long.MAX_VALUE, null, "beanremovaltest");
+                    null, "/recover", Long.MAX_VALUE, null, "beanremovaltest");
 
             osb.probe();
 

@@ -173,20 +173,6 @@ public class HttpCallback implements LRACallback {
     }
 
     @Override
-    public String extractTargetUid() {
-        try {
-            URI parsed = new URI(uri);
-            String[] segments = parsed.getPath().split("/");
-            int pCnt = segments.length;
-            if (pCnt > 1) {
-                return java.net.URLDecoder.decode(segments[pCnt - 2], java.nio.charset.StandardCharsets.UTF_8);
-            }
-        } catch (Exception ignore) {
-        }
-        return null;
-    }
-
-    @Override
     public String toJson() {
         try {
             return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(this);

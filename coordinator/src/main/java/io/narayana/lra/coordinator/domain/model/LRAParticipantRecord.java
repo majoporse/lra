@@ -15,7 +15,6 @@ import com.arjuna.ats.arjuna.state.InputObjectState;
 import com.arjuna.ats.arjuna.state.OutputObjectState;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
-import io.narayana.lra.LRAData;
 import io.narayana.lra.callbacks.CallbackContext;
 import io.narayana.lra.callbacks.CallbackResult;
 import io.narayana.lra.callbacks.CallbackStatus;
@@ -44,6 +43,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     private String participantId;
     private UUID lraId;
     private UUID parentId;
+    private UUID childLraId; // the child LRA this participant represents, null for ordinary participants
     private URI recoveryURI;
 
     private LRACallback compensateCallback;
@@ -66,11 +66,12 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     LRAParticipantRecord(LongRunningAction lra, LRAService lraService,
             LRACallback compensateCallback, LRACallback completeCallback,
             LRACallback statusCallback, LRACallback forgetCallback, LRACallback afterCallback,
-            String compensatorData, String partId) {
+            UUID childLraId, String compensatorData, String partId) {
         super(new Uid());
 
         this.participantId = partId;
         this.lra = lra;
+        this.childLraId = childLraId;
 
         this.compensateCallback = compensateCallback;
         this.completeCallback = completeCallback;
@@ -147,6 +148,12 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                     : TwoPhaseOutcome.FINISH_OK);
         }
 
+        // a nested LRA is ended directly by the same coordinator: there are no transport
+        // callbacks to invoke, so this branch must run before the null-callback checks below
+        if (childLraId != null) {
+            return doNestedEnd(compensate);
+        }
+
         if (ParticipantStatus.Compensating.equals(status)) {
             compensate = true;
         }
@@ -182,13 +189,6 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
             if (twoPhaseOutcome != -1) {
                 return atEnd(twoPhaseOutcome);
             }
-        } else {
-            var response = tryLocalEndInvocation(endCallback, compensate); // see if participant is in the same JVM
-            if (response != null) {
-                responseData = response.getBody();
-                callbackResultStatus = response.getStatus();
-            }
-
         }
 
         if (callbackResultStatus == null) {
@@ -276,6 +276,11 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         return status == ParticipantStatus.FailedToCompensate || status == ParticipantStatus.FailedToComplete;
     }
 
+    // whether this participant is a nested LRA ended directly by the same coordinator
+    private boolean isNested() {
+        return childLraId != null;
+    }
+
     private boolean afterLRARequest(CallbackContext ctx) {
         if (afterCallback == null) {
             return true;
@@ -298,7 +303,10 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
     }
 
     private int atEnd(int res) {
-        if (parentId != null && status == ParticipantStatus.Completed) {
+        // a nested LRA stays compensatable through its own state machine, so the
+        // "completed nested participants must remain compensatable" heuristic below applies
+        // only to ordinary participants
+        if (!isNested() && parentId != null && status == ParticipantStatus.Completed) {
             if (lraService.getLRA(parentId).getStatus() == LRAStatus.Active) {
                 // completed nested participants must remain compensatable
                 return TwoPhaseOutcome.HEURISTIC_HAZARD; // ask to be called again
@@ -387,22 +395,11 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
         // the participant has previously returned a HTTP 202 Accepted response so the status
         // must be valid - try that first for the status
 
-        // first check that this isn't a nested coordinator running locally
+        // first check that this isn't a nested LRA coordinated locally
         UUID nestedLraId = null;
 
-        if (statusCallback != null) {
-            String targetUid = statusCallback.extractTargetUid();
-
-            if (targetUid != null) {
-                try {
-                    UUID uuid = UUID.fromString(targetUid);
-
-                    if (lraService != null && lraService.hasTransaction(uuid)) {
-                        nestedLraId = uuid;
-                    }
-                } catch (IllegalArgumentException ignore) {
-                }
-            }
+        if (childLraId != null && lraService != null && lraService.hasTransaction(childLraId)) {
+            nestedLraId = childLraId;
         }
 
         if (LRALogger.logger.isTraceEnabled()) {
@@ -528,29 +525,46 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                 payload);
     }
 
-    // see if the participant is an LRA in the same VM as the coordinator
-    private CallbackResult tryLocalEndInvocation(LRACallback callback, boolean compensate) {
-        String targetUid = callback.extractTargetUid();
-
-        if (targetUid == null || lraService == null) {
-            return null;
+    // end a child LRA that is coordinated by this same coordinator
+    private int doNestedEnd(boolean compensate) {
+        if (lraService == null) {
+            return atEnd(TwoPhaseOutcome.FINISH_ERROR);
         }
 
-        try {
-            UUID cId = UUID.fromString(targetUid);
-            if (!lraService.hasTransaction(cId)) {
-                return null;
-            }
+        // the child may already have finished: a compensated nested LRA is removed when it
+        // ends, and a forgotten child is gone too, so the parent must not block on it
+        if (!lraService.hasTransaction(childLraId)) {
+            status = compensate ? ParticipantStatus.Compensated : ParticipantStatus.Completed;
+            return atEnd(TwoPhaseOutcome.FINISH_OK);
+        }
 
-            LRAData inVMStatus = lraService.endLRA(cId, compensate, true);
+        CallbackResult result = lraService.endLRA(childLraId, compensate, true).getCallbackResult();
 
-            return inVMStatus.getCallbackResult();
-        } catch (IllegalArgumentException e) {
-            return null;
+        switch (result.getStatus()) {
+            case OK:
+                status = compensate ? ParticipantStatus.Compensated : ParticipantStatus.Completed;
+                return atEnd(TwoPhaseOutcome.FINISH_OK);
+            case ACCEPTED:
+                status = compensate ? ParticipantStatus.Compensating : ParticipantStatus.Completing;
+                accepted = true;
+                return atEnd(TwoPhaseOutcome.HEURISTIC_HAZARD);
+            case FAILED:
+                status = compensate ? ParticipantStatus.FailedToCompensate : ParticipantStatus.FailedToComplete;
+                return atEnd(TwoPhaseOutcome.FINISH_ERROR);
+            default:
+                // ERROR, GONE, TIMEOUT: leave it for recovery to retry via the status callback
+                status = compensate ? ParticipantStatus.Compensating : ParticipantStatus.Completing;
+                accepted = true;
+                return atEnd(TwoPhaseOutcome.HEURISTIC_HAZARD);
         }
     }
 
     boolean forget() {
+        // a nested LRA is cleaned up with its parent, so there is no transport round-trip
+        if (childLraId != null) {
+            return true;
+        }
+
         if (forgetCallback != null) {
             try {
                 CallbackContext ctx = buildCallbackContext(null);
@@ -597,6 +611,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                 os.packString(participantId);
                 packUUID(os, lraId);
                 packUUID(os, parentId);
+                packUUID(os, childLraId);
                 packCallback(os, compensateCallback);
                 packURI(os, recoveryURI);
                 packCallback(os, completeCallback);
@@ -626,6 +641,7 @@ public class LRAParticipantRecord extends AbstractRecord implements Comparable<A
                 participantId = os.unpackString();
                 lraId = unpackUUID(os);
                 parentId = unpackUUID(os);
+                childLraId = unpackUUID(os);
                 compensateCallback = unpackCallback(os);
                 recoveryURI = unpackURI(os);
                 completeCallback = unpackCallback(os);

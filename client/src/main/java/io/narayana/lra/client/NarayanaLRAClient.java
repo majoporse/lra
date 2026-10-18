@@ -19,7 +19,8 @@ import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
-import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.CallbackFactory;
+import io.narayana.lra.callbacks.CallbackType;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
@@ -115,6 +116,8 @@ public class NarayanaLRAClient implements AutoCloseable {
     private static final long QUERY_TIMEOUT = Long.getLong("lra.internal.client.query.timeout", CLIENT_TIMEOUT);
 
     private static final Config CONFIG = ConfigProvider.getConfig();
+
+    private final CallbackFactory callbackFactory = new CallbackFactory();
 
     private Service coordinatorService;
     private URI coordinatorUrl; // default coordinator (when load balancing is enabled a cluster coordinators is used)
@@ -519,12 +522,12 @@ public class NarayanaLRAClient implements AutoCloseable {
             URI participantUri, StringBuilder compensatorData, String partId) throws WebApplicationException {
 
         var callbacks = new ParticipantCallbacks();
-        callbacks.compensateCallback = HttpCallback.compensateCallback(
+        callbacks.compensateCallback = callbackFactory.of(CallbackType.COMPENSATE,
                 URI.create(participantUri.toASCIIString() + "/compensate"));
-        callbacks.completeCallback = HttpCallback.completeCallback(
+        callbacks.completeCallback = callbackFactory.of(CallbackType.COMPLETE,
                 URI.create(participantUri.toASCIIString() + "/complete"));
-        callbacks.statusCallback = HttpCallback.statusCallback(participantUri);
-        callbacks.forgetCallback = HttpCallback.forgetCallback(participantUri);
+        callbacks.statusCallback = callbackFactory.of(CallbackType.STATUS, participantUri);
+        callbacks.forgetCallback = callbackFactory.of(CallbackType.FORGET, participantUri);
         return enlistCompensator(lraId, timeLimit, callbacks, compensatorData, partId);
     }
 
@@ -773,19 +776,19 @@ public class NarayanaLRAClient implements AutoCloseable {
 
         ParticipantCallbacks callbacks = new ParticipantCallbacks();
         if (compensateUri != null) {
-            callbacks.compensateCallback = HttpCallback.compensateCallback(compensateUri);
+            callbacks.compensateCallback = callbackFactory.of(CallbackType.COMPENSATE, compensateUri);
         }
         if (completeUri != null) {
-            callbacks.completeCallback = HttpCallback.completeCallback(completeUri);
+            callbacks.completeCallback = callbackFactory.of(CallbackType.COMPLETE, completeUri);
         }
         if (statusUri != null) {
-            callbacks.statusCallback = HttpCallback.statusCallback(statusUri);
+            callbacks.statusCallback = callbackFactory.of(CallbackType.STATUS, statusUri);
         }
         if (forgetUri != null) {
-            callbacks.forgetCallback = HttpCallback.forgetCallback(forgetUri);
+            callbacks.forgetCallback = callbackFactory.of(CallbackType.FORGET, forgetUri);
         }
         if (afterUri != null) {
-            callbacks.afterCallback = HttpCallback.afterCallback(afterUri);
+            callbacks.afterCallback = callbackFactory.of(CallbackType.AFTER, afterUri);
         }
 
         return enlistCompensator(lraUri, timelimit, callbacks, compensatorData, partId);

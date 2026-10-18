@@ -14,8 +14,6 @@ public interface LRACallback {
 
     CallbackResult call(CallbackContext context);
 
-    String extractTargetUid();
-
     String toJson();
 
     static LRACallback fromJson(String json) throws JsonProcessingException {

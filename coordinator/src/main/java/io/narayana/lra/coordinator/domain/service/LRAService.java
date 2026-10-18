@@ -328,7 +328,6 @@ public class LRAService {
     public int joinLRA(StringBuilder recoveryUrl, UUID lraId, long timeLimit,
             ParticipantCallbacks actions, String recoveryUrlBase,
             StringBuilder compensatorData, String partId) {
-
         LongRunningAction transaction = getTransaction(lraId);
 
         if (timeLimit < 0) {
@@ -347,7 +346,7 @@ public class LRAService {
 
         try {
             if (compensatorData != null) {
-                participant = transaction.enlistParticipant(actions, recoveryUrlBase,
+                participant = transaction.enlistParticipant(actions, null, recoveryUrlBase,
                         timeLimit, compensatorData.toString(), partId);
                 // return any previously registered data
                 compensatorData.setLength(0);
@@ -356,7 +355,7 @@ public class LRAService {
                     compensatorData.append(participant.getPreviousCompensatorData());
                 }
             } else {
-                participant = transaction.enlistParticipant(actions, recoveryUrlBase,
+                participant = transaction.enlistParticipant(actions, null, recoveryUrlBase,
                         timeLimit, null, partId);
             }
         } catch (UnsupportedEncodingException e) {
@@ -384,6 +383,31 @@ public class LRAService {
 
     public boolean hasTransaction(UUID id) {
         return id != null && (lras.containsKey(id) || recoveringLRAs.containsKey(id));
+    }
+
+    /**
+     * Enlist a child LRA as a participant of its parent. Both LRAs belong to this coordinator,
+     * so the parent ends the child directly through the participant's {@code childLraId} (the
+     * parent and child are never separated by a transport hop).
+     *
+     * @param parentId the parent LRA id
+     * @param childId the child LRA id
+     * @param recoveryUrlBase the recovery coordinator URL base used to address this enlistment
+     * @return {@code true} if the child was enlisted, {@code false} otherwise (for example the
+     *         parent is no longer active)
+     */
+    public boolean enlistChildWithParent(UUID parentId, UUID childId, String recoveryUrlBase) {
+        LongRunningAction parent = lookupTransaction(parentId);
+        if (parent == null) {
+            return false;
+        }
+
+        try {
+            parent.enlistParticipant(null, childId, recoveryUrlBase, 0L, null, childId.toString());
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void lraTrace(String lraId, String reason) {

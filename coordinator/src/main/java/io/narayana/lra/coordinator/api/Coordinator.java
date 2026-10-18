@@ -6,12 +6,8 @@
 package io.narayana.lra.coordinator.api;
 
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
-import static io.narayana.lra.LRAConstants.CURRENT_API_VERSION_STRING;
-import static io.narayana.lra.LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME;
-import static io.narayana.lra.LRAConstants.PARTICIPANT_TIMEOUT;
 import static io.narayana.lra.LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
 import static io.narayana.lra.LRAConstants.STATUS_PARAM_NAME;
-import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
 import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVERY_HEADER;
@@ -32,7 +28,6 @@ import io.narayana.lra.contracts.http.StatusLRAHttp;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
-import io.narayana.lra.coordinator.security.JwtTokenContext;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.ApplicationPath;
@@ -45,19 +40,13 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.ServiceUnavailableException;
 import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.client.Client;
-import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Application;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
-import java.net.URI;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.faulttolerance.Bulkhead;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
@@ -224,38 +213,11 @@ public class Coordinator extends Application {
         UUID lraId = lra.getId();
 
         if (parentId != null) {
-            // the startLRA call will have imported the parent LRA
-            String compensatorUrl = String.format("%s/%s/%s", coordinatorUrl, LRAConstants.NESTED_COORDINATOR_PATH_NAME,
-                    lra.getId());
-
-            if (!lraService.hasTransaction(parentId)) {
-
-                try (Client client = JwtTokenContext.newClient()) {
-                    try (Response response = client.target(coordinatorUri(parentId))
-                            .request()
-                            .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, CURRENT_API_VERSION_STRING)
-                            .async()
-                            .put(Entity.text(compensatorUrl))
-                            .get(PARTICIPANT_TIMEOUT, TimeUnit.SECONDS)) {
-
-                        if (response.getStatus() != Response.Status.OK.getStatusCode()) {
-                            String errMessage = String.format("The coordinator at %s returned an unexpected response: %d"
-                                    + "when the LRA '%s' tried to join the parent LRA '%s'", parentId, response.getStatus(),
-                                    lraId, parentId);
-                            throw new WebApplicationException(errMessage, response.getStatus());
-                        }
-                    }
-                } catch (InterruptedException | ExecutionException | TimeoutException e) {
-                    String errMsg = String.format(
-                            "Cannot contact the LRA Coordinator at '%s' for LRA '%s' joining parent LRA '%s'",
-                            parentId, lraId, parentId);
-                    LRALogger.logger.info(errMsg);
-                    // don't include the root exception (it should already be in the server side logs):
-                    throw new WebApplicationException(errMsg, Response.status(INTERNAL_SERVER_ERROR)
-                            .entity(errMsg)
-                            .build());
-                }
-            }
+            // the child LRA is enlisted as a participant of its parent: both belong to this
+            // coordinator, so the parent ends the child directly through its childLraId
+            String recoveryUrlBase = String.format("%s%s/%s",
+                    context.getBaseUri().toASCIIString(), COORDINATOR_PATH_NAME, RECOVERY_COORDINATOR_PATH_NAME);
+            lraService.enlistChildWithParent(parentId, lraId, recoveryUrlBase);
         }
 
         Current.push(LRAConstants.toLRAId(lra.getId()),
@@ -511,9 +473,5 @@ public class Coordinator extends Application {
     private static boolean isTerminal(LRAStatus status) {
         return status == LRAStatus.Closed || status == LRAStatus.Cancelled
                 || status == LRAStatus.FailedToClose || status == LRAStatus.FailedToCancel;
-    }
-
-    private URI coordinatorUri(UUID lraId) {
-        return URI.create(String.format("%s%s/%s", context.getBaseUri(), COORDINATOR_PATH_NAME, lraId));
     }
 }
