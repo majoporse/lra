@@ -22,7 +22,6 @@ import io.narayana.lra.LRAData;
 import io.narayana.lra.LinkHelper;
 import io.narayana.lra.callbacks.CallbackResult;
 import io.narayana.lra.callbacks.CallbackStatus;
-import io.narayana.lra.callbacks.HttpCallback;
 import io.narayana.lra.callbacks.LRACallback;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.coordinator.domain.service.LRAService;
@@ -1005,9 +1004,7 @@ public class LongRunningAction extends BasicAction {
                         LRAParticipantRecord rr = (LRAParticipantRecord) r;
                         // can't use == because this may be a recovery scenario
                         LRACallback compensateCallback = rr.getCompensateCallback();
-                        String compensator = compensateCallback instanceof HttpCallback
-                                ? ((HttpCallback) compensateCallback).getUri()
-                                : compensateCallback != null ? compensateCallback.toJson() : null;
+                        String compensator = LRACallback.callbackUri(compensateCallback);
 
                         if (participantUrl.toASCIIString().equals(compensator)) {
                             if (remove) {

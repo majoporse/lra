@@ -5,14 +5,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.callbacks.CallbackFactory;
 import io.narayana.lra.callbacks.KafkaCallbackSender;
 import io.narayana.lra.callbacks.Protocol;
+import io.narayana.lra.callbacks.contracts.kafka.AfterLRAKafkaCallback;
+import io.narayana.lra.callbacks.contracts.kafka.CompensateKafkaCallback;
+import io.narayana.lra.callbacks.contracts.kafka.CompleteKafkaCallback;
+import io.narayana.lra.callbacks.contracts.kafka.ForgetKafkaCallback;
+import io.narayana.lra.callbacks.contracts.kafka.KafkaCallbackReply;
+import io.narayana.lra.callbacks.contracts.kafka.KafkaCallbackRequest;
+import io.narayana.lra.callbacks.contracts.kafka.StatusKafkaCallback;
 import io.narayana.lra.contracts.kafka.LRAKafkaConstants;
 import io.narayana.lra.contracts.kafka.LRAKafkaEnvelope;
-import io.narayana.lra.logging.LRALogger;
 import io.quarkus.arc.properties.IfBuildProperty;
 import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -20,22 +25,14 @@ import java.util.concurrent.TimeoutException;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
-import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Message;
 
-/**
- * Kafka sender for {@link io.narayana.lra.callbacks.KafkaCallback}. Delivers
- * participant callback requests to the participant's listener topic and
- * correlates the participant's reply (published to the coordinator's callback
- * reply topic) by correlation id, mirroring the request/reply handling of
- * {@link KafkaLRAClient}.
- */
 @ApplicationScoped
 @IfBuildProperty(name = CallbackFactory.PROTOCOL_PROPERTY, stringValue = Protocol.KAFKA_VALUE)
 public class KafkaCallbackSenderImpl implements KafkaCallbackSender {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final ConcurrentHashMap<String, CompletableFuture<String>> pendingReplies = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CompletableFuture<KafkaCallbackReply>> pendingReplies = new ConcurrentHashMap<>();
     private final String replyTopic = resolveReplyTopic();
 
     @Channel(LRAKafkaConstants.CHANNEL_CALLBACK)
@@ -47,9 +44,9 @@ public class KafkaCallbackSenderImpl implements KafkaCallbackSender {
     }
 
     @Override
-    public String send(String topic, String type, Object payload, String correlationId, long timeout, TimeUnit unit)
-            throws InterruptedException {
-        CompletableFuture<String> future = new CompletableFuture<>();
+    public KafkaCallbackReply send(String topic, String type, KafkaCallbackRequest payload, String correlationId,
+            long timeout, TimeUnit unit) throws InterruptedException {
+        CompletableFuture<KafkaCallbackReply> future = new CompletableFuture<>();
         pendingReplies.put(correlationId, future);
 
         try {
@@ -66,20 +63,41 @@ public class KafkaCallbackSenderImpl implements KafkaCallbackSender {
         }
     }
 
-    @Incoming(LRAKafkaConstants.TOPIC_CALLBACK_REPLY)
-    public CompletionStage<Void> onIncomingReply(Message<String> message) {
-        String replyJson = message.getPayload();
-        String correlationId = extractCorrelationIdFromPayload(replyJson);
-        if (correlationId != null) {
-            CompletableFuture<String> future = pendingReplies.remove(correlationId);
-            if (future != null) {
-                future.complete(replyJson);
-            }
+    public void handleReply(LRAKafkaEnvelope envelope) {
+        KafkaCallbackReply reply = parseReply(envelope);
+
+        if (reply == null) {
+            return;
         }
-        return message.ack();
+
+        CompletableFuture<KafkaCallbackReply> future = pendingReplies.remove(reply.getCorrelationId());
+
+        if (future != null) {
+            future.complete(reply);
+        }
     }
 
-    private void sendEnvelope(String topic, String type, Object payload) {
+    private KafkaCallbackReply parseReply(LRAKafkaEnvelope envelope) {
+        if (envelope == null || envelope.type == null) {
+            return null;
+        }
+
+        return switch (envelope.type) {
+            case LRAKafkaConstants.TYPE_COMPENSATE_REPLY ->
+                objectMapper.convertValue(envelope.payload, CompensateKafkaCallback.Reply.class);
+            case LRAKafkaConstants.TYPE_COMPLETE_REPLY ->
+                objectMapper.convertValue(envelope.payload, CompleteKafkaCallback.Reply.class);
+            case LRAKafkaConstants.TYPE_STATUS_REPLY ->
+                objectMapper.convertValue(envelope.payload, StatusKafkaCallback.Reply.class);
+            case LRAKafkaConstants.TYPE_FORGET_REPLY ->
+                objectMapper.convertValue(envelope.payload, ForgetKafkaCallback.Reply.class);
+            case LRAKafkaConstants.TYPE_AFTER_LRA_REPLY ->
+                objectMapper.convertValue(envelope.payload, AfterLRAKafkaCallback.Reply.class);
+            default -> null;
+        };
+    }
+
+    private void sendEnvelope(String topic, String type, KafkaCallbackRequest payload) {
         try {
             LRAKafkaEnvelope envelope = new LRAKafkaEnvelope(type, payload);
             String envelopeJson = objectMapper.writeValueAsString(envelope);
@@ -95,21 +113,9 @@ public class KafkaCallbackSenderImpl implements KafkaCallbackSender {
         }
     }
 
-    private String extractCorrelationIdFromPayload(String payload) {
-        try {
-            var node = objectMapper.readTree(payload);
-            if (node.has("correlationId")) {
-                return node.get("correlationId").asText();
-            }
-        } catch (Exception e) {
-            LRALogger.logger.error("Failed to extract correlationId from Kafka callback reply", e);
-        }
-        return null;
-    }
-
     private String resolveReplyTopic() {
         return ConfigProvider.getConfig()
-                .getOptionalValue(LRAKafkaConstants.CONFIG_COORDINATOR_CALLBACK_TOPIC, String.class)
-                .orElse(LRAKafkaConstants.TOPIC_CALLBACK_REPLY);
+                .getOptionalValue(LRAKafkaConstants.CONFIG_COORDINATOR_TOPIC, String.class)
+                .orElse(LRAKafkaConstants.TOPIC_REQUEST);
     }
 }

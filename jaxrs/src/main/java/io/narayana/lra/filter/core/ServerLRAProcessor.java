@@ -19,6 +19,8 @@ import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.client.LRAParticipantData;
 import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.client.ParticipantIdProvider;
+import io.narayana.lra.client.internal.proxy.callback.CallbackParticipantRegistry;
+import io.narayana.lra.client.internal.proxy.callback.ContractParticipant;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipant;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
 import io.narayana.lra.filter.core.ServerLRAContext.Progress;
@@ -54,6 +56,7 @@ public class ServerLRAProcessor {
     private static final Pattern START_END_QUOTES_PATTERN = Pattern.compile("^\"|\"$");
 
     private final LRAParticipantRegistry lraParticipantRegistry;
+    private final CallbackParticipantRegistry callbackParticipantRegistry;
     private final LRAParticipantData data;
     private final int enlistMaxRetries;
     private final LRAAnnotationResolver resolver;
@@ -67,7 +70,14 @@ public class ServerLRAProcessor {
 
     public ServerLRAProcessor(LRAParticipantRegistry lraParticipantRegistry, LRAParticipantData data,
             int enlistMaxRetries, LRAAnnotationResolver resolver) {
+        this(lraParticipantRegistry, null, data, enlistMaxRetries, resolver);
+    }
+
+    public ServerLRAProcessor(LRAParticipantRegistry lraParticipantRegistry,
+            CallbackParticipantRegistry callbackParticipantRegistry, LRAParticipantData data,
+            int enlistMaxRetries, LRAAnnotationResolver resolver) {
         this.lraParticipantRegistry = lraParticipantRegistry;
+        this.callbackParticipantRegistry = callbackParticipantRegistry;
         this.data = data;
         this.enlistMaxRetries = enlistMaxRetries;
         this.resolver = resolver;
@@ -366,22 +376,29 @@ public class ServerLRAProcessor {
     }
 
     private void handleEnlistment(ServerLRAContext context) {
-        LRAParticipant participant = lraParticipantRegistry != null
+        ContractParticipant contractParticipant = callbackParticipantRegistry != null
+                ? callbackParticipantRegistry.getParticipant(context.getResourceClass().getName())
+                : null;
+
+        LRAParticipant participant = contractParticipant == null && lraParticipantRegistry != null
                 ? lraParticipantRegistry.getParticipant(context.getResourceClass().getName())
                 : null;
 
-        // the callbacks are built in one pass by the participant: its JAX-RS @Path endpoints
-        // always, plus the lra-participant-proxy callbacks when it is a registered non-JAX-RS
-        // participant (baseUri is the address the coordinator can reach this application at)
-        ParticipantCallbacks callbacks = (participant != null ? participant : new LRAParticipant(context.getResourceClass()))
-                .terminationCallbacks(context.getUriPrefix(),
-                        participant != null ? context.getBaseUri() : null);
+        ParticipantCallbacks callbacks;
+
+        if (contractParticipant != null) {
+            callbacks = contractParticipant.terminationCallbacks(context.getUriPrefix(), context.getBaseUri());
+        } else {
+            callbacks = (participant != null ? participant : new LRAParticipant(context.getResourceClass()))
+                    .terminationCallbacks(context.getUriPrefix(),
+                            participant != null ? context.getBaseUri() : null);
+        }
 
         long timeLimit = context.getTimeout() != null && callbacks.hasCompensateOrComplete()
                 ? context.getTimeout()
                 : DEFAULT_TIMEOUT_MILLIS;
 
-        if (callbacks.hasAnyCallback() || participant != null) {
+        if (callbacks.hasAnyCallback() || participant != null || contractParticipant != null) {
             context.setCallbacks(callbacks);
 
             try {

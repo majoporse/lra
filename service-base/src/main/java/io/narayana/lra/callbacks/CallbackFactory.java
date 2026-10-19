@@ -10,24 +10,29 @@ import java.net.URI;
 import java.util.Map;
 import org.eclipse.microprofile.config.ConfigProvider;
 
-/**
- * Creates the {@link LRACallback}s a participant enlists with, choosing the callback protocol
- * from {@code quarkus.lra.client.protocol} (default {@code http}). For {@code http} callbacks
- * carry the coordinator-reachable address of the participant endpoint; for {@code kafka} they
- * carry the participant's callback topic (see the "Callback protocol" glossary term).
- * <p>
- * A protocol is never mixed: the same property that selects the client's coordinator transport
- * also selects how its participant callbacks are delivered.
- */
 public class CallbackFactory {
 
     public static final String PROTOCOL_PROPERTY = "quarkus.lra.client.protocol";
-    public static final String CALLBACK_TOPIC_PROPERTY = "quarkus.lra.client-callback-topic";
+
+    public static final String SERVICE_TOPIC_PROPERTY = "quarkus.lra.client-topic";
 
     private final Protocol protocol;
     private final String kafkaTopic;
+    private final String participantId;
+    private final boolean contractCallbacks;
 
     public CallbackFactory() {
+        this(null, false);
+    }
+
+    public CallbackFactory(String participantId) {
+        this(participantId, false);
+    }
+
+    public CallbackFactory(String participantId, boolean contractCallbacks) {
+        this.participantId = participantId;
+        this.contractCallbacks = contractCallbacks;
+
         String configured = ConfigProvider.getConfig()
                 .getOptionalValue(PROTOCOL_PROPERTY, String.class)
                 .filter(value -> !value.isBlank())
@@ -42,44 +47,47 @@ public class CallbackFactory {
         }
 
         this.kafkaTopic = protocol == Protocol.KAFKA
-                ? ConfigProvider.getConfig().getValue(CALLBACK_TOPIC_PROPERTY, String.class)
+                ? ConfigProvider.getConfig().getValue(SERVICE_TOPIC_PROPERTY, String.class)
                 : null;
     }
 
-    /**
-     * The callback for an endpoint addressed by an explicit URI. The URI is used for the HTTP
-     * protocol; for Kafka the callback carries the participant's configured callback topic.
-     */
-    public LRACallback of(CallbackType type, URI explicitUri) {
-        return protocol == Protocol.KAFKA
-                ? KafkaCallback.of(type, kafkaTopic)
-                : HttpCallback.of(type, explicitUri);
+    public static CallbackFactory forContractParticipant(String participantId) {
+        return new CallbackFactory(participantId, true);
     }
 
-    /**
-     * The callback for an endpoint at {@code pathOrNull} under the configured base URI (see
-     * {@code narayana.lra.base-uri}). When {@code pathOrNull} is null the callback kind's path
-     * segment is used. This is the seam for standardising participant callbacks on
-     * {@code <base>/<callback-kind>} once per-method {@code @Path} values are dropped.
-     */
+    public boolean isKafka() {
+        return protocol == Protocol.KAFKA;
+    }
+
+    public boolean isContractCallbacks() {
+        return contractCallbacks;
+    }
+
+    public LRACallback of(CallbackType type, URI explicitUri) {
+        if (protocol == Protocol.KAFKA) {
+            return KafkaCallback.of(type, kafkaTopic, participantId);
+        }
+
+        return contractCallbacks
+                ? HttpCallback.of(type, explicitUri, participantId)
+                : LegacyHttpCallback.of(type, explicitUri);
+    }
+
     public LRACallback of(CallbackType type, String pathOrNull) {
         return of(type, baseUri(), pathOrNull);
     }
 
-    /**
-     * The callback for an endpoint at {@code pathOrNull} under {@code baseUri}.
-     */
     public LRACallback of(CallbackType type, URI baseUri, String pathOrNull) {
         if (protocol == Protocol.KAFKA) {
-            return KafkaCallback.of(type, kafkaTopic);
+            return KafkaCallback.of(type, kafkaTopic, participantId);
         }
         String path = pathOrNull == null || pathOrNull.isBlank() ? type.rel() : pathOrNull;
-        return HttpCallback.of(type, join(baseUri, path));
+        URI endpoint = join(baseUri, path);
+        return contractCallbacks
+                ? HttpCallback.of(type, endpoint, participantId)
+                : LegacyHttpCallback.of(type, endpoint);
     }
 
-    /**
-     * Builds the non-null callbacks in {@code callbacks} from the given per-kind URIs.
-     */
     public void fill(ParticipantCallbacks callbacks, Map<CallbackType, URI> explicitUris) {
         for (Map.Entry<CallbackType, URI> entry : explicitUris.entrySet()) {
             callbacks.callback(entry.getKey(), of(entry.getKey(), entry.getValue()));

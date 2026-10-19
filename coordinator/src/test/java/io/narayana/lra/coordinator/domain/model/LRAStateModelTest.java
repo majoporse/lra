@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.narayana.lra.LRAConstants;
-import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.LegacyHttpCallback;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
@@ -243,9 +243,9 @@ public class LRAStateModelTest extends LRATestBase {
 
     private static ParticipantCallbacks callbacksFor(String prefix) {
         ParticipantCallbacks callbacks = new ParticipantCallbacks();
-        callbacks.compensateCallback = HttpCallback.compensateCallback(
+        callbacks.compensateCallback = LegacyHttpCallback.compensateCallback(
                 URI.create(String.format("%s/%s", prefix, "compensate")));
-        callbacks.completeCallback = HttpCallback.completeCallback(
+        callbacks.completeCallback = LegacyHttpCallback.completeCallback(
                 URI.create(String.format("%s/%s", prefix, "complete")));
         return callbacks;
     }

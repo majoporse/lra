@@ -2,11 +2,8 @@ package io.narayana.lra.callbacks.contracts.common;
 
 import java.net.URI;
 
-/**
- * Transport-agnostic base for the context carried by a participant
- * notification: the LRA, its parent, the recovery URL and any participant data.
- */
 public class ParticipantRequest {
+    public String participantId;
     public URI lraId;
     public URI parentId;
     public String recoveryUrl;
@@ -16,6 +13,12 @@ public class ParticipantRequest {
     }
 
     protected ParticipantRequest(URI lraId, URI parentId, String recoveryUrl, String compensatorData) {
+        this(null, lraId, parentId, recoveryUrl, compensatorData);
+    }
+
+    protected ParticipantRequest(String participantId, URI lraId, URI parentId, String recoveryUrl,
+            String compensatorData) {
+        this.participantId = participantId;
         this.lraId = lraId;
         this.parentId = parentId;
         this.recoveryUrl = recoveryUrl;

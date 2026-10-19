@@ -19,7 +19,7 @@ import com.arjuna.ats.arjuna.tools.osb.mbean.OSEntryBean;
 import com.arjuna.ats.arjuna.tools.osb.mbean.ObjStoreBrowser;
 import com.arjuna.ats.arjuna.tools.osb.mbean.UidWrapper;
 import com.arjuna.ats.internal.arjuna.recovery.RecoveryManagerImple;
-import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.LegacyHttpCallback;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.coordinator.domain.model.FailedLongRunningAction;
 import io.narayana.lra.coordinator.domain.model.LRAParticipantRecord;
@@ -102,7 +102,7 @@ public class ObjStoreBrowserLRATest {
             String coordinatorUrl = "http://localhost:8080/lra-coordinator";
             String participantUrl = "http://localhost:8080/lra-participant";
             var callbacks = new ParticipantCallbacks();
-            callbacks.compensateCallback = HttpCallback.compensateCallback(
+            callbacks.compensateCallback = LegacyHttpCallback.compensateCallback(
                     URI.create(participantUrl + "/compensate"));
             LRAParticipantRecord lraParticipant = lra.enlistParticipant(callbacks,
                     null, "/recover", Long.MAX_VALUE, null, "beanremovaltest");

@@ -1,158 +1,170 @@
+/*
+   Copyright The Narayana Authors
+   SPDX-License-Identifier: Apache-2.0
+ */
+
 package io.narayana.lra.callbacks;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.LRAConstants;
+import io.narayana.lra.api.LRA;
+import io.narayana.lra.callbacks.contracts.common.ParticipantReply;
+import io.narayana.lra.callbacks.contracts.common.ParticipantRequest;
+import io.narayana.lra.callbacks.contracts.http.HttpAfterLRACallback;
+import io.narayana.lra.callbacks.contracts.http.HttpCompensateCallback;
+import io.narayana.lra.callbacks.contracts.http.HttpCompleteCallback;
+import io.narayana.lra.callbacks.contracts.http.HttpForgetCallback;
+import io.narayana.lra.callbacks.contracts.http.HttpStatusCallback;
+import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.client.Client;
+import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.net.URI;
 import java.util.concurrent.TimeUnit;
-import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
+import java.util.concurrent.TimeoutException;
 
 public class HttpCallback implements LRACallback {
-    public enum HttpMethod {
-        PUT,
-        GET,
-        DELETE
-    }
 
-    public enum ContextType {
-        ACTIVE,
-        ENDED
-    }
+    public static final String TYPE = "http-contract";
 
-    /**
-     * Creates the callback of the given kind (the HTTP method and context type follow the LRA
-     * protocol for that kind).
-     */
     public static HttpCallback of(CallbackType type, URI uri) {
+        return of(type, uri, null);
+    }
+
+    public static HttpCallback of(CallbackType type, URI uri, String participantId) {
         return switch (type) {
-            case COMPENSATE -> compensateCallback(uri);
-            case COMPLETE -> completeCallback(uri);
-            case STATUS -> statusCallback(uri);
-            case FORGET -> forgetCallback(uri);
-            case AFTER -> afterCallback(uri);
+            case COMPENSATE -> compensateCallback(uri, participantId);
+            case COMPLETE -> completeCallback(uri, participantId);
+            case STATUS -> statusCallback(uri, participantId);
+            case FORGET -> forgetCallback(uri, participantId);
+            case AFTER -> afterCallback(uri, participantId);
         };
     }
 
-    @JsonProperty("type")
-    public String getType() {
-        return "http";
+    public static HttpCallback compensateCallback(URI uri) {
+        return compensateCallback(uri, null);
+    }
+
+    public static HttpCallback compensateCallback(URI uri, String participantId) {
+        return new HttpCallback(uri.toASCIIString(), CallbackType.COMPENSATE, participantId);
+    }
+
+    public static HttpCallback completeCallback(URI uri) {
+        return completeCallback(uri, null);
+    }
+
+    public static HttpCallback completeCallback(URI uri, String participantId) {
+        return new HttpCallback(uri.toASCIIString(), CallbackType.COMPLETE, participantId);
+    }
+
+    public static HttpCallback statusCallback(URI uri) {
+        return statusCallback(uri, null);
+    }
+
+    public static HttpCallback statusCallback(URI uri, String participantId) {
+        return new HttpCallback(uri.toASCIIString(), CallbackType.STATUS, participantId);
+    }
+
+    public static HttpCallback forgetCallback(URI uri) {
+        return forgetCallback(uri, null);
+    }
+
+    public static HttpCallback forgetCallback(URI uri, String participantId) {
+        return new HttpCallback(uri.toASCIIString(), CallbackType.FORGET, participantId);
+    }
+
+    public static HttpCallback afterCallback(URI uri) {
+        return afterCallback(uri, null);
+    }
+
+    public static HttpCallback afterCallback(URI uri, String participantId) {
+        return new HttpCallback(uri.toASCIIString(), CallbackType.AFTER, participantId);
     }
 
     private final String uri;
-    private final HttpMethod method;
-    private final ContextType contextType;
+    private final CallbackType operation;
+    private final String participantId;
 
-    /**
-     * Factory for a compensate (@Compensate) callback: PUT with the ACTIVE LRA context.
-     */
-    public static HttpCallback compensateCallback(URI uri) {
-        return new HttpCallback(uri, HttpMethod.PUT, ContextType.ACTIVE);
+    @JsonProperty("type")
+    public String getType() {
+        return TYPE;
     }
-
-    /**
-     * Factory for a complete (@Complete) callback: PUT with the ACTIVE LRA context.
-     */
-    public static HttpCallback completeCallback(URI uri) {
-        return new HttpCallback(uri, HttpMethod.PUT, ContextType.ACTIVE);
-    }
-
-    /**
-     * Factory for a status (@Status) callback: GET with the ACTIVE LRA context.
-     */
-    public static HttpCallback statusCallback(URI uri) {
-        return new HttpCallback(uri, HttpMethod.GET, ContextType.ACTIVE);
-    }
-
-    /**
-     * Factory for a forget (@Forget) callback: DELETE with the ACTIVE LRA context.
-     */
-    public static HttpCallback forgetCallback(URI uri) {
-        return new HttpCallback(uri, HttpMethod.DELETE, ContextType.ACTIVE);
-    }
-
-    /**
-     * Factory for an after LRA (@AfterLRA) notification callback: PUT with the ENDED LRA context.
-     */
-    public static HttpCallback afterCallback(URI uri) {
-        return new HttpCallback(uri, HttpMethod.PUT, ContextType.ENDED);
-    }
-
-    // NOTE: construction is only possible via the static factories or Jackson deserialization;
-    // this ensures the HTTP method and context type always match the endpoint semantics.
 
     @JsonCreator
-    private HttpCallback(
+    public HttpCallback(
             @JsonProperty("uri") String uri,
-            @JsonProperty("method") HttpMethod method,
-            @JsonProperty("contextType") ContextType contextType) {
+            @JsonProperty("operation") CallbackType operation,
+            @JsonProperty("participantId") String participantId) {
         this.uri = uri;
-        this.method = method != null ? method : HttpMethod.PUT;
-        this.contextType = contextType != null ? contextType : ContextType.ACTIVE;
-    }
-
-    private HttpCallback(URI uri, HttpMethod method, ContextType contextType) {
-        this(uri.toASCIIString(), method, contextType);
+        this.operation = operation != null ? operation : CallbackType.COMPLETE;
+        this.participantId = participantId;
     }
 
     public String getUri() {
         return uri;
     }
 
-    public HttpMethod getMethod() {
-        return method;
+    public CallbackType getOperation() {
+        return operation;
     }
 
-    public ContextType getContextType() {
-        return contextType;
+    public String getParticipantId() {
+        return participantId;
+    }
+
+    public ParticipantRequest newRequest(CallbackContext context) {
+        String lraId = context.getLraId();
+        URI lraUri = lraId == null ? null : URI.create(lraId);
+        URI parentUri = context.getParentId() == null ? null : URI.create(context.getParentId());
+        String recoveryUrl = context.getRecoveryId();
+        String compensatorData = context.getCompensatorData();
+
+        return switch (operation) {
+            case COMPENSATE -> new HttpCompensateCallback.Request(participantId, lraUri, parentUri, recoveryUrl,
+                    compensatorData);
+            case COMPLETE -> new HttpCompleteCallback.Request(participantId, lraUri, parentUri, recoveryUrl,
+                    compensatorData);
+            case STATUS -> new HttpStatusCallback.Request(participantId, lraUri, parentUri, recoveryUrl,
+                    compensatorData);
+            case FORGET -> new HttpForgetCallback.Request(participantId, lraUri, parentUri, recoveryUrl,
+                    compensatorData);
+            case AFTER -> {
+                String payload = context.getPayload();
+                yield new HttpAfterLRACallback.Request(participantId, lraUri, parentUri, recoveryUrl,
+                        compensatorData, payload == null ? null : LRA.TransactionStatus.valueOf(payload));
+            }
+        };
     }
 
     @Override
     public CallbackResult call(CallbackContext context) {
         Client client = null;
+
         try {
-            client = jakarta.ws.rs.client.ClientBuilder.newClient();
-            var builder = client.target(uri)
-                    .request()
-                    .header(LRA.LRA_HTTP_RECOVERY_HEADER, context.getRecoveryId())
-                    .header("Narayana-LRA-Participant-Data", context.getCompensatorData());
-            if (context.getParentId() != null) {
-                builder.header(LRA.LRA_HTTP_PARENT_CONTEXT_HEADER, context.getParentId());
+            client = ClientBuilder.newClient();
+            String requestJson = new ObjectMapper().writeValueAsString(newRequest(context));
+            try (Response response = client.target(uri)
+                    .request(MediaType.APPLICATION_JSON_TYPE)
+                    .async()
+                    .post(Entity.entity(requestJson, MediaType.APPLICATION_JSON_TYPE))
+                    .get(LRAConstants.PARTICIPANT_TIMEOUT, TimeUnit.SECONDS)) {
+                String body = response.hasEntity() ? response.readEntity(String.class) : null;
+
+                return mapReply(body);
             }
-
-            if (contextType == ContextType.ENDED) {
-                builder.header(LRA.LRA_HTTP_ENDED_CONTEXT_HEADER, context.getLraId());
-            } else {
-                builder.header(LRA.LRA_HTTP_CONTEXT_HEADER, context.getLraId());
-            }
-
-            Response response = switch (method) {
-                case GET -> builder.async().get().get(LRAConstants.PARTICIPANT_TIMEOUT, TimeUnit.SECONDS);
-                case DELETE -> builder.async().delete().get(LRAConstants.PARTICIPANT_TIMEOUT, TimeUnit.SECONDS);
-                default -> {
-                    String payload = context.getPayload() != null ? context.getPayload() : "";
-                    yield builder.async().put(Entity.text(payload)).get(LRAConstants.PARTICIPANT_TIMEOUT,
-                            TimeUnit.SECONDS);
-                }
-            };
-
-            int status = response.getStatus();
-            CallbackStatus callbackStatus = mapStatus(status);
-            String body = response.hasEntity() ? response.readEntity(String.class) : null;
-            LRACallback updatedStatusCallback = null;
-
-            if (callbackStatus == CallbackStatus.ACCEPTED) {
-                String location = response.getHeaderString("Location");
-                if (location != null) {
-                    updatedStatusCallback = statusCallback(URI.create(location));
-                }
-            }
-
-            return new CallbackResult(callbackStatus, body, updatedStatusCallback);
-        } catch (Exception e) {
+        } catch (TimeoutException e) {
             return new CallbackResult(CallbackStatus.TIMEOUT);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new CallbackResult(CallbackStatus.TIMEOUT);
+        } catch (Exception e) {
+            LRALogger.logger.errorf("HTTP contract callback failed (uri=%s, operation=%s): %s", uri, operation,
+                    e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            return new CallbackResult(CallbackStatus.ERROR);
         } finally {
             if (client != null) {
                 client.close();
@@ -160,22 +172,58 @@ public class HttpCallback implements LRACallback {
         }
     }
 
-    private static CallbackStatus mapStatus(int httpStatus) {
-        if (httpStatus >= 200 && httpStatus < 300)
-            return httpStatus == 202 ? CallbackStatus.ACCEPTED : CallbackStatus.OK;
-        if (httpStatus == 410)
-            return CallbackStatus.GONE;
-        if (httpStatus == 409)
-            return CallbackStatus.FAILED;
-        //        if (httpStatus == 500)
-        //            return CallbackStatus.FAILED;
-        return CallbackStatus.ERROR;
+    CallbackResult mapReply(String body) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            return switch (operation) {
+                case COMPENSATE -> mapEndResult(mapper.readValue(body, HttpCompensateCallback.Reply.class));
+                case COMPLETE -> mapEndResult(mapper.readValue(body, HttpCompleteCallback.Reply.class));
+                case STATUS -> mapStatusResult(mapper.readValue(body, HttpStatusCallback.Reply.class));
+                case FORGET -> mapAckResult(mapper.readValue(body, HttpForgetCallback.Reply.class).error);
+                case AFTER -> mapAckResult(mapper.readValue(body, HttpAfterLRACallback.Reply.class).error);
+            };
+        } catch (Exception e) {
+            LRALogger.logger.errorf("Failed to read HTTP contract callback reply (uri=%s, operation=%s): %s", uri,
+                    operation, e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            return new CallbackResult(CallbackStatus.ERROR);
+        }
+    }
+
+    private CallbackResult mapEndResult(ParticipantReply reply) {
+        if (reply.error != null || reply.status == null) {
+            return new CallbackResult(CallbackStatus.ERROR, reply.error);
+        }
+
+        return switch (reply.status) {
+            case Completed, Compensated -> new CallbackResult(CallbackStatus.OK);
+            case Completing, Compensating -> new CallbackResult(CallbackStatus.ACCEPTED);
+            case FailedToComplete, FailedToCompensate -> new CallbackResult(CallbackStatus.FAILED,
+                    reply.status.name());
+            default -> new CallbackResult(CallbackStatus.ERROR);
+        };
+    }
+
+    private CallbackResult mapStatusResult(ParticipantReply reply) {
+        if (reply.error != null || reply.status == null) {
+            return new CallbackResult(CallbackStatus.ERROR, reply.error);
+        }
+
+        return switch (reply.status) {
+            case Completed, Compensated, FailedToComplete, FailedToCompensate ->
+                new CallbackResult(CallbackStatus.OK, reply.status.name());
+            // in progress: recovery keeps polling
+            default -> new CallbackResult(CallbackStatus.ACCEPTED);
+        };
+    }
+
+    private CallbackResult mapAckResult(String error) {
+        return error == null ? new CallbackResult(CallbackStatus.OK) : new CallbackResult(CallbackStatus.ERROR, error);
     }
 
     @Override
     public String toJson() {
         try {
-            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(this);
+            return new ObjectMapper().writeValueAsString(this);
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize HttpCallback", e);
         }

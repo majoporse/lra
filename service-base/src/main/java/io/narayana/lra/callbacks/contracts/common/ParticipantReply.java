@@ -1,18 +1,20 @@
 package io.narayana.lra.callbacks.contracts.common;
 
-import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
+import io.narayana.lra.api.LRA;
 
-/**
- * Transport-agnostic base for the reply to a participant notification. The
- * reported progress of a @Compensate/@Complete/@Status invocation.
- */
 public class ParticipantReply {
-    public ParticipantStatus status;
+    public LRA.ParticipantOutcome status;
+    public String error;
 
     public ParticipantReply() {
     }
 
-    protected ParticipantReply(ParticipantStatus status) {
+    protected ParticipantReply(LRA.ParticipantOutcome status) {
+        this(status, null);
+    }
+
+    protected ParticipantReply(LRA.ParticipantOutcome status, String error) {
         this.status = status;
+        this.error = error;
     }
 }

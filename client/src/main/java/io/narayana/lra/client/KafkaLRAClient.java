@@ -26,7 +26,6 @@ import java.net.URI;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -35,8 +34,6 @@ import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
-import org.eclipse.microprofile.reactive.messaging.Incoming;
-import org.eclipse.microprofile.reactive.messaging.Message;
 
 @ApplicationScoped
 @IfBuildProperty(name = CallbackFactory.PROTOCOL_PROPERTY, stringValue = Protocol.KAFKA_VALUE)
@@ -70,16 +67,18 @@ public class KafkaLRAClient {
         return topic;
     }
 
-    @Incoming(LRAKafkaConstants.TOPIC_REPLY)
-    public CompletionStage<Void> onReply(Message<String> message) {
-        String correlationId = extractCorrelationIdFromPayload(message.getPayload());
+    public void sendToCoordinator(String envelopeJson) {
+        requestEmitter.send(envelopeJson);
+    }
+
+    public void handleReply(String payload) {
+        String correlationId = extractCorrelationIdFromPayload(payload);
         if (correlationId != null) {
             CompletableFuture<String> future = pendingReplies.remove(correlationId);
             if (future != null) {
-                future.complete(message.getPayload());
+                future.complete(payload);
             }
         }
-        return message.ack();
     }
 
     private String extractCorrelationIdFromPayload(String payload) {

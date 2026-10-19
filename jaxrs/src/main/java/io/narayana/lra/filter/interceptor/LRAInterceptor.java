@@ -13,12 +13,14 @@ import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.api.LRA;
 import io.narayana.lra.client.LRAParticipantData;
+import io.narayana.lra.client.internal.proxy.callback.CallbackParticipantRegistry;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
 import io.narayana.lra.filter.core.ServerLRAContext;
 import io.narayana.lra.filter.core.ServerLRAProcessor;
 import io.narayana.lra.filter.resolver.CDILRAAnnotationResolver;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.annotation.Priority;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.interceptor.AroundInvoke;
 import jakarta.interceptor.Interceptor;
@@ -55,9 +57,9 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
  * already threw). An invocation that is stopped before the method can run is reported with an
  * {@link LRAAbortException} instead.
  * <p>
- * A bean that also declares participant callbacks ({@link LRA.Compensate},
+ * A bean that also declares the transport-neutral participant callbacks ({@link LRA.Compensate},
  * {@link LRA.Complete}, {@link LRA.Status}, {@link LRA.Forget} or {@link LRA.AfterLRA}) is
- * enlisted as a participant through the {@code lra-participant-proxy}.
+ * enlisted as a participant through the {@code lra-callback-proxy}.
  */
 @Interceptor
 @LRA.Transaction
@@ -66,6 +68,9 @@ public class LRAInterceptor {
 
     @Inject
     private LRAParticipantRegistry lraParticipantRegistry;
+
+    @Inject
+    private Instance<CallbackParticipantRegistry> callbackParticipantRegistry;
 
     @Inject
     LRAParticipantData data;
@@ -311,8 +316,11 @@ public class LRAInterceptor {
         if (processor == null) {
             synchronized (this) {
                 if (processor == null) {
-                    processor = new ServerLRAProcessor(lraParticipantRegistry, data, enlistMaxRetries,
-                            new CDILRAAnnotationResolver());
+                    CallbackParticipantRegistry contractRegistry = callbackParticipantRegistry.isResolvable()
+                            ? callbackParticipantRegistry.get()
+                            : null;
+                    processor = new ServerLRAProcessor(lraParticipantRegistry, contractRegistry, data,
+                            enlistMaxRetries, new CDILRAAnnotationResolver());
                 }
             }
         }

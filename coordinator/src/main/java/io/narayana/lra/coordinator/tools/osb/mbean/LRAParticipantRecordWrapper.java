@@ -9,7 +9,6 @@ import com.arjuna.ats.arjuna.coordinator.AbstractRecord;
 import com.arjuna.ats.arjuna.tools.osb.mbean.ActionBean;
 import com.arjuna.ats.arjuna.tools.osb.mbean.LogRecordWrapper;
 import com.arjuna.ats.arjuna.tools.osb.mbean.ParticipantStatus;
-import io.narayana.lra.callbacks.HttpCallback;
 import io.narayana.lra.callbacks.LRACallback;
 import io.narayana.lra.coordinator.domain.model.LRAParticipantRecord;
 import java.net.URI;
@@ -33,9 +32,7 @@ public class LRAParticipantRecordWrapper extends LogRecordWrapper implements LRA
     @Override
     public String getCompensator() {
         LRACallback compensateCallback = getParticipant().getCompensateCallback();
-        return compensateCallback instanceof HttpCallback
-                ? ((HttpCallback) compensateCallback).getUri()
-                : compensateCallback != null ? compensateCallback.toJson() : null;
+        return LRACallback.callbackUri(compensateCallback);
     }
 
     @Override

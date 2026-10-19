@@ -38,12 +38,12 @@ public class Deployer {
 
         WebArchive archive = deploy(appName, config.toString(), participants);
 
-        // register LRACDIExtension as a CDI extension so that the LRAParticipantRegistry is
-        // populated (the proxy/api service file is not a class and is not added by addPackages)
+        // register the LRA CDI extensions so that the participant registries are populated
+        // (the proxy/api service file is not a class and is not added by addPackages)
         archive.addAsResource("META-INF/services/jakarta.enterprise.inject.spi.Extension");
 
-        // the LRAParticipantRegistry is registered by the extension itself (with the populated
-        // participant map), so use annotated bean discovery: were the registry discovered as an
+        // the registries are registered by the extensions themselves (with the populated
+        // participant maps), so use annotated bean discovery: were a registry discovered as an
         // implicit @Default managed bean (bean-discovery-mode="all"), the injection would be
         // ambiguous
         archive.delete("WEB-INF/beans.xml");
@@ -54,7 +54,7 @@ public class Deployer {
     }
 
     private static WebArchive deploy(String appName, String lraConfig, Class... participants) {
-        // manifest for WildFly deployment; org.jboss.modules is needed by the LRACDIExtension
+        // manifest for WildFly deployment; org.jboss.modules is needed by the CDI extension
         // class path scan (ClassPathIndexer), org.jboss.jandex for the Jandex index
         final String ManifestMF = "Manifest-Version: 1.0\n"
                 + "Dependencies: org.jboss.jandex, org.jboss.logging, org.jboss.modules\n";
@@ -64,6 +64,7 @@ public class Deployer {
                         "org.eclipse.microprofile.lra",
                         "io.narayana.lra.client.internal.proxy",
                         "io.narayana.lra.contracts",
+                        "io.narayana.lra.callbacks.contracts",
                         "io.smallrye.stork",
                         "io.narayana.lra.filter",
                         "io.smallrye.mutiny") // try to pull in everything under mutiny)

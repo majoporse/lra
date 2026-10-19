@@ -11,7 +11,6 @@ import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
 
 import io.narayana.lra.LRAData;
-import io.narayana.lra.callbacks.HttpCallback;
 import io.narayana.lra.callbacks.LRACallback;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.coordinator.domain.model.LRAParticipantRecord;
@@ -84,9 +83,7 @@ public class RecoveryCoordinator {
         }
 
         LRACallback compensateCallback = participant.getCompensateCallback();
-        String compensator = compensateCallback instanceof HttpCallback
-                ? ((HttpCallback) compensateCallback).getUri()
-                : compensateCallback != null ? compensateCallback.toJson() : null;
+        String compensator = LRACallback.callbackUri(compensateCallback);
 
         return Link.fromUri(compensator)
                 .title("compensate" + " URI")

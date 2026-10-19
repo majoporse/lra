@@ -19,8 +19,10 @@ import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
 import io.quarkus.arc.properties.IfBuildProperty;
+import io.smallrye.reactive.messaging.annotations.Blocking;
 import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.ws.rs.core.Response;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
@@ -37,6 +39,9 @@ public class KafkaLRAListener {
     private final LRAService lraService;
     private final ObjectMapper objectMapper;
 
+    @Inject
+    KafkaCallbackSenderImpl callbackSender;
+
     @Channel(LRAKafkaConstants.TOPIC_REPLY)
     Emitter<String> replyEmitter;
 
@@ -46,11 +51,17 @@ public class KafkaLRAListener {
     }
 
     @Incoming(LRAKafkaConstants.TOPIC_REQUEST)
+    @Blocking(ordered = false)
     public CompletionStage<Void> onRequest(Message<String> message) {
         String rawJson = message.getPayload();
 
         try {
             LRAKafkaEnvelope envelope = objectMapper.readValue(rawJson, LRAKafkaEnvelope.class);
+
+            if (LRAKafkaConstants.isCallbackReply(envelope.type)) {
+                callbackSender.handleReply(envelope);
+                return message.ack();
+            }
 
             switch (envelope.type) {
                 case StartLRAKafka.TYPE:

@@ -25,7 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
-import io.narayana.lra.callbacks.HttpCallback;
+import io.narayana.lra.callbacks.LegacyHttpCallback;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
@@ -1370,13 +1370,13 @@ public class LRATest extends LRATestBase {
         String prefix = TestPortProvider.generateURL("/base/test");
 
         var callbacks = new ParticipantCallbacks();
-        callbacks.compensateCallback = HttpCallback.compensateCallback(
+        callbacks.compensateCallback = LegacyHttpCallback.compensateCallback(
                 URI.create(String.format("%s/%s", prefix, "compensate")));
-        callbacks.completeCallback = HttpCallback.completeCallback(
+        callbacks.completeCallback = LegacyHttpCallback.completeCallback(
                 URI.create(String.format("%s/%s", prefix, "complete")));
-        callbacks.forgetCallback = HttpCallback.forgetCallback(
+        callbacks.forgetCallback = LegacyHttpCallback.forgetCallback(
                 URI.create(String.format("%s/%s", prefix, "forget")));
-        callbacks.afterCallback = HttpCallback.afterCallback(
+        callbacks.afterCallback = LegacyHttpCallback.afterCallback(
                 URI.create(String.format("%s/%s", prefix, "after")));
 
         var request = new JoinLRAHttp.Request();

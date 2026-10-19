@@ -58,18 +58,18 @@ public class ParticipantCallbacks {
             URI uri = URI.create(uriString);
 
             switch (rel) {
-                case "compensate" -> callbacks.compensateCallback = HttpCallback.compensateCallback(uri);
-                case "complete" -> callbacks.completeCallback = HttpCallback.completeCallback(uri);
-                case "status" -> callbacks.statusCallback = HttpCallback.statusCallback(uri);
-                case "forget" -> callbacks.forgetCallback = HttpCallback.forgetCallback(uri);
-                case "after" -> callbacks.afterCallback = HttpCallback.afterCallback(uri);
+                case "compensate" -> callbacks.compensateCallback = LegacyHttpCallback.compensateCallback(uri);
+                case "complete" -> callbacks.completeCallback = LegacyHttpCallback.completeCallback(uri);
+                case "status" -> callbacks.statusCallback = LegacyHttpCallback.statusCallback(uri);
+                case "forget" -> callbacks.forgetCallback = LegacyHttpCallback.forgetCallback(uri);
+                case "after" -> callbacks.afterCallback = LegacyHttpCallback.afterCallback(uri);
                 case "participant" -> {
-                    callbacks.compensateCallback = HttpCallback.compensateCallback(
+                    callbacks.compensateCallback = LegacyHttpCallback.compensateCallback(
                             URI.create(uri.toASCIIString() + "/compensate"));
-                    callbacks.completeCallback = HttpCallback.completeCallback(
+                    callbacks.completeCallback = LegacyHttpCallback.completeCallback(
                             URI.create(uri.toASCIIString() + "/complete"));
-                    callbacks.statusCallback = HttpCallback.statusCallback(uri);
-                    callbacks.forgetCallback = HttpCallback.forgetCallback(uri);
+                    callbacks.statusCallback = LegacyHttpCallback.statusCallback(uri);
+                    callbacks.forgetCallback = LegacyHttpCallback.forgetCallback(uri);
                 }
                 default -> {
                     /* Ignore unrecognized relations */

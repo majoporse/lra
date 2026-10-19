@@ -61,13 +61,14 @@ public class LRAParticipant {
     private final Class<?> javaClass;
     private final boolean transportNeutral; // whether this participant uses the io.narayana.lra.api annotations
     private final EnumMap<CallbackType, Method> callbackMethods = new EnumMap<>(CallbackType.class);
-    private final CallbackFactory callbackFactory = new CallbackFactory();
+    private final CallbackFactory callbackFactory;
     private Object instance;
 
     private final Map<URI, ParticipantResult> participantStatusMap = new HashMap<>();
 
     public LRAParticipant(Class<?> javaClass) {
         this.javaClass = javaClass;
+        this.callbackFactory = new CallbackFactory(javaClass.getName());
         transportNeutral = isTransportNeutral(javaClass);
 
         for (Method method : javaClass.getMethods()) {
