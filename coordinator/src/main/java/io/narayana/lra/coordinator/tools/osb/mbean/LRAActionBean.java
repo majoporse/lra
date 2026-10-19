@@ -10,7 +10,7 @@ import com.arjuna.ats.arjuna.tools.osb.mbean.ActionBean;
 import com.arjuna.ats.arjuna.tools.osb.mbean.ParticipantStatus;
 import com.arjuna.ats.arjuna.tools.osb.mbean.UidWrapper;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
-import java.net.URI;
+import java.util.UUID;
 
 public class LRAActionBean extends ActionBean implements LRAActionBeanMBean {
 
@@ -24,7 +24,7 @@ public class LRAActionBean extends ActionBean implements LRAActionBeanMBean {
     }
 
     @Override
-    public URI getLRAId() {
+    public UUID getLRAId() {
         return getLRA().getId();
     }
 
@@ -34,7 +34,7 @@ public class LRAActionBean extends ActionBean implements LRAActionBeanMBean {
     }
 
     @Override
-    public URI getParentLRAId() {
+    public UUID getParentLRAId() {
         return getLRA().getParentId();
     }
 

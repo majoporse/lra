@@ -54,7 +54,9 @@ public class CoordinatorContainerFilter implements ContainerRequestFilter, Conta
         }
 
         if (lraId != null) {
-            Current.updateLRAContext(lraId, headers);
+            // make the current LRA available via the context
+            Current.push(lraId, null);
+            headers.putSingle(LRA_HTTP_CONTEXT_HEADER, lraId.toString());
         }
     }
 

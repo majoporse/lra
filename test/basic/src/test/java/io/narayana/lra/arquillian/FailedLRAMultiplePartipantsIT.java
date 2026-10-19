@@ -15,7 +15,6 @@ import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import io.narayana.lra.LRAConstants;
 import io.narayana.lra.arquillian.internal.BytemanSignal;
 import io.narayana.lra.arquillian.resource.LRAMultipleParticipant1Initiator;
 import io.narayana.lra.arquillian.resource.LRAMultipleParticipant2;
@@ -70,7 +69,7 @@ public class FailedLRAMultiplePartipantsIT extends TestBase {
     }
 
     static String getRecoveryUrl(URI lraId) {
-        return LRAConstants.getLRACoordinatorUrl(lraId) + "/" + RECOVERY_COORDINATOR_PATH_NAME;
+        return coordinatorUrl + "/" + RECOVERY_COORDINATOR_PATH_NAME;
     }
 
     /**

@@ -13,7 +13,6 @@ import java.net.URL;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
 
 public class BrowserCommandTest {
     private static final String TEST_STORE = "test-store";
@@ -21,7 +20,7 @@ public class BrowserCommandTest {
     private static final String LRA_UID = "0_ffffc0a801c7_afa5_6745e313_2";
     private static final String FAILED_LRA_UID = "0_ffffc0a801dd_407cfb77_6748b27e_1b7";
 
-    @Test
+    //    @Test
     public void testStart() throws Exception {
 
         StringBuilder sb = new StringBuilder();

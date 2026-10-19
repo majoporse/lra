@@ -18,9 +18,12 @@ import com.arjuna.ats.arjuna.coordinator.RecordListIterator;
 import com.arjuna.ats.arjuna.coordinator.RecordType;
 import com.arjuna.ats.arjuna.state.InputObjectState;
 import com.arjuna.ats.arjuna.state.OutputObjectState;
-import io.narayana.lra.Current;
-import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.LinkHelper;
+import io.narayana.lra.callbacks.CallbackResult;
+import io.narayana.lra.callbacks.CallbackStatus;
+import io.narayana.lra.callbacks.LRACallback;
+import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.ServiceUnavailableException;
@@ -30,14 +33,13 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -46,6 +48,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 
 public class LongRunningAction extends BasicAction {
     private static final String LRA_TYPE = "/StateManager/BasicAction/LongRunningAction";
@@ -53,8 +56,9 @@ public class LongRunningAction extends BasicAction {
     public static final String DEACTIVATE_REASON = "deactivate failed";
     private static final long participantEnlistTimeout = initParticipantEnlistTimeout();
 
-    private URI id;
-    private URI parentId;
+    private UUID id;
+    private UUID parentId;
+    private String coordinatorUrl;
     private String clientId;
     private List<LRAParticipantRecord> pending;
     private LRAStatus status;
@@ -62,7 +66,6 @@ public class LongRunningAction extends BasicAction {
     private LocalDateTime finishTime;
     private ScheduledFuture<?> scheduledAbort;
     private final LRAService lraService;
-    LRAParentAbstractRecord par;
 
     private static long initParticipantEnlistTimeout() {
         try {
@@ -86,16 +89,13 @@ public class LongRunningAction extends BasicAction {
         }
 
         this.lraService = lraService;
+        this.coordinatorUrl = baseUrl;
 
         if (parent != null) {
             this.parentId = parent.getId();
-            // encode the parent in the child URI (by rights we'd use LRA_HTTP_PARENT_CONTEXT_HEADER)
-            // the parent is used by children to contact parents in certain scenarios
-            // BTW  this technique is historical and needs to be changed to use the header
-            this.id = Current.buildFullLRAUrl(String.format("%s/%s", baseUrl, get_uid().fileStringForm()), parent.getId());
-        } else {
-            this.id = new URI(String.format("%s/%s", baseUrl, get_uid().fileStringForm()));
         }
+
+        this.id = UUID.randomUUID();
 
         this.clientId = clientId;
         this.finishTime = null;
@@ -121,6 +121,7 @@ public class LongRunningAction extends BasicAction {
         this.id = null;
         this.parentId = null;
         this.clientId = null;
+        this.coordinatorUrl = null;
         this.finishTime = null;
         this.status = LRAStatus.Active;
 
@@ -141,10 +142,11 @@ public class LongRunningAction extends BasicAction {
      * @return immutable {@link LRAData} representing the current state of the LRA transaction
      */
     public LRAData getLRAData() {
-        return new LRAData(id, clientId, status, isTopLevel(), isRecovering(),
+        // URI is constructed in service layer from config
+        return new LRAData(null, clientId, status, isTopLevel(), isRecovering(),
                 startTime.toInstant(ZoneOffset.UTC).toEpochMilli(),
                 finishTime == null ? 0L : finishTime.toInstant(ZoneOffset.UTC).toEpochMilli(),
-                getHttpStatus());
+                getParticipantStatus());
     }
 
     @Override
@@ -158,6 +160,7 @@ public class LongRunningAction extends BasicAction {
             os.packString(id == null ? null : id.toString());
             os.packString(parentId == null ? null : parentId.toString());
             os.packString(clientId);
+            os.packString(coordinatorUrl);
 
             if (startTime == null) {
                 os.packBoolean(false);
@@ -289,32 +292,11 @@ public class LongRunningAction extends BasicAction {
 
         try {
             String s = os.unpackString();
-            id = s == null ? null : new URI(s);
+            id = s == null ? null : UUID.fromString(s);
             s = os.unpackString();
-            if (s == null) {
-                parentId = null;
-            } else {
-                parentId = new URI(s);
-
-                LongRunningAction localParent = lraService.lookupTransaction(parentId);
-
-                // if the parent LRA is in the same JVM as the nested LRA (remark, parents are saved before children)
-                // then it's possible to avoid JAX-RS calls by invoking transaction records directly instead:
-                if (localParent != null) {
-                    // this LRA has a parent that is in-VM, so we can optimise away the JAX-RS calls when moving the
-                    // LRA to an end state:
-                    if (par == null) {
-                        // this must be the restoration of state after a crash, otherwise par would have been set in
-                        // the constructor, so fix up the parent and child records (this code should be identical to
-                        // what the constructor does and should be pulled out into its own routine if changes occur):
-                        if (!linkChildWithParent(localParent)) {
-                            LRALogger.i18nLogger.warn_restoreState("add parent/child failed");
-                            return false;
-                        }
-                    }
-                }
-            }
+            parentId = s == null ? null : UUID.fromString(s);
             clientId = os.unpackString();
+            coordinatorUrl = os.unpackString();
             startTime = os.unpackBoolean() ? LocalDateTime.ofInstant(Instant.ofEpochMilli(os.unpackLong()), ZoneOffset.UTC)
                     : null;
             finishTime = os.unpackBoolean() ? LocalDateTime.ofInstant(Instant.ofEpochMilli(os.unpackLong()), ZoneOffset.UTC)
@@ -350,7 +332,7 @@ public class LongRunningAction extends BasicAction {
             }
 
             return true;
-        } catch (IOException | URISyntaxException e) {
+        } catch (IOException | IllegalArgumentException e) {
             if (LRALogger.logger.isDebugEnabled()) {
                 LRALogger.logger.debugf(e, "Cannot restore state of object type '%s'", ot);
             }
@@ -400,12 +382,16 @@ public class LongRunningAction extends BasicAction {
         return getType();
     }
 
-    public URI getId() {
+    public UUID getId() {
         return id;
     }
 
     public String getClientId() {
         return clientId;
+    }
+
+    public String getCoordinatorUrl() {
+        return coordinatorUrl;
     }
 
     protected LRAService getLraService() {
@@ -471,7 +457,7 @@ public class LongRunningAction extends BasicAction {
         return finishLRA(cancel, null, null);
     }
 
-    public int finishLRA(boolean cancel, String compensator, String userData) {
+    public int finishLRA(boolean cancel, String participantId, String userData) {
         ReentrantLock lock = null;
 
         // check whether the transaction should cancel due to a timeout:
@@ -492,14 +478,14 @@ public class LongRunningAction extends BasicAction {
             if (lock == null) {
                 if (LRALogger.logger.isInfoEnabled()) {
                     LRALogger.logger.debugf("LongRunningAction.endLRA Some other thread is finishing LRA %s",
-                            getId().toASCIIString());
+                            getId().toString());
                 }
 
                 return status();
             }
 
-            if (userData != null && !userData.isEmpty() && compensator != null && !compensator.isEmpty()) {
-                updateCompensatorUserData(compensator, userData);
+            if (userData != null && !userData.isEmpty() && participantId != null && !participantId.isEmpty()) {
+                updateCompensatorUserData(participantId, userData);
             }
 
             if (status == LRAStatus.Cancelling) {
@@ -827,8 +813,12 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
-    public LRAParticipantRecord enlistParticipant(URI coordinatorUrl, String participantUrl, String recoveryUrlBase,
-            long timeLimit, String compensatorData, String version)
+    /**
+     * Enlist a participant into this LRA. When {@code childLraId} is non-null the participant is
+     * a nested LRA coordinated by this same coordinator and the callbacks are ignored.
+     */
+    public LRAParticipantRecord enlistParticipant(ParticipantCallbacks callbacks, UUID childLraId,
+            String recoveryUrlBase, long timeLimit, String compensatorData, String partId)
             throws UnsupportedEncodingException {
         ReentrantLock lock = tryTimedLockTransaction(participantEnlistTimeout);
         if (lock == null) {
@@ -837,13 +827,13 @@ public class LongRunningAction extends BasicAction {
             throw new ServiceUnavailableException(reason);
         } else {
             try {
-                LRAParticipantRecord participant = findLRAParticipant(participantUrl, false);
+                LRAParticipantRecord participant = findLRAParticipantById(partId, false);
                 if (participant != null) {
                     participant.setCompensatorData(compensatorData);
                     return participant; // must have already been enlisted
                 }
-                participant = doEnlistParticipant(coordinatorUrl, participantUrl, recoveryUrlBase, timeLimit,
-                        compensatorData, version);
+                participant = doEnlistParticipant(callbacks, childLraId, recoveryUrlBase, timeLimit,
+                        compensatorData, partId);
                 if (participant != null) {
                     // need to remember that there is a new participant
                     if (deactivate()) { // if it fails the superclass will have logged a warning
@@ -862,40 +852,24 @@ public class LongRunningAction extends BasicAction {
 
     }
 
-    private LRAParticipantRecord doEnlistParticipant(URI coordinatorUrl, String participantUrl, String recoveryUrlBase,
-            long timeLimit, String compensatorData, String version) {
-        LRAParticipantRecord p = new LRAParticipantRecord(this, lraService, participantUrl, compensatorData);
+    private LRAParticipantRecord doEnlistParticipant(ParticipantCallbacks actions, UUID childLraId,
+            String recoveryUrlBase, long timeLimit, String compensatorData, String partId) {
+        LRAParticipantRecord p = new LRAParticipantRecord(this, lraService,
+                actions == null ? null : actions.compensateCallback,
+                actions == null ? null : actions.completeCallback,
+                actions == null ? null : actions.statusCallback,
+                actions == null ? null : actions.forgetCallback,
+                actions == null ? null : actions.afterCallback,
+                childLraId, compensatorData, partId);
         String pid = p.get_uid().fileStringForm();
 
-        /*
-         * versions are specific to the participant so only update the one used by this participant (ie different
-         * participants are allowed to be on different versions).
-         *
-         * From API version 1.2 onwards, the recovery URI is constructed from the RecoveryCoordinator path followed
-         * by segments for the Uid of the LRA and the Uid of the participant. If the passed in version is null
-         * then assume the latest. In previous versions the recovery URI was broken.
-         */
-        if (version != null && (version.equals(LRAConstants.API_VERSION_1_0) || version.equals(LRAConstants.API_VERSION_1_1))) {
-            // use the old broken method
-            String txId = URLEncoder.encode(coordinatorUrl.toASCIIString(), StandardCharsets.UTF_8);
-
-            if (LRALogger.logger.isDebugEnabled()) {
-                LRALogger.logger.debugf(
-                        "LongRunningAction enlist: using old style recovery URL (txId=%s participantId=%s)",
-                        coordinatorUrl, txId);
-            }
-
-            p.setRecoveryURI(recoveryUrlBase, txId, pid);
-        } else {
-            // use the shiny new working method
-            p.setRecoveryURI(recoveryUrlBase, this.get_uid().fileStringForm(), pid);
-        }
+        p.setRecoveryURI(recoveryUrlBase, getId().toString(), pid);
 
         endStateCheck();
 
         if (isFinished()) {
             throw new WebApplicationException(Response.status(Response.Status.GONE)
-                    .entity(LRALogger.i18nLogger.error_tooLateToJoin(id.toASCIIString(), "finished"))
+                    .entity(LRALogger.i18nLogger.error_tooLateToJoin(id.toString(), "finished"))
                     .build());
         }
 
@@ -909,13 +883,13 @@ public class LongRunningAction extends BasicAction {
             }
 
             return p;
-        } else if (isRecovering() && p.getCompensator() == null && p.getEndNotificationUri() != null) {
+        } else if (isRecovering() && p.getCompensateCallback() == null && p.hasAfterCallback()) {
             // the participant is an AfterLRA listener so manually add it to heuristic list
             heuristicList.putRear(p);
             updateState();
 
             if (LRALogger.logger.isTraceEnabled()) {
-                trace_progress("enlisted listener " + p.getParticipantPath());
+                trace_progress("enlisted listener " + p.getParticipantId());
             }
 
             return p;
@@ -924,18 +898,18 @@ public class LongRunningAction extends BasicAction {
         return null;
     }
 
-    private void updateCompensatorUserData(String compensator, String userData) {
-        LRAParticipantRecord participant = findLRAParticipant(compensator, false);
+    private void updateCompensatorUserData(String participantId, String userData) {
+        LRAParticipantRecord participant = findLRAParticipantById(participantId, false);
 
         if (participant != null) {
             participant.setCompensatorData(userData);
         } else {
-            LRALogger.i18nLogger.warn_unknownParticipant(compensator);
+            LRALogger.i18nLogger.warn_unknownParticipant(participantId.toString());
         }
     }
 
-    public boolean forgetParticipant(String participantUrl) {
-        return findLRAParticipant(participantUrl, true) != null;
+    public boolean forgetParticipant(String uuid) {
+        return findLRAParticipantById(uuid, true) != null;
     }
 
     public boolean forgetAllParticipants() {
@@ -968,49 +942,71 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
-    private LRAParticipantRecord findLRAParticipant(String participantUrl, boolean remove) {
-        LRAParticipantRecord rec;
-
-        try {
-            URI recoveryUrl = new URI(LRAParticipantRecord.cannonicalForm(participantUrl));
-
-            rec = findLRAParticipantByRecoveryUrl(recoveryUrl, remove, pendingList, preparedList, heuristicList, failedList);
-
-        } catch (URISyntaxException ignore) {
-            String pUrl;
-            try {
-                pUrl = LRAParticipantRecord.extractCompensator(participantUrl);
-            } catch (URISyntaxException e) {
-                LRALogger.logger.info(LRALogger.i18nLogger.warn_invalid_uri(
-                        participantUrl, e.getMessage() + " findLRAParticipant"));
-
-                return null;
-            }
-            rec = findLRAParticipant(pUrl, remove, pendingList, preparedList, heuristicList, failedList);
-        }
-
-        return rec;
-    }
-
-    private LRAParticipantRecord findLRAParticipant(String participantUrl, boolean remove, RecordList... lists) {
+    public LRAParticipantRecord findLRAParticipantById(String participantId, boolean remove) {
+        var lists = new RecordList[] { pendingList, preparedList, heuristicList, failedList };
         for (RecordList list : lists) {
             if (list != null) {
                 RecordListIterator i = new RecordListIterator(list);
                 AbstractRecord r;
 
-                if (participantUrl.indexOf(',') != -1) {
-                    try {
-                        participantUrl = LRAParticipantRecord.extractCompensator(participantUrl);
-                    } catch (URISyntaxException e) {
-                        continue;
+                while ((r = i.iterate()) != null) {
+                    if (r instanceof LRAParticipantRecord) {
+                        LRAParticipantRecord rr = (LRAParticipantRecord) r;
+                        // can't use == because this may be a recovery scenario
+                        if (rr.getParticipantId().equals(participantId)) {
+                            if (remove) {
+                                list.remove(rr);
+                            }
+
+                            return rr;
+                        }
                     }
                 }
+            }
+        }
+
+        return null;
+    }
+
+    public LRAParticipantRecord findLRAParticipant(String participantUrl, boolean remove) {
+        LRAParticipantRecord rec;
+
+        try {
+            URI recoveryUrl = new URI(LinkHelper.cannonicalForm(participantUrl));
+
+            rec = findLRAParticipantByRecoveryUrl(recoveryUrl, remove, pendingList, preparedList, heuristicList, failedList);
+
+        } catch (URISyntaxException ignore) {
+            String pUrl = participantUrl;
+            if (pUrl.indexOf(',') != -1) {
+                try {
+                    pUrl = LinkHelper.extractCompensator(pUrl);
+                } catch (URISyntaxException ignored) {
+                }
+            }
+
+            rec = findLRAParticipantByCompensateUri(URI.create(pUrl), remove, pendingList, preparedList, heuristicList,
+                    failedList);
+        }
+
+        return rec;
+    }
+
+    private LRAParticipantRecord findLRAParticipantByCompensateUri(URI participantUrl, boolean remove,
+            RecordList... lists) {
+        for (RecordList list : lists) {
+            if (list != null) {
+                RecordListIterator i = new RecordListIterator(list);
+                AbstractRecord r;
 
                 while ((r = i.iterate()) != null) {
                     if (r instanceof LRAParticipantRecord) {
                         LRAParticipantRecord rr = (LRAParticipantRecord) r;
                         // can't use == because this may be a recovery scenario
-                        if (participantUrl.equals(rr.getCompensator())) {
+                        LRACallback compensateCallback = rr.getCompensateCallback();
+                        String compensator = LRACallback.callbackUri(compensateCallback);
+
+                        if (participantUrl.toASCIIString().equals(compensator)) {
                             if (remove) {
                                 list.remove(rr);
                             }
@@ -1054,33 +1050,34 @@ public class LongRunningAction extends BasicAction {
         return parentId == null;
     }
 
-    public int getHttpStatus() {
+    public CallbackResult getParticipantStatus() {
         switch (status()) {
             case ActionStatus.COMMITTED:
             case ActionStatus.ABORTED:
-                return 200;
+                return new CallbackResult(CallbackStatus.OK, null);
             default:
-                return lraStatusToHttpStatus();
+                return lraStatusToCallbackStatus();
         }
     }
 
-    private int lraStatusToHttpStatus() {
+    private CallbackResult lraStatusToCallbackStatus() {
         if (status == null || status == LRAStatus.Active) {
-            return Response.Status.NO_CONTENT.getStatusCode(); // in progress, 204
+            return new CallbackResult(CallbackStatus.ACCEPTED, null);
         }
 
         switch (status) {
             case Closed:
             case Cancelled:
-                return Response.Status.OK.getStatusCode(); // 200
+                return new CallbackResult(CallbackStatus.OK, null);
             case Closing:
             case Cancelling:
-                return Response.Status.ACCEPTED.getStatusCode(); // 202
+                return new CallbackResult(CallbackStatus.ACCEPTED, null);
             case FailedToCancel:
+                return new CallbackResult(CallbackStatus.FAILED, ParticipantStatus.FailedToCompensate.name());
             case FailedToClose:
-                return Response.Status.PRECONDITION_FAILED.getStatusCode(); // 412, probably not the correct code
+                return new CallbackResult(CallbackStatus.FAILED, ParticipantStatus.FailedToComplete.name());
             default:
-                return INTERNAL_SERVER_ERROR.getStatusCode(); // 500
+                return new CallbackResult(CallbackStatus.ERROR, null);
         }
     }
 
@@ -1100,21 +1097,9 @@ public class LongRunningAction extends BasicAction {
         int res = super.Begin(null);
         startTime = LocalDateTime.now(ZoneOffset.UTC);
 
-        if (parentId != null) {
-            // We want LRAs to be TopLevelActions (TLA).
-            // Normally if we were doing transaction to thread association we would pop the parent,
-            // however LRA does not use thread association (the context is passed explicitly,
-            // the reason for this is that services do not have access to ArjunaCore and use
-            // JAX-RS to propagate the context
-            LongRunningAction localParent = lraService.lookupTransaction(parentId);
-
-            if (localParent != null) {
-                // this parent is in-VM
-                if (!linkChildWithParent(localParent)) {
-                    return ActionStatus.INVALID;
-                }
-            }
-        }
+        // Note: a child LRA is linked to its parent by being enlisted as a participant of the
+        // parent (its childLraId), not by a record here. The parent and child are always
+        // coordinated by this same coordinator, so the parent ends the child directly.
 
         if (LRALogger.logger.isTraceEnabled()) {
             trace_progress("begin, deactivating");
@@ -1130,18 +1115,6 @@ public class LongRunningAction extends BasicAction {
         }
 
         return res;
-    }
-
-    private boolean linkChildWithParent(LongRunningAction localParent) {
-        par = new LRAParentAbstractRecord(localParent, this, lraService); // the new LRA we want parent to know about
-
-        if (localParent.add(par) != AddOutcome.AR_ADDED) {
-            return false;
-        }
-
-        LRAChildAbstractRecord childAR = new LRAChildAbstractRecord(par);
-
-        return add(childAR) != AddOutcome.AR_REJECTED;
     }
 
     public int setTimeLimit(Long timeLimit, boolean save) {
@@ -1256,13 +1229,13 @@ public class LongRunningAction extends BasicAction {
         }
     }
 
-    public boolean updateRecoveryURI(String linkHeader, String recoveryUri) {
+    public boolean updateRecoveryURI(ParticipantCallbacks actions, String recoveryUri) {
         LRAParticipantRecord lraRecord = findLRAParticipant(recoveryUri, false);
 
         if (lraRecord != null) {
             try {
                 lraRecord.setRecoveryURI(recoveryUri);
-                lraRecord.updateCallbacks(linkHeader);
+                lraRecord.updateCallbacks(actions);
 
                 if (!deactivate()) {
                     LRALogger.logger.warn(LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON));
@@ -1281,8 +1254,32 @@ public class LongRunningAction extends BasicAction {
         return true;
     }
 
-    public URI getParentId() {
+    public UUID getParentId() {
         return parentId;
+    }
+
+    /**
+     * Build the full parent hierarchy as a comma-separated string of UUIDs.
+     * Walks up the parent chain via lraService.lookupTransaction.
+     * Returns null if there is no parent.
+     */
+    public String getParentHierarchy() {
+        if (parentId == null) {
+            return null;
+        }
+        StringBuilder hierarchy = new StringBuilder();
+        hierarchy.append(parentId.toString());
+        UUID current = parentId;
+        while (current != null) {
+            LongRunningAction parent = lraService.lookupTransaction(current);
+            if (parent != null && parent.getParentId() != null) {
+                hierarchy.append(",").append(parent.getParentId().toString());
+                current = parent.getParentId();
+            } else {
+                break;
+            }
+        }
+        return hierarchy.toString();
     }
 
     private boolean hasElements(RecordList list) {

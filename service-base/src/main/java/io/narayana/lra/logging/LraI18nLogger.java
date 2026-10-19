@@ -10,7 +10,6 @@ import static org.jboss.logging.Logger.Level.WARN;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URL;
 import org.jboss.logging.annotations.Cause;
 import org.jboss.logging.annotations.LogMessage;
 import org.jboss.logging.annotations.Message;
@@ -38,13 +37,13 @@ public interface LraI18nLogger {
     String error_asyncTerminationBeanMissStatusAndForget(Class<?> clazz);
 
     @Message(id = 25005, value = "LRA coordinator '%s' returned an invalid status code '%s' for LRA '%s'")
-    String error_invalidStatusCode(URI coordinator, int status, URL lra);
+    String error_invalidStatusCode(URI coordinator, int status, String lra);
 
     @Message(id = 25006, value = "LRA coordinator '%s' returned no content on #getStatus call for LRA '%s'")
-    String error_noContentOnGetStatus(URI coordinator, URL lra);
+    String error_noContentOnGetStatus(URI coordinator, String lra);
 
     @Message(id = 25007, value = "LRA coordinator '%s' returned an invalid status for LRA '%s'")
-    String error_invalidArgumentOnStatusFromCoordinator(URI coordinator, URL lra, @Cause Throwable t);
+    String error_invalidArgumentOnStatusFromCoordinator(URI coordinator, String lra, @Cause Throwable t);
 
     @Message(id = 25008, value = "Too late to join with the LRA '%s', coordinator response: '%s'")
     String error_tooLateToJoin(String lra, String response);
@@ -92,7 +91,7 @@ public interface LraI18nLogger {
     String error_invalidLraIdFormatToConvertToCoordinatorUrl(String lraId, @Cause Throwable t);
 
     @Message(id = 25022, value = "Failed enlisting to LRA '%s', coordinator '%s' responded with status '%d (%s)'. Returning '%d (%s)'.")
-    String info_failedToEnlistingLRANotFound(URL lraId, URI coordinatorUri, int coordinatorStatusCode,
+    String info_failedToEnlistingLRANotFound(String lraId, URI coordinatorUri, int coordinatorStatusCode,
             String coordinatorStatusMsg, int returnStatusCode, String returnStatusMsg);
 
     @Message(id = 25023, value = "Could not %s LRA '%s': coordinator '%s' responded with status '%s'")

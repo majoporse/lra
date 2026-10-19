@@ -62,19 +62,20 @@ public class MpLraTckAuxiliaryArchiveAppender implements AuxiliaryArchiveAppende
         JavaArchive archive = ShrinkWrap.create(JavaArchive.class)
                 // Loads dependencies
                 .addPackages(false,
-                        "io.narayana.lra",
                         "io.narayana.lra.logging",
-                        "io.narayana.lra.filter",
                         "io.narayana.lra.provider",
                         "io.narayana.lra.client",
                         "io.narayana.lra.client.internal",
                         "org.eclipse.microprofile.lra")
                 .addPackages(true,
+                        "io.narayana.lra",
+                        "io.narayana.lra.filter",
                         "io.narayana.lra.client.internal.proxy",
+                        "io.narayana.lra.contracts",
                         "org.eclipse.microprofile.lra.annotation",
                         "io.smallrye.stork",
                         "io.smallrye.mutiny.helpers")
-                // registration of LRACDIExtension as Weld extension to be booted-up
+                // registration of the LRA CDI extensions as Weld extensions to be booted-up
                 .addAsResource("META-INF/services/jakarta.enterprise.inject.spi.Extension")
 
                 // explicitly define to work with annotated beans

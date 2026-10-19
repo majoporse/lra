@@ -1,1 +1,2 @@
-io.narayana.lra.client.internal.proxy.nonjaxrs.LRACDIExtension
+io.narayana.lra.client.internal.proxy.nonjaxrs.LegacyLRACDIExtension
+io.narayana.lra.client.internal.proxy.nonjaxrs.TransportNeutralLRACDIExtension

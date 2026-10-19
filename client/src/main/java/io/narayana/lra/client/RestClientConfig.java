@@ -19,6 +19,7 @@ import javax.net.ssl.TrustManagerFactory;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.rest.client.RestClientBuilder;
+import org.jboss.resteasy.plugins.providers.jackson.ResteasyJackson2Provider;
 
 /**
  * Internal utility class for configuring REST clients with security and timeout settings.
@@ -243,6 +244,7 @@ public class RestClientConfig {
                 }
             }
         }
+        builder.register(ResteasyJackson2Provider.class);
     }
 
     /**

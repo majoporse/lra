@@ -5,19 +5,18 @@
 
 package io.narayana.lra.coordinator.api;
 
-import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
 import static io.narayana.lra.LRAConstants.CURRENT_API_VERSION_STRING;
-import static io.narayana.lra.LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME;
-import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST;
 import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
+import io.narayana.lra.contracts.http.NestedCompensateLRAHttp;
+import io.narayana.lra.contracts.http.NestedCompleteLRAHttp;
+import io.narayana.lra.contracts.http.NestedForgetLRAHttp;
+import io.narayana.lra.contracts.http.NestedStatusLRAHttp;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
-import jakarta.json.Json;
-import jakarta.json.JsonObject;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
@@ -28,17 +27,9 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.core.Context;
-import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.UriInfo;
-import java.net.MalformedURLException;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URL;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 import org.eclipse.microprofile.openapi.annotations.Operation;
@@ -70,27 +61,26 @@ public class NestedCoordinator {
                     + " has reached a terminal state.", content = @Content(schema = @Schema(implementation = String.class))),
             @APIResponse(responseCode = "410", description = "The participant is no longer aware of this LRA.", content = @Content(schema = @Schema(implementation = String.class))),
     })
-    public Response getNestedLRAStatus(
-            @PathParam("NestedLraId") String nestedLraId,
-            @Context UriInfo uriInfo) {
+    public NestedStatusLRAHttp.Reply getNestedLRAStatus(
+            @PathParam("NestedLraId") UUID nestedLraId) {
         try {
-            LRAStatus status = lraService.getTransaction(toURI(nestedLraId, uriInfo)).getLRAStatus();
+            LRAStatus status = lraService.getTransaction(nestedLraId).getLRAStatus();
 
             if (status == null) {
                 throw new WebApplicationException(
-                        LRALogger.i18nLogger.error_cannotGetStatusOfNestedLraURI(nestedLraId, null),
+                        LRALogger.i18nLogger.error_cannotGetStatusOfNestedLraURI(nestedLraId.toString(), null),
                         Response.status(INTERNAL_SERVER_ERROR).build());
             }
 
-            return Response.ok(mapToParticipantStatus(status).name()).build();
+            return new NestedStatusLRAHttp.Reply(mapToParticipantStatus(status));
         } catch (NotFoundException e) {
-            return Response.status(Response.Status.GONE).build();
+            throw new WebApplicationException(Response.Status.GONE);
         }
     }
 
     @PUT
     @Path("{NestedLraId}/complete")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Complete a nested LRA", description = "Implements the @Complete participant contract"
             + " for a nested LRA as defined by the MicroProfile LRA specification.")
     @APIResponses({
@@ -103,24 +93,24 @@ public class NestedCoordinator {
                     + " The caller should use @Forget to release the participant.", content = @Content(schema = @Schema(implementation = String.class))),
             @APIResponse(responseCode = "410", description = "The participant is no longer aware of this LRA.", content = @Content(schema = @Schema(implementation = String.class))),
     })
-    public Response completeNestedLRA(
-            @Parameter(name = "NestedLraId", description = "The unique identifier of the nested LRA", required = true) @PathParam("NestedLraId") String nestedLraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version,
-            @Context UriInfo uriInfo) {
+    public NestedCompleteLRAHttp.Reply completeNestedLRA(
+            @Parameter(name = "NestedLraId", description = "The unique identifier of the nested LRA", required = true) @PathParam("NestedLraId") UUID nestedLraId,
+            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version) {
 
         try {
-            LRAData lraData = lraService.endLRA(toURI(nestedLraId, uriInfo), false, false, null, null);
+            LRAData lraData = lraService.endLRA(nestedLraId, false, false, null, null);
             ParticipantStatus pStatus = mapToParticipantStatus(lraData.getStatus());
-            return buildNestedResponse(pStatus, version, mediaType);
+
+            return new NestedCompleteLRAHttp.Reply(pStatus);
+
         } catch (NotFoundException e) {
-            return Response.status(Response.Status.GONE).build();
+            throw new WebApplicationException(Response.Status.GONE);
         }
     }
 
     @PUT
     @Path("{NestedLraId}/compensate")
-    @Produces({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+    @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Compensate a nested LRA", description = "Implements the @Compensate participant contract"
             + " for a nested LRA as defined by the MicroProfile LRA specification."
             + " Per the spec, a nested LRA that has already closed can still be asked"
@@ -135,23 +125,22 @@ public class NestedCoordinator {
                     + " The caller should use @Forget to release the participant.", content = @Content(schema = @Schema(implementation = String.class))),
             @APIResponse(responseCode = "410", description = "The participant is no longer aware of this LRA.", content = @Content(schema = @Schema(implementation = String.class))),
     })
-    public Response compensateNestedLRA(
-            @Parameter(name = "NestedLraId", description = "The unique identifier of the nested LRA", required = true) @PathParam("NestedLraId") String nestedLraId,
-            @HeaderParam(HttpHeaders.ACCEPT) @DefaultValue(MediaType.TEXT_PLAIN) String mediaType,
-            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version,
-            @Context UriInfo uriInfo) {
+    public NestedCompensateLRAHttp.Reply compensateNestedLRA(
+            @Parameter(name = "NestedLraId", description = "The unique identifier of the nested LRA", required = true) @PathParam("NestedLraId") UUID nestedLraId,
+            @HeaderParam(LRAConstants.NARAYANA_LRA_API_VERSION_HEADER_NAME) @DefaultValue(CURRENT_API_VERSION_STRING) String version) {
 
         try {
-            LRAData lraData = lraService.endLRA(toURI(nestedLraId, uriInfo), true, true, null, null);
+            LRAData lraData = lraService.endLRA(nestedLraId, true, true, null, null);
             ParticipantStatus pStatus = mapToParticipantStatus(lraData.getStatus());
-            return buildNestedResponse(pStatus, version, mediaType);
+            return new NestedCompensateLRAHttp.Reply(pStatus);
         } catch (NotFoundException e) {
-            return Response.status(Response.Status.GONE).build();
+            throw new WebApplicationException(Response.Status.GONE);
         }
     }
 
     @DELETE
     @Path("{NestedLraId}/forget")
+    @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Forget a nested LRA participant", description = "Implements the @Forget participant contract"
             + " as defined by the MicroProfile LRA specification."
             + " Signals that the participant can clean up any resources associated with the LRA."
@@ -160,18 +149,16 @@ public class NestedCoordinator {
             @APIResponse(responseCode = "200", description = "The participant has been forgotten successfully."),
             @APIResponse(responseCode = "410", description = "The participant is no longer aware of this LRA."),
     })
-    public Response forgetNestedLRA(
-            @PathParam("NestedLraId") String nestedLraId,
-            @Context UriInfo uriInfo) {
+    public NestedForgetLRAHttp.Reply forgetNestedLRA(
+            @PathParam("NestedLraId") UUID nestedLraId) {
         try {
-            lraService.getTransaction(toURI(nestedLraId, uriInfo));
+            lraService.getTransaction(nestedLraId);
         } catch (NotFoundException e) {
-            return Response.status(Response.Status.GONE).build();
+            throw new WebApplicationException(Response.Status.GONE);
         }
 
-        lraService.remove(toURI(nestedLraId, uriInfo));
-
-        return Response.ok().build();
+        lraService.remove(nestedLraId);
+        return new NestedForgetLRAHttp.Reply("ok");
     }
 
     private ParticipantStatus mapToParticipantStatus(LRAStatus lraStatus) {
@@ -197,89 +184,5 @@ public class NestedCoordinator {
                         .entity(errMsg)
                         .build());
         }
-    }
-
-    /**
-     * Build a response following the participant contract.
-     * API version 2.0+ returns spec-compliant HTTP status codes:
-     * 200 — terminal success (Completed, Compensated)
-     * 202 — in progress (Completing, Compensating)
-     * 409 — failure (FailedToComplete, FailedToCompensate)
-     * Older versions always return 200 for backward compatibility.
-     */
-    private Response buildNestedResponse(ParticipantStatus pStatus, String apiVersion, String mediaType) {
-        int httpStatus;
-        if (!supportsParticipantStatusCodes(apiVersion)) {
-            httpStatus = Response.Status.OK.getStatusCode();
-        } else {
-            switch (pStatus) {
-                case Completed:
-                case Compensated:
-                    httpStatus = Response.Status.OK.getStatusCode();
-                    break;
-                case Completing:
-                case Compensating:
-                    httpStatus = Response.Status.ACCEPTED.getStatusCode();
-                    break;
-                case FailedToComplete:
-                case FailedToCompensate:
-                    httpStatus = Response.Status.CONFLICT.getStatusCode();
-                    break;
-                default:
-                    httpStatus = Response.Status.OK.getStatusCode();
-                    break;
-            }
-        }
-
-        String statusName = pStatus.name();
-        Response.ResponseBuilder builder = Response.status(httpStatus)
-                .header(NARAYANA_LRA_API_VERSION_HEADER_NAME, apiVersion);
-
-        if (mediaType.equals(MediaType.APPLICATION_JSON)) {
-            JsonObject model = Json.createObjectBuilder()
-                    .add("status", statusName)
-                    .build();
-            return builder.entity(model.toString()).build();
-        } else {
-            return builder.entity(statusName).build();
-        }
-    }
-
-    private URI toURI(String lraId, UriInfo uriInfo) {
-        URL url;
-        String decodedURL = URLDecoder.decode(lraId, StandardCharsets.UTF_8);
-
-        try {
-            url = new URL(decodedURL);
-            url.toURI();
-        } catch (Exception e) {
-            try {
-                url = new URL(String.format("%s%s/%s", uriInfo.getBaseUri(), COORDINATOR_PATH_NAME, lraId));
-            } catch (MalformedURLException e1) {
-                String errMsg = LRALogger.i18nLogger.error_invalidStringFormatOfUrl(lraId, e1);
-                LRALogger.logger.error(errMsg);
-                throw new WebApplicationException(errMsg, Response.status(BAD_REQUEST)
-                        .entity(errMsg)
-                        .build());
-            }
-        }
-
-        try {
-            return url.toURI();
-        } catch (URISyntaxException e) {
-            String errMsg = LRALogger.i18nLogger.error_invalidStringFormatOfUrl(lraId, e);
-            LRALogger.logger.warn(errMsg);
-            throw new WebApplicationException(errMsg, Response.status(BAD_REQUEST)
-                    .entity(errMsg)
-                    .build());
-        }
-    }
-
-    private static boolean supportsParticipantStatusCodes(String version) {
-        return version != null
-                && !version.equals(LRAConstants.API_VERSION_1_0)
-                && !version.equals(LRAConstants.API_VERSION_1_1)
-                && !version.equals(LRAConstants.API_VERSION_1_2)
-                && !version.equals(LRAConstants.API_VERSION_1_3);
     }
 }

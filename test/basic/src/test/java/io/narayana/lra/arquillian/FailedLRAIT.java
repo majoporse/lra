@@ -15,7 +15,6 @@ import static org.hamcrest.core.IsEqual.equalTo;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import io.narayana.lra.LRAConstants;
 import io.narayana.lra.arquillian.resource.LRAParticipantWithStatusURI;
 import io.narayana.lra.arquillian.resource.LRAParticipantWithoutStatusURI;
 import io.narayana.lra.arquillian.resource.SimpleLRAParticipant;
@@ -74,7 +73,7 @@ public class FailedLRAIT extends TestBase {
     }
 
     static String getRecoveryUrl(URI lraId) {
-        return LRAConstants.getLRACoordinatorUrl(lraId) + "/" + RECOVERY_COORDINATOR_PATH_NAME;
+        return coordinatorUrl + "/" + RECOVERY_COORDINATOR_PATH_NAME;
     }
 
     /**

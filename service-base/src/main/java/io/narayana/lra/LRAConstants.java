@@ -8,9 +8,14 @@ package io.narayana.lra;
 import io.narayana.lra.logging.LRALogger;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.regex.Pattern;
+import org.eclipse.microprofile.config.ConfigProvider;
 
 public final class LRAConstants {
+    // the scheme of the LRA protocol URI, e.g. lra://{lraId}
+    public static final String LRA_SCHEME = "lra";
     // the pathname part of the URI of the coordinator
     // warning: the WildFly subsystem uses lra-coordinator/lra-coordinator
     public static final String COORDINATOR_PATH_NAME = "lra-coordinator";
@@ -106,6 +111,45 @@ public final class LRAConstants {
      */
     public static final String NARAYANA_LRA_BASE_URI_PROPERTY_NAME = "narayana.lra.base-uri";
 
+    /**
+     * When set to {@code true} the server side LRA processing is handled by the CDI interceptor
+     * ({@code @LRA.Transaction} beans) instead of the legacy JAX-RS {@code ServerLRAFilter}.
+     * Defaults to {@code false}, ie the legacy filter is used.
+     */
+    public static final String SERVER_FILTER_INTERCEPTOR_PROPERTY_NAME = "lra.server.filter.interceptor";
+
+    /**
+     * @return whether the CDI interceptor (instead of the legacy JAX-RS filter) owns the server
+     *         side LRA processing: {@value #SERVER_FILTER_INTERCEPTOR_PROPERTY_NAME}, defaulting to
+     *         {@code false}
+     */
+    public static boolean isInterceptorMode() {
+        try {
+            return ConfigProvider.getConfig()
+                    .getOptionalValue(SERVER_FILTER_INTERCEPTOR_PROPERTY_NAME, Boolean.class)
+                    .orElse(false);
+        } catch (Exception e) {
+            // no MicroProfile Config provider is installed; system properties are the lowest
+            // common denominator
+            return Boolean.parseBoolean(System.getProperty(SERVER_FILTER_INTERCEPTOR_PROPERTY_NAME, "false"));
+        }
+    }
+
+    /**
+     * @return the base URI used to build participant callback URIs (the address the LRA
+     *         coordinator can use to reach this application), or empty when not set
+     */
+    public static Optional<String> getBaseUri() {
+        try {
+            return ConfigProvider.getConfig()
+                    .getOptionalValue(NARAYANA_LRA_BASE_URI_PROPERTY_NAME, String.class);
+        } catch (Exception e) {
+            // no MicroProfile Config provider is installed; system properties are the lowest
+            // common denominator
+            return Optional.ofNullable(System.getProperty(NARAYANA_LRA_BASE_URI_PROPERTY_NAME));
+        }
+    }
+
     private static final Pattern UID_REGEXP_EXTRACT_MATCHER = Pattern.compile(".*/([^/?]+).*");
 
     private LRAConstants() {
@@ -131,10 +175,36 @@ public final class LRAConstants {
     public static String getLRAUid(URI lraId) {
         if (lraId == null)
             return null;
-        String path = lraId.getPath();
-        if (path == null)
-            return null;
-        return path.substring(path.lastIndexOf('/') + 1);
+
+        // the LRA protocol form (lra://{uid}) carries the uid in the authority
+        if (LRA_SCHEME.equals(lraId.getScheme())) {
+            String authority = lraId.getAuthority();
+            if (authority != null && !authority.isEmpty()) {
+                return authority;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Form the LRA protocol URI ({@code lra://{uid}}) for the given LRA uid.
+     *
+     * @param lraId the uid of the LRA
+     * @return LRA id in the LRA protocol form
+     */
+    public static URI toLRAId(UUID lraId) {
+        return lraId == null ? null : URI.create(LRA_SCHEME + "://" + lraId);
+    }
+
+    /**
+     * Extract the uid (as a {@link UUID}) from an LRA id.
+     *
+     * @param lraId the LRA id to extract the uid from
+     * @return the uid of the LRA, or null if the LRA id does not carry one
+     */
+    public static UUID toUuid(URI lraId) {
+        String uid = getLRAUid(lraId);
+        return uid == null ? null : UUID.fromString(uid);
     }
 
     /*

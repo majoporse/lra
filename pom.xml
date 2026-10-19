@@ -39,6 +39,7 @@
 
   <modules>
     <module>service-base</module>
+    <module>contracts</module>
     <module>client</module>
     <module>coordinator</module>
     <module>coordinator-war</module>
@@ -280,6 +281,11 @@
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-annotations</artifactId>
+        <version>${version.fasterxml.jackson.core}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-core</artifactId>
         <version>${version.fasterxml.jackson.core}</version>
       </dependency>
@@ -313,6 +319,11 @@
       <dependency>
         <groupId>org.jboss.narayana.lra</groupId>
         <artifactId>lra-client</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-contracts</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
