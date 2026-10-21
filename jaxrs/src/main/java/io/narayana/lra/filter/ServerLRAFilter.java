@@ -12,11 +12,15 @@ import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVER
 
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
+import io.narayana.lra.client.LRAClient;
 import io.narayana.lra.client.LRAParticipantData;
+import io.narayana.lra.client.NarayanaLRAClient;
+import io.narayana.lra.client.internal.proxy.ParticipantProtocolRegistry;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipant;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
 import io.narayana.lra.filter.core.ServerLRAContext;
 import io.narayana.lra.filter.core.ServerLRAProcessor;
+import io.narayana.lra.filter.resolver.MicroProfileLRAAnnotationResolver;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -49,6 +53,9 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
 
     @Inject
     private LRAParticipantRegistry lraParticipantRegistry;
+
+    @Inject
+    private ParticipantProtocolRegistry protocolRegistry;
 
     @Inject
     LRAParticipantData data;
@@ -275,9 +282,19 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
     private ServerLRAProcessor getProcessor() {
         if (processor == null) {
             // no need to lock
-            processor = new ServerLRAProcessor(lraParticipantRegistry, data, enlistMaxRetries);
+            processor = new ServerLRAProcessor(lraParticipantRegistry, null, data, enlistMaxRetries,
+                    new MicroProfileLRAAnnotationResolver(), lraClient());
         }
 
         return processor;
+    }
+
+    private LRAClient lraClient() {
+        if (protocolRegistry != null) {
+            return protocolRegistry.client();
+        }
+
+        // non-CDI deployments (the RESTEasy/Undertow tests) do not inject the provider's fields
+        return new NarayanaLRAClient();
     }
 }

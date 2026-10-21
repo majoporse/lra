@@ -74,5 +74,9 @@
       <groupId>org.jboss.narayana.lra</groupId>
       <artifactId>lra-client</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.jboss.narayana.lra</groupId>
+      <artifactId>lra-connector-api</artifactId>
+    </dependency>
   </dependencies>
 </project>

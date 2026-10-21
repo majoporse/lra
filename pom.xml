@@ -39,6 +39,8 @@
 
   <modules>
     <module>service-base</module>
+    <module>connectors</module>
+    <module>coordinator-core</module>
     <module>contracts</module>
     <module>client</module>
     <module>coordinator</module>
@@ -329,6 +331,46 @@
       <dependency>
         <groupId>org.jboss.narayana.lra</groupId>
         <artifactId>lra-service-base</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-api</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-http-contracts</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-http-client</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-http-coordinator</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-kafka-contracts</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-kafka-client</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-kafka-coordinator</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-coordinator-core</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

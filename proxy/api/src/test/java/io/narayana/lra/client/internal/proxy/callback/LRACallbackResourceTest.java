@@ -6,8 +6,8 @@
 package io.narayana.lra.client.internal.proxy.callback;
 
 import io.narayana.lra.api.LRA;
+import io.narayana.lra.callbacks.CallbackReceiver;
 import io.narayana.lra.callbacks.CallbackType;
-import io.narayana.lra.callbacks.ParticipantCallbackDispatcher;
 import io.narayana.lra.callbacks.contracts.common.AfterLRACallback;
 import io.narayana.lra.callbacks.contracts.common.CompensateCallback;
 import io.narayana.lra.callbacks.contracts.common.CompleteCallback;
@@ -19,9 +19,7 @@ import io.narayana.lra.callbacks.contracts.http.HttpCompensateCallback;
 import io.narayana.lra.callbacks.contracts.http.HttpCompleteCallback;
 import io.narayana.lra.callbacks.contracts.http.HttpForgetCallback;
 import io.narayana.lra.callbacks.contracts.http.HttpStatusCallback;
-import jakarta.enterprise.inject.Instance;
 import java.lang.reflect.Field;
-import java.lang.reflect.Proxy;
 import java.net.URI;
 import java.util.Map;
 import org.junit.jupiter.api.Assertions;
@@ -121,26 +119,11 @@ public class LRACallbackResourceTest {
 
     private static LRACallbackResource resource(CallbackParticipantRegistry registry) throws Exception {
         LRACallbackResource resource = new LRACallbackResource();
-        Field field = LRACallbackResource.class.getDeclaredField("participantCallbackDispatcher");
+        Field field = LRACallbackResource.class.getDeclaredField("callbackReceiver");
         field.setAccessible(true);
-        field.set(resource, instance(registry));
+        field.set(resource, new CallbackReceiver(registry));
 
         return resource;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Instance<ParticipantCallbackDispatcher> instance(ParticipantCallbackDispatcher dispatcher) {
-        return (Instance<ParticipantCallbackDispatcher>) Proxy.newProxyInstance(
-                LRACallbackResourceTest.class.getClassLoader(),
-                new Class<?>[] { Instance.class },
-                (proxy, method, args) -> switch (method.getName()) {
-                    case "isResolvable" -> true;
-                    case "get" -> dispatcher;
-                    case "toString" -> "test-instance";
-                    case "hashCode" -> System.identityHashCode(proxy);
-                    case "equals" -> proxy == args[0];
-                    default -> throw new UnsupportedOperationException(method.getName());
-                });
     }
 
     public static class FlexibleParticipant {

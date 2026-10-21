@@ -6,6 +6,8 @@ import io.narayana.lra.LRAConstants;
 import io.narayana.lra.callbacks.CallbackFactory;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
 import io.narayana.lra.callbacks.Protocol;
+import io.narayana.lra.connectors.api.CallbackPaths;
+import io.narayana.lra.connectors.api.ParticipantConnector;
 import io.narayana.lra.contracts.kafka.CancelLRAKafka;
 import io.narayana.lra.contracts.kafka.CloseLRAKafka;
 import io.narayana.lra.contracts.kafka.JoinLRAKafka;
@@ -37,7 +39,8 @@ import org.eclipse.microprofile.reactive.messaging.Emitter;
 
 @ApplicationScoped
 @IfBuildProperty(name = CallbackFactory.PROTOCOL_PROPERTY, stringValue = Protocol.KAFKA_VALUE)
-public class KafkaLRAClient {
+@ParticipantConnector(CallbackPaths.KAFKA)
+public class KafkaLRAClient implements LRAClient {
     private static final long REPLY_TIMEOUT_SECONDS = 30;
     private static final boolean FIRE_AND_FORGET = true;
 
@@ -178,6 +181,17 @@ public class KafkaLRAClient {
         LeaveLRAKafka.Request request = new LeaveLRAKafka.Request(nextCorrelationId(), replyTopic,
                 LRAConstants.toUuid(lraId), body);
         send(LeaveLRAKafka.TYPE, request, LeaveLRAKafka.Reply.class, FIRE_AND_FORGET);
+    }
+
+    @Override
+    public String protocolId() {
+        return CallbackPaths.KAFKA;
+    }
+
+    @Override
+    public URI enlistCompensator(URI lraId, Long timeLimit, ParticipantCallbacks callbacks,
+            StringBuilder previousParticipantData, String participantId) {
+        return joinLRA(lraId, timeLimit, callbacks, previousParticipantData, participantId);
     }
 
     //    @Override

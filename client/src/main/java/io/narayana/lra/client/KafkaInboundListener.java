@@ -7,11 +7,10 @@ package io.narayana.lra.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.narayana.lra.api.LRA;
 import io.narayana.lra.callbacks.CallbackFactory;
+import io.narayana.lra.callbacks.CallbackReceiver;
 import io.narayana.lra.callbacks.CallbackType;
 import io.narayana.lra.callbacks.KafkaCallback;
-import io.narayana.lra.callbacks.ParticipantCallbackDispatcher;
 import io.narayana.lra.callbacks.Protocol;
 import io.narayana.lra.callbacks.contracts.common.ParticipantReply;
 import io.narayana.lra.callbacks.contracts.common.ParticipantRequest;
@@ -28,7 +27,6 @@ import io.narayana.lra.logging.LRALogger;
 import io.quarkus.arc.properties.IfBuildProperty;
 import io.smallrye.reactive.messaging.annotations.Blocking;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.util.concurrent.CompletionStage;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
@@ -42,7 +40,7 @@ public class KafkaInboundListener {
     KafkaLRAClient kafkaLRAClient;
 
     @Inject
-    Instance<ParticipantCallbackDispatcher> participantCallbackDispatcher;
+    CallbackReceiver callbackReceiver;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -80,7 +78,7 @@ public class KafkaInboundListener {
     private void handleCallback(LRAKafkaEnvelope envelope) throws Exception {
         KafkaCallback.Operation operation = KafkaCallback.Operation.fromMessageType(envelope.type);
         ParticipantRequest request = objectMapper.convertValue(envelope.payload, requestClass(operation));
-        ParticipantReply reply = dispatch(operation, request);
+        ParticipantReply reply = callbackReceiver.receive(callbackType(operation), request);
         KafkaCallbackReply kafkaReply = toKafkaReply(operation, request, reply);
         LRAKafkaEnvelope replyEnvelope = new LRAKafkaEnvelope(
                 LRAKafkaConstants.callbackReplyType(envelope.type), kafkaReply);
@@ -88,37 +86,18 @@ public class KafkaInboundListener {
         kafkaLRAClient.sendToCoordinator(objectMapper.writeValueAsString(replyEnvelope));
     }
 
-    private ParticipantReply dispatch(KafkaCallback.Operation operation, ParticipantRequest request) {
-        if (!participantCallbackDispatcher.isResolvable()) {
-            LRALogger.logger.warnf("No transport-neutral LRA participant dispatcher is available for %s %s",
-                    operation, request.lraId);
-            return null;
-        }
-
-        ParticipantReply reply = participantCallbackDispatcher.get().dispatch(callbackType(operation), request);
-
-        if (reply == null) {
-            LRALogger.logger.warnf("No transport-neutral LRA participant is registered for id %s (%s %s)",
-                    request.participantId, operation, request.lraId);
-        }
-
-        return reply;
-    }
-
     private KafkaCallbackReply toKafkaReply(KafkaCallback.Operation operation, ParticipantRequest request,
             ParticipantReply reply) {
         String correlationId = request instanceof KafkaCallbackRequest kafkaRequest
                 ? kafkaRequest.getCorrelationId()
                 : "";
-        String error = reply == null ? "No LRA participant registered for id " + request.participantId : reply.error;
-        LRA.ParticipantOutcome status = reply == null ? null : reply.status;
 
         return switch (operation) {
-            case COMPENSATE -> new CompensateKafkaCallback.Reply(correlationId, status, error);
-            case COMPLETE -> new CompleteKafkaCallback.Reply(correlationId, status, error);
-            case STATUS -> new StatusKafkaCallback.Reply(correlationId, status, error);
-            case FORGET -> new ForgetKafkaCallback.Reply(correlationId, error);
-            case AFTER_LRA -> new AfterLRAKafkaCallback.Reply(correlationId, error);
+            case COMPENSATE -> new CompensateKafkaCallback.Reply(correlationId, reply.status, reply.error);
+            case COMPLETE -> new CompleteKafkaCallback.Reply(correlationId, reply.status, reply.error);
+            case STATUS -> new StatusKafkaCallback.Reply(correlationId, reply.status, reply.error);
+            case FORGET -> new ForgetKafkaCallback.Reply(correlationId, reply.error);
+            case AFTER_LRA -> new AfterLRAKafkaCallback.Reply(correlationId, reply.error);
         };
     }
 

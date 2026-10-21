@@ -6,6 +6,7 @@
 package io.narayana.lra.client.internal.proxy.nonjaxrs;
 
 import io.narayana.lra.LRAConstants;
+import io.narayana.lra.client.internal.proxy.ParticipantProtocolRegistry;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.jandex.DotNames;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.event.Observes;
@@ -32,6 +33,9 @@ public class LegacyLRACDIExtension extends AbstractLRACDIExtension {
 
         registerRegistry(event, beanManager, LRAParticipantRegistry.class,
                 new LRAParticipantRegistry(participants));
+        // the protocol registry is needed by both participant worlds
+        registerRegistry(event, beanManager, ParticipantProtocolRegistry.class,
+                new ParticipantProtocolRegistry());
     }
 
     private void collectLegacyParticipants(Map<String, LRAParticipant> participants, BeanManager beanManager)

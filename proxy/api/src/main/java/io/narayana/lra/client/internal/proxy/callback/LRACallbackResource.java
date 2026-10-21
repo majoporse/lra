@@ -11,8 +11,8 @@ import static io.narayana.lra.LRAConstants.COMPLETE;
 import static io.narayana.lra.LRAConstants.FORGET;
 import static io.narayana.lra.LRAConstants.STATUS;
 
+import io.narayana.lra.callbacks.CallbackReceiver;
 import io.narayana.lra.callbacks.CallbackType;
-import io.narayana.lra.callbacks.ParticipantCallbackDispatcher;
 import io.narayana.lra.callbacks.contracts.common.ParticipantReply;
 import io.narayana.lra.callbacks.contracts.common.ParticipantRequest;
 import io.narayana.lra.callbacks.contracts.http.HttpAfterLRACallback;
@@ -20,9 +20,7 @@ import io.narayana.lra.callbacks.contracts.http.HttpCompensateCallback;
 import io.narayana.lra.callbacks.contracts.http.HttpCompleteCallback;
 import io.narayana.lra.callbacks.contracts.http.HttpForgetCallback;
 import io.narayana.lra.callbacks.contracts.http.HttpStatusCallback;
-import io.narayana.lra.proxy.logging.LRAProxyLogger;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.POST;
@@ -36,7 +34,7 @@ import jakarta.ws.rs.core.MediaType;
 public class LRACallbackResource {
 
     @Inject
-    private Instance<ParticipantCallbackDispatcher> participantCallbackDispatcher;
+    private CallbackReceiver callbackReceiver;
 
     @POST
     @Path("{participantId}/" + COMPENSATE)
@@ -84,22 +82,10 @@ public class LRACallbackResource {
     }
 
     private ParticipantReply dispatch(CallbackType type, ParticipantRequest request, String participantId) {
-        if (request == null) {
-            return errorReply("Missing " + type + " callback request");
+        if (request != null) {
+            request.participantId = participantId;
         }
 
-        request.participantId = participantId;
-
-        ParticipantReply reply = participantCallbackDispatcher.isResolvable()
-                ? participantCallbackDispatcher.get().dispatch(type, request)
-                : null;
-
-        return reply != null ? reply : errorReply(LRAProxyLogger.i18NLogger.error_missingParticipant(participantId));
-    }
-
-    private static ParticipantReply errorReply(String message) {
-        ParticipantReply reply = new ParticipantReply();
-        reply.error = message;
-        return reply;
+        return callbackReceiver.receive(type, request);
     }
 }

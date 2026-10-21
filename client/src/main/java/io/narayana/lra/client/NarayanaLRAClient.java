@@ -22,6 +22,8 @@ import io.narayana.lra.LRAData;
 import io.narayana.lra.callbacks.CallbackFactory;
 import io.narayana.lra.callbacks.CallbackType;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
+import io.narayana.lra.connectors.api.CallbackPaths;
+import io.narayana.lra.connectors.api.ParticipantConnector;
 import io.narayana.lra.contracts.http.CancelLRAHttp;
 import io.narayana.lra.contracts.http.CloseLRAHttp;
 import io.narayana.lra.contracts.http.JoinLRAHttp;
@@ -75,7 +77,8 @@ import org.eclipse.microprofile.rest.client.RestClientBuilder;
  * See {@link RestClientConfig} for details on available configuration options.
  */
 @RequestScoped
-public class NarayanaLRAClient implements AutoCloseable {
+@ParticipantConnector(CallbackPaths.HTTP)
+public class NarayanaLRAClient implements LRAClient {
     /**
      * The config property key for configuring the URL of a Narayana LRA coordinator
      */
@@ -294,6 +297,11 @@ public class NarayanaLRAClient implements AutoCloseable {
      * @return LRA id as URL
      * @throws WebApplicationException thrown when start of the LRA failed
      */
+    @Override
+    public String protocolId() {
+        return CallbackPaths.HTTP;
+    }
+
     public URI startLRA(String clientID) throws WebApplicationException {
         return startLRA(clientID, 0L);
     }

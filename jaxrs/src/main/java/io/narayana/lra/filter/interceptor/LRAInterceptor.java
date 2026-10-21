@@ -12,7 +12,9 @@ import io.narayana.lra.AnnotationResolver;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.api.LRA;
+import io.narayana.lra.client.LRAClient;
 import io.narayana.lra.client.LRAParticipantData;
+import io.narayana.lra.client.internal.proxy.ParticipantProtocolRegistry;
 import io.narayana.lra.client.internal.proxy.callback.CallbackParticipantRegistry;
 import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
 import io.narayana.lra.filter.core.ServerLRAContext;
@@ -68,6 +70,9 @@ public class LRAInterceptor {
 
     @Inject
     private LRAParticipantRegistry lraParticipantRegistry;
+
+    @Inject
+    private ParticipantProtocolRegistry protocolRegistry;
 
     @Inject
     private Instance<CallbackParticipantRegistry> callbackParticipantRegistry;
@@ -320,11 +325,19 @@ public class LRAInterceptor {
                             ? callbackParticipantRegistry.get()
                             : null;
                     processor = new ServerLRAProcessor(lraParticipantRegistry, contractRegistry, data,
-                            enlistMaxRetries, new CDILRAAnnotationResolver());
+                            enlistMaxRetries, new CDILRAAnnotationResolver(), lraClient());
                 }
             }
         }
 
         return processor;
+    }
+
+    private LRAClient lraClient() {
+        ParticipantProtocolRegistry registry = protocolRegistry != null
+                ? protocolRegistry
+                : new ParticipantProtocolRegistry();
+
+        return registry.client();
     }
 }

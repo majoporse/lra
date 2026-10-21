@@ -8,6 +8,7 @@ package io.narayana.lra.client;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.api.LRA;
 import io.narayana.lra.callbacks.CallbackFactory;
+import io.narayana.lra.callbacks.CallbackReceiver;
 import io.narayana.lra.callbacks.CallbackType;
 import io.narayana.lra.callbacks.ParticipantCallbackDispatcher;
 import io.narayana.lra.callbacks.contracts.common.CompensateCallback;
@@ -15,8 +16,6 @@ import io.narayana.lra.callbacks.contracts.common.ParticipantRequest;
 import io.narayana.lra.callbacks.contracts.kafka.CompensateKafkaCallback;
 import io.narayana.lra.contracts.kafka.LRAKafkaConstants;
 import io.narayana.lra.contracts.kafka.LRAKafkaEnvelope;
-import jakarta.enterprise.inject.Instance;
-import java.lang.reflect.Proxy;
 import java.net.URI;
 import java.util.concurrent.TimeUnit;
 import org.eclipse.microprofile.reactive.messaging.Message;
@@ -112,23 +111,8 @@ public class KafkaInboundListenerTest {
     private static KafkaInboundListener listener(KafkaLRAClient client, ParticipantCallbackDispatcher dispatcher) {
         KafkaInboundListener listener = new KafkaInboundListener();
         listener.kafkaLRAClient = client;
-        listener.participantCallbackDispatcher = instance(dispatcher);
+        listener.callbackReceiver = new CallbackReceiver(dispatcher);
         return listener;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Instance<ParticipantCallbackDispatcher> instance(ParticipantCallbackDispatcher dispatcher) {
-        return (Instance<ParticipantCallbackDispatcher>) Proxy.newProxyInstance(
-                KafkaInboundListenerTest.class.getClassLoader(),
-                new Class<?>[] { Instance.class },
-                (proxy, method, args) -> switch (method.getName()) {
-                    case "isResolvable" -> true;
-                    case "get" -> dispatcher;
-                    case "toString" -> "test-instance";
-                    case "hashCode" -> System.identityHashCode(proxy);
-                    case "equals" -> proxy == args[0];
-                    default -> throw new UnsupportedOperationException(method.getName());
-                });
     }
 
     private static final class CapturingClient extends KafkaLRAClient {

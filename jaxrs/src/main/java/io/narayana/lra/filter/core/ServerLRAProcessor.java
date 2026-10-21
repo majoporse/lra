@@ -16,8 +16,8 @@ import io.narayana.lra.BearerTokenResolver;
 import io.narayana.lra.Current;
 import io.narayana.lra.api.LRA.Propagation;
 import io.narayana.lra.callbacks.ParticipantCallbacks;
+import io.narayana.lra.client.LRAClient;
 import io.narayana.lra.client.LRAParticipantData;
-import io.narayana.lra.client.NarayanaLRAClient;
 import io.narayana.lra.client.ParticipantIdProvider;
 import io.narayana.lra.client.internal.proxy.callback.CallbackParticipantRegistry;
 import io.narayana.lra.client.internal.proxy.callback.ContractParticipant;
@@ -27,7 +27,6 @@ import io.narayana.lra.filter.core.ServerLRAContext.Progress;
 import io.narayana.lra.filter.core.ServerLRAContext.ProgressStep;
 import io.narayana.lra.filter.resolver.LRAAnnotationResolver;
 import io.narayana.lra.filter.resolver.LRATransactionMetadata;
-import io.narayana.lra.filter.resolver.MicroProfileLRAAnnotationResolver;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.context.ContextNotActiveException;
 import jakarta.ws.rs.NotFoundException;
@@ -60,27 +59,17 @@ public class ServerLRAProcessor {
     private final LRAParticipantData data;
     private final int enlistMaxRetries;
     private final LRAAnnotationResolver resolver;
-
-    private NarayanaLRAClient lraClient;
-
-    public ServerLRAProcessor(LRAParticipantRegistry lraParticipantRegistry, LRAParticipantData data,
-            int enlistMaxRetries) {
-        this(lraParticipantRegistry, data, enlistMaxRetries, new MicroProfileLRAAnnotationResolver());
-    }
-
-    public ServerLRAProcessor(LRAParticipantRegistry lraParticipantRegistry, LRAParticipantData data,
-            int enlistMaxRetries, LRAAnnotationResolver resolver) {
-        this(lraParticipantRegistry, null, data, enlistMaxRetries, resolver);
-    }
+    private final LRAClient lraClient;
 
     public ServerLRAProcessor(LRAParticipantRegistry lraParticipantRegistry,
             CallbackParticipantRegistry callbackParticipantRegistry, LRAParticipantData data,
-            int enlistMaxRetries, LRAAnnotationResolver resolver) {
+            int enlistMaxRetries, LRAAnnotationResolver resolver, LRAClient lraClient) {
         this.lraParticipantRegistry = lraParticipantRegistry;
         this.callbackParticipantRegistry = callbackParticipantRegistry;
         this.data = data;
         this.enlistMaxRetries = enlistMaxRetries;
         this.resolver = resolver;
+        this.lraClient = lraClient;
     }
 
     /**
@@ -447,7 +436,7 @@ public class ServerLRAProcessor {
         try {
             // do not attempt to cancel if the request filter tried but failed to start a new LRA
             if (progressDoesNotContain(context, ProgressStep.StartFailed)) {
-                getLRAClient().cancelLRA(current);
+                getLRAClient().cancelLRA(current, null, null);
                 updateProgress(context, ProgressStep.Ended, null);
             }
         } catch (NotFoundException ignore) {
@@ -581,12 +570,7 @@ public class ServerLRAProcessor {
                 lraId == null ? "context" : lraId);
     }
 
-    private NarayanaLRAClient getLRAClient() {
-        if (lraClient == null) {
-            // no need to lock
-            lraClient = new NarayanaLRAClient();
-        }
-
+    private LRAClient getLRAClient() {
         return lraClient;
     }
 

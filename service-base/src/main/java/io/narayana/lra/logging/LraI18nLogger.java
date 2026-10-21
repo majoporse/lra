@@ -192,6 +192,9 @@ public interface LraI18nLogger {
     @Message(id = 25050, value = "Service token provider configured: location=%s, refresh=%ds")
     String info_serviceTokenProviderConfigured(String location, long refreshSeconds);
 
+    @Message(id = 25051, value = "No LRA participant registered for id '%s' (%s callback)")
+    String error_missingCallbackParticipant(String participantId, String callbackType);
+
     /*
      * Allocate new messages directly above this notice.
      * - id: use the next id number in numeric sequence. Don't reuse ids.

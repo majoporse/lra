@@ -39,6 +39,9 @@ public interface lraI18NLogger {
     @Message(id = 25004, value = "%s: Cannot find participant in LRA registry")
     String error_missingParticipant(String participant);
 
+    @Message(id = 25005, value = "Participant '%s' has no %s callback method")
+    String error_missingCallbackMethod(String participant, String callbackType);
+
     /*
      * Allocate new messages directly above this notice.
      * - id: use the next id number in numeric sequence. Don't reuse ids.
