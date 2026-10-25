@@ -1,0 +1,1055 @@
+/*
+   Copyright The Narayana Authors
+   SPDX-License-Identifier: Apache-2.0
+ */
+
+package io.narayana.lra.connectors.http.client;
+
+import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
+import static io.narayana.lra.LRAConstants.RECOVERY_COORDINATOR_PATH_NAME;
+import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST;
+import static jakarta.ws.rs.core.Response.Status.GONE;
+import static jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
+import static jakarta.ws.rs.core.Response.Status.NOT_ACCEPTABLE;
+import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
+import static jakarta.ws.rs.core.Response.Status.OK;
+import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
+import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
+
+import io.narayana.lra.Current;
+import io.narayana.lra.LRAConstants;
+import io.narayana.lra.LRAData;
+import io.narayana.lra.connectors.common.callbacks.CallbackType;
+import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
+import io.narayana.lra.connectors.common.client.CallbackPaths;
+import io.narayana.lra.connectors.common.client.LRAClient;
+import io.narayana.lra.connectors.common.client.ParticipantConnector;
+import io.narayana.lra.connectors.http.address.LegacyHttpAddress;
+import io.narayana.lra.connectors.http.client.outbound.CoordinatorClient;
+import io.narayana.lra.connectors.http.client.outbound.RestClientConfig;
+import io.narayana.lra.connectors.http.contracts.CancelLRAHttp;
+import io.narayana.lra.connectors.http.contracts.CloseLRAHttp;
+import io.narayana.lra.connectors.http.contracts.JoinLRAHttp;
+import io.narayana.lra.connectors.http.contracts.LeaveLRAHttp;
+import io.narayana.lra.connectors.http.contracts.RenewTimeLimitLRAHttp;
+import io.narayana.lra.connectors.http.contracts.StartLRAHttp;
+import io.narayana.lra.logging.LRALogger;
+import io.smallrye.stork.Stork;
+import io.smallrye.stork.api.Service;
+import io.smallrye.stork.api.ServiceDefinition;
+import io.smallrye.stork.api.config.ConfigWithType;
+import io.smallrye.stork.servicediscovery.staticlist.StaticConfiguration;
+import jakarta.enterprise.context.RequestScoped;
+import jakarta.ws.rs.ClientErrorException;
+import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.ProcessingException;
+import jakarta.ws.rs.ServiceUnavailableException;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriBuilder;
+import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import org.eclipse.microprofile.config.Config;
+import org.eclipse.microprofile.config.ConfigProvider;
+import org.eclipse.microprofile.lra.annotation.LRAStatus;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
+import org.eclipse.microprofile.rest.client.RestClientBuilder;
+
+/**
+ * WARNING: NarayanaLRAClient is an internal utility class and is subject to change
+ * (however it will be made available with improved guarantees in a subsequent release).
+ * <p>
+ * A utility class for controlling the lifecycle of Long Running Actions (LRAs) but the preferred mechanism is to use
+ * the annotation in the {@link org.eclipse.microprofile.lra.annotation} package
+ * <p>
+ * HTTP client security and timeout configuration can be provided via MicroProfile Config properties with the
+ * prefix "lra.http-client.*". Supported properties include SSL/TLS keystores and truststores, connection timeouts,
+ * read timeouts, custom hostname verifiers, and provider registration.
+ * See {@link RestClientConfig} for details on available configuration options.
+ */
+@RequestScoped
+@ParticipantConnector(CallbackPaths.HTTP)
+public class NarayanaLRAClient implements LRAClient {
+    /**
+     * The config property key for configuring the URL of a Narayana LRA coordinator
+     */
+    public static final String LRA_COORDINATOR_URL_KEY = "lra.coordinator.url";
+    /**
+     * The config property key for configuring the load balancing algorithm for a cluster of coordinators
+     */
+    public static final String COORDINATOR_LB_METHOD_KEY = "lra.coordinator.lb-method";
+
+    // Load balancing algorithms.
+    // The values must match what Stork uses (remark Stork does not define any constants)
+    public static final String LB_METHOD_ROUND_ROBIN = "round-robin";
+    public static final String LB_METHOD_STICKY = "sticky";
+    public static final String LB_METHOD_RANDOM = "random";
+    public static final String LB_METHOD_LEAST_REQUESTS = "least-requests";
+    public static final String LB_METHOD_LEAST_RESPONSE_TIME = "least-response-time";
+    public static final String LB_METHOD_POWER_OF_TWO_CHOICES = "power-of-two-choices";
+    public static final String[] NARAYANA_LRA_SUPPORTED_LB_METHODS = new String[] {
+            LB_METHOD_ROUND_ROBIN,
+            LB_METHOD_STICKY,
+            LB_METHOD_RANDOM,
+            LB_METHOD_LEAST_REQUESTS,
+            LB_METHOD_LEAST_RESPONSE_TIME,
+            LB_METHOD_POWER_OF_TWO_CHOICES
+    };
+
+    /**
+     * constrain how long client operations take before giving up
+     * <p>
+     * WARNING: NarayanaLRAClient is an internal utility class and is subject to change
+     * (but it will be made available with improved guarantees in a subsequent release).
+     */
+    private static final long CLIENT_TIMEOUT = Long.getLong("lra.internal.client.timeout", 10);
+    private static final long START_TIMEOUT = Long.getLong("lra.internal.client.timeout.start", CLIENT_TIMEOUT);
+    private static final long JOIN_TIMEOUT = Long.getLong("lra.internal.client.timeout.join", CLIENT_TIMEOUT);
+    private static final long END_TIMEOUT = Long.getLong("lra.internal.client.end.timeout", CLIENT_TIMEOUT);
+    private static final long LEAVE_TIMEOUT = Long.getLong("lra.internal.client.leave.timeout", CLIENT_TIMEOUT);
+    private static final long QUERY_TIMEOUT = Long.getLong("lra.internal.client.query.timeout", CLIENT_TIMEOUT);
+
+    private static final Config CONFIG = ConfigProvider.getConfig();
+
+    private Service coordinatorService;
+    private URI coordinatorUrl; // default coordinator (when load balancing is enabled a cluster coordinators is used)
+    private long coordinatorCount;
+    private String lbMethod;
+    private boolean lbMethodValid;
+    private boolean supportsFailover;
+    private boolean storkInitialised;
+
+    /**
+     * Creating LRA client. The URL of the LRA coordinator will be taken
+     * from system property {@link NarayanaLRAClient#LRA_COORDINATOR_URL_KEY}.
+     * If not defined as default value is taken {@code http://localhost:8080/lra-coordinator}.
+     * The LRA recovery coordinator will be searched at the sub-path {@value LRAConstants#RECOVERY_COORDINATOR_PATH_NAME}.
+     *
+     * @throws IllegalStateException thrown when the URL taken from the system property value is not a URL format
+     */
+    public NarayanaLRAClient() {
+        clusterConfig(null);
+    }
+
+    /**
+     * Creating LRA client where expecting LRA coordinator being available through
+     * protocol <i>protocol</i> at <i>host</i>:<i>port</i>/<i>coordinatorPath</i>.
+     *
+     * @param protocol protocol used to contact the LRA coordinator
+     * @param host hostname where the LRA coordinator will be contacted
+     * @param port port where the LRA coordinator will be contacted
+     * @param coordinatorPath path where the LRA coordinator will be contacted
+     */
+    @Deprecated(since = "1.0.3.Final", forRemoval = true)
+    public NarayanaLRAClient(String protocol, String host, int port, String coordinatorPath) {
+        clusterConfig(UriBuilder.fromPath(coordinatorPath).scheme(protocol).host(host).port(port).build());
+    }
+
+    /**
+     * Creating LRA client where expecting LRA coordinator being available
+     * at the provided uri.
+     * The LRA recovery coordinator will be searched at the sub-path {@value LRAConstants#RECOVERY_COORDINATOR_PATH_NAME}.
+     *
+     * @param coordinatorUrl uri of the LRA coordinator
+     */
+    public NarayanaLRAClient(URI coordinatorUrl) {
+        clusterConfig(coordinatorUrl);
+    }
+
+    /**
+     * Creating LRA client where expecting LRA coordinator being available
+     * at the provided URL defined by String.
+     * The LRA recovery coordinator will be searched at the sub-path {@value LRAConstants#RECOVERY_COORDINATOR_PATH_NAME}.
+     *
+     * @param coordinatorUrl url of the LRA coordinator
+     * @throws IllegalStateException thrown when the provided URL String is not a URL format
+     */
+    public NarayanaLRAClient(String coordinatorUrl) {
+        clusterConfig(toURI(coordinatorUrl));
+    }
+
+    private URI toURI(String coordinatorUrl) {
+        try {
+            return new URI(coordinatorUrl);
+        } catch (URISyntaxException use) {
+            String errMsg = LRALogger.i18nLogger.warn_invalid_uri(
+                    coordinatorUrl, use.getMessage() + " - NarayanaLRAClient constructor");
+            throw new RuntimeException(errMsg, use); // TODO or throw use and change the caller
+        }
+    }
+
+    private static String getConfigProperty(String key, String defaultValue) {
+        try {
+            String value = CONFIG.getValue(key, String.class);
+            if (value != null && !value.isEmpty()) {
+                return value;
+            }
+        } catch (Exception ignore) {
+        }
+
+        return defaultValue;
+    }
+
+    private ConfigWithType loadBalancer(String loadBalancer, Map<String, String> loadBalancerParams) {
+        return loadBalancer == null ? null : new ConfigWithType() {
+            @Override
+            public String type() {
+                return loadBalancer;
+            }
+
+            @Override
+            public Map<String, String> parameters() {
+                return Objects.requireNonNullElse(loadBalancerParams, Collections.emptyMap());
+            }
+        };
+    }
+
+    private void clusterConfig(URI coordinatorUrl) {
+        if (coordinatorUrl != null) {
+            this.coordinatorUrl = coordinatorUrl;
+            this.coordinatorCount = 1;
+        } else {
+            // check LRA_COORDINATOR_URL_KEY or use http://localhost:8080/lra-coordinator as the default
+            String coordinators = getConfigProperty(LRA_COORDINATOR_URL_KEY, "http://localhost:8080/" + COORDINATOR_PATH_NAME);
+
+            this.coordinatorUrl = toURI(coordinators.split(",")[0]);
+            this.coordinatorCount = coordinators.chars().filter(ch -> ch == ',').count() + 1;
+
+            // if there is only one coordinator, we don't need to initialize stork
+            if (this.coordinatorCount == 1) {
+                return;
+            }
+
+            try {
+                this.lbMethod = getConfigProperty(COORDINATOR_LB_METHOD_KEY, LB_METHOD_ROUND_ROBIN);
+                this.lbMethodValid = Arrays.asList(NARAYANA_LRA_SUPPORTED_LB_METHODS).contains(lbMethod);
+                // validate whether the requested load balancer is supported
+                if (!lbMethodValid) {
+                    // load balancing only applies when starting new LRAs, so log a warning rather than an error
+                    LRALogger.i18nLogger.warn_unsupportedLoadBalancer(lbMethod, this.coordinatorUrl.toASCIIString());
+                } else {
+                    if (LRALogger.logger.isDebugEnabled()) {
+                        LRALogger.logger.debugf("using stork with coordinator(s) %s and lb-method %d",
+                                coordinators, lbMethod);
+                    }
+
+                    ConfigWithType balancer = loadBalancer(lbMethod, null);
+
+                    Stork.initialize();
+                    // Note that the NarayanaLRAClient.close method calls Stork.shutdown().
+                    // If the caller forgets to call close then subsequent attempts to initialise Stork will be skipped
+                    // and any config changes, such as a change of load balancer algorithm, will not take effect
+                    var stork = Stork.getInstance()
+                            .defineIfAbsent(COORDINATOR_PATH_NAME, ServiceDefinition.of(new StaticConfiguration()
+                                    .withAddressList(coordinators), balancer));
+
+                    this.coordinatorService = stork.getService(COORDINATOR_PATH_NAME);
+                    this.supportsFailover = Objects.equals(LB_METHOD_ROUND_ROBIN, lbMethod);
+                    this.storkInitialised = true;
+                }
+            } catch (NoClassDefFoundError | IllegalArgumentException error) {
+                // missing Stork dependencies on the classpath or invalid load balancing algorithm,
+                // so fallback to using a coordinator without load balancing support and pick the first coordinator
+                this.coordinatorUrl = coordinatorUrl;
+                this.supportsFailover = false;
+                LRALogger.i18nLogger.warn_noLoadBalancer(coordinators, error);
+            }
+        }
+    }
+
+    public boolean isLoadBalancing() {
+        return coordinatorCount > 1 && lbMethodValid;
+    }
+
+    public List<LRAData> getAllLRAs() {
+        try {
+            // Build the CoordinatorClient using the base coordinator URL
+            CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
+
+            return new ArrayList<LRAData>(client.getAllLRAs(null) // status filter (empty for all)
+                    .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS).data);
+        } catch (WebApplicationException e) {
+            LRALogger.logger.debugf("Error getting all LRAs from the coordinator, response status: %d",
+                    e.getResponse().getStatus());
+            throw e;
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
+            rethrowIfUnauthorized(e);
+            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
+                    .entity("getAllLRAs client request timed out, try again later").build());
+        }
+    }
+
+    /**
+     * Starting LRA. You provide client id determining the LRA being started.
+     *
+     * @param clientID client id determining the LRA
+     * @return LRA id as URL
+     * @throws WebApplicationException thrown when start of the LRA failed
+     */
+    @Override
+    public String protocolId() {
+        return CallbackPaths.HTTP;
+    }
+
+    public URI startLRA(String clientID) throws WebApplicationException {
+        return startLRA(clientID, 0L);
+    }
+
+    /**
+     * Starting LRA. You provide client id that joins the LRA context
+     * and is passed when working with the LRA.
+     *
+     * @param clientID client id determining the LRA
+     * @param timeout timeout value in seconds, when timeout-ed the LRA will be compensated
+     * @return LRA id as URL
+     * @throws WebApplicationException thrown when start of the LRA failed
+     */
+    private URI startLRA(String clientID, Long timeout) throws WebApplicationException {
+        return startLRA(clientID, timeout, ChronoUnit.SECONDS);
+    }
+
+    /**
+     * Starting LRA. You provide client id that joins the LRA context
+     * and is passed when working with the LRA.
+     *
+     * @param clientID client id determining the LRA
+     * @param timeout timeout value, when timeout-ed the LRA will be compensated
+     * @param unit timeout unit, when null seconds are used
+     * @return LRA id as URL
+     * @throws WebApplicationException thrown when start of the LRA failed
+     */
+    private URI startLRA(String clientID, Long timeout, ChronoUnit unit) throws WebApplicationException {
+        return startLRA(getCurrent(), clientID, timeout, unit);
+    }
+
+    public URI startLRA(URI parentLRA, String clientID, Long timeout, ChronoUnit unit) throws WebApplicationException {
+        return startLRA(parentLRA, clientID, timeout, unit, true);
+    }
+
+    /**
+     * Starting LRA. You provide client id that joins the LRA context
+     * and is passed when working with the LRA.
+     *
+     * @param parentLRA when the newly started LRA should be nested with this LRA parent, when null the newly started LRA is
+     *        top-level
+     * @param clientID client id determining the LRA
+     * @param timeout timeout value, when timeout-ed the LRA will be compensated
+     * @param unit timeout unit, when null seconds are used
+     * @return LRA id as URL
+     * @throws WebApplicationException thrown when start of the LRA failed
+     */
+    public URI startLRA(URI parentLRA, String clientID, Long timeout, ChronoUnit unit, boolean verbose)
+            throws WebApplicationException {
+        if (coordinatorCount > 1 && !lbMethodValid) {
+            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
+                    .entity(LRALogger.i18nLogger.error_unsupportedLoadBalancer(lbMethod)).build());
+        }
+
+        if (clientID == null) {
+            clientID = "";
+        }
+
+        if (timeout == null) {
+            timeout = 0L;
+        } else if (timeout < 0) {
+            throwGenericLRAException(parentLRA, BAD_REQUEST.getStatusCode(),
+                    LRALogger.i18nLogger.warn_invalid_timeout(timeout), null);
+            return null;
+        }
+        if (unit == null) {
+            unit = ChronoUnit.SECONDS;
+        }
+
+        UUID parentId = parentLRA == null ? null : UUID.fromString(LRAConstants.getLRAUid(parentLRA));
+
+        URI coordinatorInstance; // URI of one of a cluster of coordinators
+
+        for (int i = 0; i < coordinatorCount; i++) {
+            if (coordinatorService != null) {
+                var instance = coordinatorService.selectInstance()
+                        .await().atMost(Duration.ofSeconds(START_TIMEOUT));
+
+                if (LRALogger.logger.isDebugEnabled()) {
+                    LRALogger.logger.debugf("Selected coordinator %s:%d%n",
+                            instance.getHost(), instance.getPort());
+                }
+                coordinatorInstance = UriBuilder.fromPath(coordinatorUrl.getPath())
+                        .scheme(instance.isSecure() ? "https" : "http") // remark do we want to support the "storks" scheme
+                        .host(instance.getHost())
+                        .port(instance.getPort()).build();
+            } else {
+                coordinatorInstance = coordinatorUrl;
+            }
+
+            try {
+                // Build the CoordinatorClient using the selected coordinator instance
+                CoordinatorClient client = createCoordinatorClient(coordinatorInstance);
+
+                var request = new StartLRAHttp.Request(
+                        clientID,
+                        timeout,
+                        parentId);
+                var response = client.startLRA(request)
+                        .toCompletableFuture().get(START_TIMEOUT, TimeUnit.SECONDS);
+
+                UUID lraId = response.lraId;
+                URI lra = LRAConstants.toLRAId(lraId);
+                lraTrace(lra, "startLRA returned");
+
+                Current.push(lra, parentLRA);
+                Current.addActiveLRACache(lra);
+
+                return lra;
+
+            } catch (WebApplicationException e) {
+                if (verbose) {
+                    // remark we don't read the entity here since that would close it but the client needs to read it
+                    LRALogger.logger.error(
+                            LRALogger.i18nLogger.error_lraCreationUnexpectedStatus(e.getResponse().getStatus(), ""));
+                }
+                throw e;
+            } catch (InterruptedException | ExecutionException | TimeoutException e) {
+                rethrowIfUnauthorized(e);
+                Throwable t = e.getCause();
+
+                if (!supportsFailover) {
+                    String errMsg = "";
+                    if (t instanceof ServiceUnavailableException) {
+                        String msg = ((ServiceUnavailableException) t).getResponse().readEntity(String.class);
+                        errMsg = LRALogger.i18nLogger.warn_startLRAFailed(msg);
+                    } else {
+                        errMsg = LRALogger.i18nLogger.warn_startLRAFailed(e.getMessage());
+                    }
+                    LRALogger.logger.warn("Start LRA failed and failover is not enabled: " + e.getMessage());
+                    LRALogger.logger.warn(errMsg, e);
+                    throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE).entity(errMsg).build());
+                }
+                if (i == coordinatorCount - 1) {
+
+                    String errMsg = "";
+                    if (t instanceof ServiceUnavailableException) {
+                        t = (ServiceUnavailableException) t;
+                        String msg = ((ServiceUnavailableException) t).getResponse().readEntity(String.class);
+                        errMsg = LRALogger.i18nLogger.warn_startLRAFailed(msg);
+                    } else {
+                        errMsg = LRALogger.i18nLogger.warn_startLRAFailed(e.getMessage());
+                    }
+                    LRALogger.logger.warn(errMsg, e);
+                    /*
+                     * bail out since we've either tried all the coordinators or failover isn't supported
+                     * with this particular load balancer
+                     */
+                    throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE).entity(errMsg).build());
+                }
+                /*
+                 * Remark stork does not support dynamically removing failed instances
+                 * ie coordinatorService.getInstances()
+                 * .await().atMost(Duration.ofSeconds(START_TIMEOUT)).remove(instance); won't work.
+                 * Therefore, failover will not work with strategies such as sticky but will work with others
+                 * such as round-robin and the caller should call the NarayanaLRAClient constructor again to
+                 * obtain a client load balancing and failover properties with the desired properties.
+                 */
+            }
+        }
+
+        throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
+                .entity("no available coordinator").build());
+    }
+
+    public void cancelLRA(URI lraId) throws WebApplicationException {
+        endLRA(lraId, false, null, null);
+    }
+
+    public void closeLRA(URI lraId) throws WebApplicationException {
+        endLRA(lraId, true, null, null);
+    }
+
+    public void cancelLRA(URI lraId, String participantId, String userData) throws WebApplicationException {
+        endLRA(lraId, false, participantId, userData);
+    }
+
+    public void closeLRA(URI lraId, String participantId, String userData) throws WebApplicationException {
+        endLRA(lraId, true, participantId, userData);
+    }
+
+    /**
+     * Joining the LRA with identity of `lraId` as participant defined by URIs for complete, compensate, forget, leave,
+     * after and status.
+     *
+     * @param lraId the URI of the LRA to join
+     * @param timeLimit how long the participant is prepared to wait for LRA completion
+     * @param compensateUri URI for compensation notifications
+     * @param completeUri URI for completion notifications
+     * @param forgetUri URI for forget callback
+     * @param leaveUri URI for leave requests
+     * @param statusUri URI for reporting the status of the participant
+     * @param compensatorData data provided during compensation
+     * @return a recovery URL for this enlistment
+     * @throws WebApplicationException if the LRA coordinator failed to enlist the participant
+     */
+    public URI joinLRA(URI lraId, Long timeLimit,
+            URI compensateUri, URI completeUri, URI forgetUri, URI leaveUri, URI afterUri, URI statusUri,
+            String compensatorData, String partId) throws WebApplicationException {
+        return enlistCompensator(lraId, timeLimit, "",
+                compensateUri, completeUri,
+                forgetUri, leaveUri, afterUri, statusUri,
+                null, partId);
+    }
+
+    public URI joinLRA(URI lraId, Long timeLimit,
+            URI compensateUri, URI completeUri, URI forgetUri, URI leaveUri, URI afterUri, URI statusUri,
+            StringBuilder compensatorData, String partId) throws WebApplicationException {
+        return enlistCompensator(lraId, timeLimit, "",
+                compensateUri, completeUri,
+                forgetUri, leaveUri, afterUri, statusUri,
+                compensatorData, partId);
+    }
+
+    /**
+     * Joining the LRA with identity of `lraId` as participant defined by a participant URI.
+     *
+     * @param lraId the URI of the LRA to join
+     * @param timeLimit how long the participant is prepared to wait for LRA completion
+     * @param participantUri URI of participant for enlistment
+     * @param compensatorData data provided during compensation
+     * @return a recovery URL for this enlistment
+     * @throws WebApplicationException if the LRA coordinator failed to enlist the participant
+     */
+    public URI joinLRA(URI lraId, Long timeLimit,
+            URI participantUri, StringBuilder compensatorData, String partId) throws WebApplicationException {
+
+        var callbacks = new ParticipantCallbacks();
+        callbacks.compensateCallback = LegacyHttpAddress.of(CallbackType.COMPENSATE,
+                URI.create(participantUri.toASCIIString() + "/compensate"), partId);
+        callbacks.completeCallback = LegacyHttpAddress.of(CallbackType.COMPLETE,
+                URI.create(participantUri.toASCIIString() + "/complete"), partId);
+        callbacks.statusCallback = LegacyHttpAddress.of(CallbackType.STATUS, participantUri, partId);
+        callbacks.forgetCallback = LegacyHttpAddress.of(CallbackType.FORGET, participantUri, partId);
+        return enlistCompensator(lraId, timeLimit, callbacks, compensatorData, partId);
+    }
+
+    public void leaveLRA(URI lraId, String body) throws WebApplicationException {
+        try {
+            // Build the CoordinatorClient using the base coordinator URL
+            CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
+
+            var req = new LeaveLRAHttp.Request(LRAConstants.toUuid(lraId), body);
+            var _response = client.leaveLRA(
+                    LRAConstants.toUuid(lraId),
+                    req)
+                    .toCompletableFuture().get(LEAVE_TIMEOUT, TimeUnit.SECONDS);
+
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
+            rethrowIfUnauthorized(e);
+            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
+                    .entity("leave LRA client request timed out, try again later").build());
+        }
+    }
+
+    public LRAStatus getStatus(URI uri) throws WebApplicationException {
+        String lraId = uri == null ? null : uri.toASCIIString();
+
+        try {
+            // Build the CoordinatorClient using the base coordinator URL
+            CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
+
+            var response = client.getLRAStatus(
+                    LRAConstants.toUuid(uri))
+                    .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS);
+
+            return response.status;
+        } catch (WebApplicationException e) {
+            var response = e.getResponse();
+            String logMsg = LRALogger.i18nLogger.error_invalidStatusCode(coordinatorUrl, response.getStatus(), lraId);
+            if (!response.hasEntity()) {
+                String Msg = LRALogger.i18nLogger.error_noContentOnGetStatus(coordinatorUrl, lraId);
+                LRALogger.logger.error(Msg);
+            }
+
+            LRALogger.logger.error(logMsg);
+            throw e;
+        } catch (ExecutionException e) {
+            rethrowIfUnauthorized(e);
+            throw new NotFoundException(e.getMessage());
+        } catch (InterruptedException | TimeoutException e) {
+            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
+                    .entity("get LRA status client request timed out, try again later").build());
+        }
+    }
+
+    /**
+     * Get detailed information about a specific LRA.
+     *
+     * @param uri The LRA URI
+     * @return LRAData containing detailed information about the LRA
+     * @throws WebApplicationException if the request fails
+     */
+    public LRAData getLRAInfo(URI uri) throws WebApplicationException {
+        try {
+            CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
+
+            var response = client.getLRAInfo(
+                    LRAConstants.toUuid(uri))
+                    .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS);
+
+            return response.data;
+        } catch (ExecutionException e) {
+            rethrowIfUnauthorized(e);
+            throw new NotFoundException(e.getMessage());
+        } catch (InterruptedException | TimeoutException e) {
+            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
+                    .entity("get LRA info client request timed out, try again later").build());
+        }
+    }
+
+    /**
+     * Update the time limit for an existing LRA.
+     *
+     * @param uri The LRA URI
+     * @param timeLimit New time limit in milliseconds
+     * @throws WebApplicationException if the request fails
+     */
+    public void renewTimeLimit(URI uri, Long timeLimit) throws WebApplicationException {
+        try {
+            CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
+
+            var body = new RenewTimeLimitLRAHttp.Request(
+                    LRAConstants.toUuid(uri),
+                    timeLimit == null ? 0L : timeLimit);
+            var _response = client.renewTimeLimit(
+                    LRAConstants.toUuid(uri),
+                    body)
+                    .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS);
+        } catch (ExecutionException e) {
+            rethrowIfUnauthorized(e);
+            throw new NotFoundException(e.getMessage());
+        } catch (InterruptedException | TimeoutException e) {
+            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
+                    .entity("renew time limit client request timed out, try again later").build());
+        }
+    }
+
+    /**
+     * Get the status of a nested LRA.
+     * Nested LRAs are represented as participants in their parent LRA.
+     *
+     * @param nestedLraId The URI of the nested LRA
+     * @return The participant status of the nested LRA
+     * @throws WebApplicationException if the request fails or nested LRA is not found
+     */
+    public ParticipantStatus getNestedLRAStatus(URI nestedLraId)
+            throws WebApplicationException {
+        try {
+            CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
+
+            var response = client.getNestedLRAStatus(LRAConstants.toUuid(nestedLraId))
+                    .toCompletableFuture().get(QUERY_TIMEOUT, TimeUnit.SECONDS);
+
+            return response.status;
+        } catch (ExecutionException e) {
+            rethrowIfUnauthorized(e);
+            throw new NotFoundException(e.getMessage());
+        } catch (InterruptedException | TimeoutException e) {
+            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
+                    .entity("get nested LRA status client request timed out, try again later").build());
+        }
+    }
+
+    /**
+     * Complete a nested LRA.
+     * This triggers the completion of the nested LRA as if its parent LRA is completing.
+     *
+     * @param nestedLraId The URI of the nested LRA to complete
+     * @return The final participant status of the nested LRA
+     * @throws WebApplicationException if the request fails
+     */
+    public ParticipantStatus completeNestedLRA(URI nestedLraId)
+            throws WebApplicationException {
+        try {
+            CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
+
+            var response = client.completeNestedLRA(LRAConstants.toUuid(nestedLraId))
+                    .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
+
+            return response.status;
+        } catch (ExecutionException e) {
+            rethrowIfUnauthorized(e);
+            throw new NotFoundException(e.getMessage());
+        } catch (InterruptedException | TimeoutException e) {
+            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
+                    .entity("complete nested LRA client request timed out, try again later").build());
+        }
+    }
+
+    /**
+     * Compensate a nested LRA.
+     * This triggers the compensation of the nested LRA as if its parent LRA is compensating.
+     *
+     * @param nestedLraId The URI of the nested LRA to compensate
+     * @return The final participant status of the nested LRA
+     * @throws WebApplicationException if the request fails
+     */
+    public ParticipantStatus compensateNestedLRA(URI nestedLraId)
+            throws WebApplicationException {
+        try {
+            CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
+
+            var response = client.compensateNestedLRA(LRAConstants.toUuid(nestedLraId))
+                    .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
+
+            return response.status;
+        } catch (ExecutionException e) {
+            rethrowIfUnauthorized(e);
+            throw new NotFoundException(e.getMessage());
+        } catch (InterruptedException | TimeoutException e) {
+            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
+                    .entity("compensate nested LRA client request timed out, try again later").build());
+        }
+    }
+
+    private ParticipantStatus handleNestedEndResponse(Response response, URI nestedLraId, String operation) {
+        int status = response.getStatus();
+
+        if (status == Response.Status.GONE.getStatusCode()) {
+            throw new NotFoundException("Nested LRA is no longer known: " + nestedLraId);
+        }
+
+        if (status != OK.getStatusCode()
+                && status != Response.Status.ACCEPTED.getStatusCode()
+                && status != Response.Status.CONFLICT.getStatusCode()) {
+            throw new WebApplicationException(response);
+        }
+
+        if (!response.hasEntity()) {
+            throw new WebApplicationException(
+                    Response.status(INTERNAL_SERVER_ERROR)
+                            .entity("No status returned for nested LRA " + operation).build());
+        }
+
+        String statusString = response.readEntity(String.class);
+        return ParticipantStatus.valueOf(statusString);
+    }
+
+    /**
+     * Forget a nested LRA.
+     * This removes the nested LRA from the coordinator's memory after it has completed or compensated.
+     *
+     * @param nestedLraId The URI of the nested LRA to forget
+     * @throws WebApplicationException if the request fails
+     */
+    public void forgetNestedLRA(URI nestedLraId) throws WebApplicationException {
+        try {
+            CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
+
+            var _response = client.forgetNestedLRA(LRAConstants.toUuid(nestedLraId))
+                    .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
+
+        } catch (ExecutionException e) {
+            rethrowIfUnauthorized(e);
+            var cause = e.getCause();
+            if (cause instanceof WebApplicationException) {
+                var response = ((WebApplicationException) cause).getResponse();
+                if (response.getStatus() == GONE.getStatusCode()) {
+                    return; //ok
+                }
+            }
+            throw new NotFoundException(e.getMessage());
+        } catch (InterruptedException | TimeoutException e) {
+            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
+                    .entity("forget nested LRA client request timed out, try again later").build());
+        }
+    }
+
+    private URI enlistCompensator(URI lraUri, Long timelimit, String uriPrefix,
+            URI compensateUri, URI completeUri,
+            URI forgetUri, URI leaveUri, URI afterUri, URI statusUri,
+            StringBuilder compensatorData, String partId) {
+        validateURI(completeUri, true, "Invalid complete URL: %s");
+        validateURI(compensateUri, true, "Invalid compensate URL: %s");
+        //        validateURI(leaveUri, true, "Invalid status URL: %s");
+        validateURI(afterUri, true, "Invalid after URL: %s");
+        validateURI(forgetUri, true, "Invalid forgetUri URL: %s");
+        validateURI(statusUri, true, "Invalid status URL: %s");
+
+        ParticipantCallbacks callbacks = new ParticipantCallbacks();
+        if (compensateUri != null) {
+            callbacks.compensateCallback = LegacyHttpAddress.of(CallbackType.COMPENSATE, compensateUri, partId);
+        }
+        if (completeUri != null) {
+            callbacks.completeCallback = LegacyHttpAddress.of(CallbackType.COMPLETE, completeUri, partId);
+        }
+        if (statusUri != null) {
+            callbacks.statusCallback = LegacyHttpAddress.of(CallbackType.STATUS, statusUri, partId);
+        }
+        if (forgetUri != null) {
+            callbacks.forgetCallback = LegacyHttpAddress.of(CallbackType.FORGET, forgetUri, partId);
+        }
+        if (afterUri != null) {
+            callbacks.afterCallback = LegacyHttpAddress.of(CallbackType.AFTER, afterUri, partId);
+        }
+
+        return enlistCompensator(lraUri, timelimit, callbacks, compensatorData, partId);
+    }
+
+    public URI enlistCompensator(URI uri, Long timelimit, ParticipantCallbacks links, StringBuilder compensatorData,
+            String partId) {
+        // register with the coordinator
+        String lraId = uri == null ? null : uri.toASCIIString();
+        String data = compensatorData == null ? null : compensatorData.toString();
+
+        if (timelimit == null || timelimit < 0) {
+            timelimit = 0L;
+        }
+
+        try {
+            // Build the CoordinatorClient using the base coordinator URL
+            CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
+
+            var request = new JoinLRAHttp.Request(
+                    LRAConstants.toUuid(uri),
+                    timelimit,
+                    links,
+                    data == null ? "" : data,
+                    partId);
+
+            var response = client.joinLRA(
+                    LRAConstants.toUuid(uri), request)
+                    .toCompletableFuture().get(JOIN_TIMEOUT, TimeUnit.SECONDS);
+
+            String recoveryUrl = null;
+            String prevParticipantData = response.previousCompensatorData;
+
+            if (compensatorData != null && prevParticipantData != null) {
+                compensatorData.setLength(0);
+                compensatorData.append(prevParticipantData);
+            }
+
+            try {
+                return new URI(response.recoveryUrl);
+            } catch (URISyntaxException e) {
+                LRALogger.logger.infof(e, "join %s returned an invalid recovery URI '%s'", lraId, recoveryUrl);
+                throwGenericLRAException(null, Response.Status.SERVICE_UNAVAILABLE.getStatusCode(),
+                        "join " + lraId + " returned an invalid recovery URI '" + recoveryUrl + "' : ", e);
+                return null;
+            }
+        } catch (ExecutionException e) {
+            rethrowIfUnauthorized(e);
+            Throwable t = e.getCause();
+
+            if (t instanceof WebApplicationException) {
+                var response = ((WebApplicationException) t).getResponse();
+                String responseEntity = "";
+                try {
+                    responseEntity = response.readEntity(String.class);
+                } catch (ProcessingException _e) {
+                    // pass may not have a body
+                }
+                if (response.getStatus() == SERVICE_UNAVAILABLE.getStatusCode()) {
+                    throw new WebApplicationException(
+                            Response.status(SERVICE_UNAVAILABLE).entity(responseEntity).build());
+                }
+                if (response.getStatus() == PRECONDITION_FAILED.getStatusCode()) {
+                    String logMsg = LRALogger.i18nLogger.error_tooLateToJoin(String.valueOf(lraId),
+                            response.getEntity().toString());
+                    LRALogger.logger.error(logMsg);
+                    throw new WebApplicationException(logMsg,
+                            Response.status(PRECONDITION_FAILED).entity(logMsg).build());
+                } else if (response.getStatus() == NOT_FOUND.getStatusCode()) {
+                    String logMsg = LRALogger.i18nLogger.info_failedToEnlistingLRANotFound(
+                            lraId, coordinatorUrl, NOT_FOUND.getStatusCode(), NOT_FOUND.getReasonPhrase(),
+                            GONE.getStatusCode(), GONE.getReasonPhrase());
+                    LRALogger.logger.info(logMsg);
+                    throw new WebApplicationException(Response.status(GONE).entity(logMsg).build());
+                }
+                throw new WebApplicationException(responseEntity, response);
+            }
+
+            String logMsg = LRALogger.i18nLogger.info_failedToEnlistingLRANotFound(lraId, coordinatorUrl,
+                    NOT_FOUND.getStatusCode(), NOT_FOUND.getReasonPhrase(), GONE.getStatusCode(),
+                    GONE.getReasonPhrase());
+            LRALogger.logger.info(logMsg);
+            throw new WebApplicationException(Response.status(GONE).entity(logMsg).build());
+
+        } catch (InterruptedException | TimeoutException e) {
+            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
+                    .entity("join LRA client request timed out, try again later").build());
+        }
+    }
+
+    private void endLRA(URI lra, boolean confirm, String participantId, String userData) throws WebApplicationException {
+        lraTracef(lra, "%s LRA", confirm ? "close" : "compensate");
+
+        try {
+            // Build the CoordinatorClient using the base coordinator URL
+            CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
+
+            // Send the LRA UUID to the coordinator
+            UUID lraUuid = LRAConstants.toUuid(lra);
+
+            // Call the appropriate endpoint (close or cancel) asynchronously
+            if (confirm) {
+                var body = new CloseLRAHttp.Request(
+                        lraUuid,
+                        participantId == null ? "" : participantId,
+                        userData == null ? "" : userData);
+                var _response = client.closeLRA(
+                        lraUuid,
+                        body)
+                        .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
+
+            } else {
+                var req = new CancelLRAHttp.Request(
+                        lraUuid,
+                        participantId == null ? "" : participantId,
+                        userData == null ? "" : userData);
+                var _reply = client.cancelLRA(
+                        lraUuid,
+                        req)
+                        .toCompletableFuture().get(END_TIMEOUT, TimeUnit.SECONDS);
+            }
+
+        } catch (ExecutionException e) {
+            rethrowIfUnauthorized(e);
+            Throwable t = e.getCause();
+            if (t instanceof NotFoundException) {
+                throw (NotFoundException) t;
+            }
+            if (t instanceof ServiceUnavailableException) {
+                var response = ((ServiceUnavailableException) t).getResponse();
+                String msg = response.readEntity(String.class);
+                int status = response.getStatus();
+                throw new WebApplicationException(Response.status(status).entity(msg).build());
+            }
+            if (t instanceof ClientErrorException) {
+                var response = ((ClientErrorException) t).getResponse();
+                String msg = response.readEntity(String.class);
+                int status = response.getStatus();
+                throw new WebApplicationException(Response.status(status).entity(msg).build());
+            }
+            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE).entity(t.getMessage()).build());
+        } catch (InterruptedException | TimeoutException e) {
+            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
+                    .entity("end LRA client request timed out, try again later")
+                    .build());
+        } finally {
+            Current.pop(lra);
+            Current.removeActiveLRACache(lra);
+        }
+    }
+
+    private void validateURI(URI uri, boolean nullAllowed, String message) {
+        if (uri == null) {
+            if (!nullAllowed) {
+                throwGenericLRAException(null, NOT_ACCEPTABLE.getStatusCode(),
+                        String.format(message, "null value"), null);
+            }
+        } else {
+            try {
+                // the passed in URI should be a valid URL - verify that that is the case
+                uri.toURL();
+            } catch (MalformedURLException mue) {
+                throwGenericLRAException(null, NOT_ACCEPTABLE.getStatusCode(),
+                        String.format(message, mue.getClass().getName() + ":" + mue.getMessage()) + " uri=" + uri, mue);
+            }
+        }
+    }
+
+    private boolean isUnexpectedResponseStatus(Response response, Response.Status... expected) {
+        for (Response.Status anExpected : expected) {
+            if (response.getStatus() == anExpected.getStatusCode()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public String getCoordinatorUrl() {
+        // only used in the tests so return the default coordinator
+        return coordinatorUrl.toString();
+    }
+
+    public String getRecoveryUrl() {
+        // only used in the tests so use the default coordinator
+        return getCoordinatorUrl() + "/" + RECOVERY_COORDINATOR_PATH_NAME;
+    }
+
+    public URI getCurrent() {
+        return Current.peek();
+    }
+
+    public void clearCurrent(boolean all) {
+        if (all) {
+            Current.popAll();
+        } else {
+            Current.pop();
+        }
+    }
+
+    private void lraTracef(String reasonFormat, Object... parameters) {
+        if (LRALogger.logger.isTraceEnabled()) {
+            LRALogger.logger.tracef(reasonFormat, parameters);
+        }
+    }
+
+    private void lraTrace(URI lra, String reason) {
+        if (LRALogger.logger.isTraceEnabled()) {
+            lraTracef(lra, reason, (Object[]) null);
+        }
+    }
+
+    private void lraTracef(URI lra, String reasonFormat, Object... parameters) {
+        if (LRALogger.logger.isTraceEnabled()) {
+            lraTracef(reasonFormat + ", lra id: %s", parameters, lra);
+        }
+    }
+
+    /**
+     * Shutdown any started resources (remark this method must be called if a config change is to take effect)
+     */
+    public void close() {
+        if (storkInitialised) {
+            Stork.shutdown();
+        }
+    }
+
+    private static void rethrowIfUnauthorized(Throwable e) throws WebApplicationException {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof WebApplicationException) {
+                int status = ((WebApplicationException) t).getResponse().getStatus();
+                if (status == Response.Status.UNAUTHORIZED.getStatusCode()) {
+                    throw (WebApplicationException) t;
+                }
+            }
+        }
+    }
+
+    private void throwGenericLRAException(URI lraId, int statusCode, String message, Throwable cause)
+            throws WebApplicationException {
+        String errorMsg = String.format("%s: %s", lraId, message);
+        throw new WebApplicationException(errorMsg, cause, Response.status(statusCode).entity(errorMsg).build());
+    }
+
+    /**
+     * Creates a MicroProfile REST client for the CoordinatorClient interface.
+     *
+     * @param baseUri the base URI for the coordinator client
+     * @return a CoordinatorClient instance
+     */
+    private CoordinatorClient createCoordinatorClient(URI baseUri) {
+        RestClientBuilder builder = RestClientBuilder.newBuilder().baseUri(baseUri);
+        return new RestClientConfig().configure(builder).build(CoordinatorClient.class);
+    }
+}

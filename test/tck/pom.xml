@@ -30,8 +30,11 @@
     </dependency>
     <dependency>
       <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>lra-proxy-api</artifactId>
-      <scope>test</scope>
+      <artifactId>lra-connector-common-client</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss.narayana.lra</groupId>
+      <artifactId>lra-connector-http-client</artifactId>
     </dependency>
     <dependency>
       <groupId>org.jboss.narayana.lra</groupId>

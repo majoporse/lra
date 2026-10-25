@@ -15,7 +15,7 @@
   <artifactId>lra-connector-http-parent</artifactId>
   <packaging>pom</packaging>
   <name>LRA HTTP Connector Parent</name>
-  <description>HTTP connector: contracts, participant client and coordinator deliveries</description>
+  <description>HTTP connector: contracts, participant client and coordinator adapter</description>
 
   <modules>
     <module>contracts</module>

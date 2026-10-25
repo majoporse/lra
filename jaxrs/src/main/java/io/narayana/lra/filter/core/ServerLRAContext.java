@@ -6,7 +6,7 @@
 package io.narayana.lra.filter.core;
 
 import io.narayana.lra.api.LRA.Propagation;
-import io.narayana.lra.callbacks.ParticipantCallbacks;
+import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
 import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Method;
 import java.net.URI;

@@ -25,18 +25,20 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
-import io.narayana.lra.callbacks.LegacyHttpCallback;
-import io.narayana.lra.callbacks.ParticipantCallbacks;
-import io.narayana.lra.client.NarayanaLRAClient;
-import io.narayana.lra.contracts.http.CancelLRAHttp;
-import io.narayana.lra.contracts.http.CloseLRAHttp;
-import io.narayana.lra.contracts.http.GetAllLRAHttp;
-import io.narayana.lra.contracts.http.GetLRAInfoLRAHttp;
-import io.narayana.lra.contracts.http.JoinLRAHttp;
-import io.narayana.lra.contracts.http.RenewTimeLimitLRAHttp;
-import io.narayana.lra.contracts.http.StartLRAHttp;
-import io.narayana.lra.contracts.http.StatusLRAHttp;
-import io.narayana.lra.coordinator.api.Coordinator;
+import io.narayana.lra.connectors.common.callbacks.CallbackType;
+import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
+import io.narayana.lra.connectors.common.contracts.LRAInfo;
+import io.narayana.lra.connectors.http.address.LegacyHttpAddress;
+import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
+import io.narayana.lra.connectors.http.contracts.CancelLRAHttp;
+import io.narayana.lra.connectors.http.contracts.CloseLRAHttp;
+import io.narayana.lra.connectors.http.contracts.GetAllLRAHttp;
+import io.narayana.lra.connectors.http.contracts.GetLRAInfoLRAHttp;
+import io.narayana.lra.connectors.http.contracts.JoinLRAHttp;
+import io.narayana.lra.connectors.http.contracts.RenewTimeLimitLRAHttp;
+import io.narayana.lra.connectors.http.contracts.StartLRAHttp;
+import io.narayana.lra.connectors.http.contracts.StatusLRAHttp;
+import io.narayana.lra.connectors.http.coordinator.api.Coordinator;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.filter.ServerLRAFilter;
@@ -420,7 +422,7 @@ public class LRATest extends LRATestBase {
                 // parse the json string into an array of LRAData
                 var lras = new ObjectMapper().readValue(lrasAsJson, GetAllLRAHttp.Reply.class);
                 // see if lraId is in the returned array
-                Optional<LRAData> targetLRA = lras.data.stream()
+                Optional<LRAInfo> targetLRA = lras.data.stream()
                         .filter(lra -> lraId.equals(lra.getLraId()))
                         .findFirst();
 
@@ -1370,13 +1372,13 @@ public class LRATest extends LRATestBase {
         String prefix = TestPortProvider.generateURL("/base/test");
 
         var callbacks = new ParticipantCallbacks();
-        callbacks.compensateCallback = LegacyHttpCallback.compensateCallback(
+        callbacks.compensateCallback = LegacyHttpAddress.of(CallbackType.COMPENSATE,
                 URI.create(String.format("%s/%s", prefix, "compensate")));
-        callbacks.completeCallback = LegacyHttpCallback.completeCallback(
+        callbacks.completeCallback = LegacyHttpAddress.of(CallbackType.COMPLETE,
                 URI.create(String.format("%s/%s", prefix, "complete")));
-        callbacks.forgetCallback = LegacyHttpCallback.forgetCallback(
+        callbacks.forgetCallback = LegacyHttpAddress.of(CallbackType.FORGET,
                 URI.create(String.format("%s/%s", prefix, "forget")));
-        callbacks.afterCallback = LegacyHttpCallback.afterCallback(
+        callbacks.afterCallback = LegacyHttpAddress.of(CallbackType.AFTER,
                 URI.create(String.format("%s/%s", prefix, "after")));
 
         var request = new JoinLRAHttp.Request();

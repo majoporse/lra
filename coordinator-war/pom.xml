@@ -35,4 +35,16 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <profile>
+      <id>kafka</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.jboss.narayana.lra</groupId>
+          <artifactId>lra-connector-kafka-coordinator</artifactId>
+        </dependency>
+      </dependencies>
+    </profile>
+  </profiles>
 </project>

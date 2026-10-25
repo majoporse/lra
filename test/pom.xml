@@ -58,7 +58,7 @@
     </dependency>
     <dependency>
       <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>lra-client</artifactId>
+      <artifactId>lra-connector-http-client</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -469,12 +469,12 @@
                   <artifactItems>
                     <artifactItem>
                       <groupId>org.jboss.narayana.lra</groupId>
-                      <artifactId>lra-client</artifactId>
+                      <artifactId>lra-connector-http-client</artifactId>
                       <version>${project.version}</version>
                       <type>jar</type>
                       <overWrite>true</overWrite>
                       <outputDirectory>${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-participant/main</outputDirectory>
-                      <destFileName>lra-client-${project.version}.jar</destFileName>
+                      <destFileName>lra-connector-http-client-${project.version}.jar</destFileName>
                     </artifactItem>
 
                     <artifactItem>
@@ -485,16 +485,6 @@
                       <overWrite>true</overWrite>
                       <outputDirectory>${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-participant/main</outputDirectory>
                       <destFileName>narayana-lra-${project.version}.jar</destFileName>
-                    </artifactItem>
-
-                    <artifactItem>
-                      <groupId>org.jboss.narayana.lra</groupId>
-                      <artifactId>lra-proxy-api</artifactId>
-                      <version>${project.version}</version>
-                      <type>jar</type>
-                      <overWrite>true</overWrite>
-                      <outputDirectory>${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-participant/main</outputDirectory>
-                      <destFileName>lra-proxy-api-${project.version}.jar</destFileName>
                     </artifactItem>
 
                     <artifactItem>
@@ -517,7 +507,102 @@
                       <destFileName>lra-service-base-${project.version}.jar</destFileName>
                     </artifactItem>
 
+                    <artifactItem>
+                      <groupId>org.jboss.narayana.lra</groupId>
+                      <artifactId>lra-connector-common-contracts</artifactId>
+                      <version>${project.version}</version>
+                      <type>jar</type>
+                      <overWrite>true</overWrite>
+                      <outputDirectory>${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-participant/main</outputDirectory>
+                      <destFileName>lra-connector-common-contracts-${project.version}.jar</destFileName>
+                    </artifactItem>
+                    <artifactItem>
+                      <groupId>org.jboss.narayana.lra</groupId>
+                      <artifactId>lra-connector-common-client</artifactId>
+                      <version>${project.version}</version>
+                      <type>jar</type>
+                      <overWrite>true</overWrite>
+                      <outputDirectory>${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-participant/main</outputDirectory>
+                      <destFileName>lra-connector-common-client-${project.version}.jar</destFileName>
+                    </artifactItem>
+                    <artifactItem>
+                      <groupId>org.jboss.narayana.lra</groupId>
+                      <artifactId>lra-connector-http-contracts</artifactId>
+                      <version>${project.version}</version>
+                      <type>jar</type>
+                      <overWrite>true</overWrite>
+                      <outputDirectory>${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-participant/main</outputDirectory>
+                      <destFileName>lra-connector-http-contracts-${project.version}.jar</destFileName>
+                    </artifactItem>
+                    <artifactItem>
+                      <groupId>org.jboss.narayana.lra</groupId>
+                      <artifactId>lra-coordinator-core</artifactId>
+                      <version>${project.version}</version>
+                      <type>jar</type>
+                      <overWrite>true</overWrite>
+                      <outputDirectory>${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-coordinator/main</outputDirectory>
+                      <destFileName>lra-coordinator-core-${project.version}.jar</destFileName>
+                    </artifactItem>
+                    <artifactItem>
+                      <groupId>org.jboss.narayana.lra</groupId>
+                      <artifactId>lra-connector-common-contracts</artifactId>
+                      <version>${project.version}</version>
+                      <type>jar</type>
+                      <overWrite>true</overWrite>
+                      <outputDirectory>${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-coordinator/main</outputDirectory>
+                      <destFileName>lra-connector-common-contracts-${project.version}.jar</destFileName>
+                    </artifactItem>
+                    <artifactItem>
+                      <groupId>org.jboss.narayana.lra</groupId>
+                      <artifactId>lra-connector-common-coordinator</artifactId>
+                      <version>${project.version}</version>
+                      <type>jar</type>
+                      <overWrite>true</overWrite>
+                      <outputDirectory>${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-coordinator/main</outputDirectory>
+                      <destFileName>lra-connector-common-coordinator-${project.version}.jar</destFileName>
+                    </artifactItem>
+                    <artifactItem>
+                      <groupId>org.jboss.narayana.lra</groupId>
+                      <artifactId>lra-connector-http-contracts</artifactId>
+                      <version>${project.version}</version>
+                      <type>jar</type>
+                      <overWrite>true</overWrite>
+                      <outputDirectory>${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-coordinator/main</outputDirectory>
+                      <destFileName>lra-connector-http-contracts-${project.version}.jar</destFileName>
+                    </artifactItem>
+                    <artifactItem>
+                      <groupId>org.jboss.narayana.lra</groupId>
+                      <artifactId>lra-connector-http-coordinator</artifactId>
+                      <version>${project.version}</version>
+                      <type>jar</type>
+                      <overWrite>true</overWrite>
+                      <outputDirectory>${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-coordinator/main</outputDirectory>
+                      <destFileName>lra-connector-http-coordinator-${project.version}.jar</destFileName>
+                    </artifactItem>
                   </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+
+          <plugin>
+            <artifactId>maven-resources-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>copy-wildfly-module-descriptors</id>
+                <goals>
+                  <goal>copy-resources</goal>
+                </goals>
+                <phase>process-test-classes</phase>
+                <configuration>
+                  <skip>${narayana.noupdate}</skip>
+                  <outputDirectory>${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra</outputDirectory>
+                  <resources>
+                    <resource>
+                      <directory>src/test/resources/wildfly-modules</directory>
+                      <filtering>true</filtering>
+                    </resource>
+                  </resources>
                 </configuration>
               </execution>
             </executions>
@@ -560,8 +645,7 @@
                   <target>
                     <replaceregexp file="${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-coordinator/main/module.xml" match="lra-coordinator-jar-[^&quot;']+" replace="lra-coordinator-jar-${project.version}.jar"></replaceregexp>
                     <replaceregexp file="${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-service-base/main/module.xml" match="lra-service-base-[^&quot;']+" replace="lra-service-base-${project.version}.jar"></replaceregexp>
-                    <replaceregexp file="${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-participant/main/module.xml" match="lra-client-[^&quot;']+" replace="lra-client-${project.version}.jar"></replaceregexp>
-                    <replaceregexp file="${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-participant/main/module.xml" match="lra-proxy-api-[^&quot;']+" replace="lra-proxy-api-${project.version}.jar"></replaceregexp>
+                    <replaceregexp file="${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-participant/main/module.xml" match="lra-connector-http-client-[^&quot;']+" replace="lra-connector-http-client-${project.version}.jar"></replaceregexp>
                     <replaceregexp file="${wildfly.home}/modules/system/layers/base/org/jboss/narayana/lra/lra-participant/main/module.xml" match="narayana-lra-[^&quot;']+" replace="narayana-lra-${project.version}.jar"></replaceregexp>
                   </target>
                 </configuration>

@@ -85,12 +85,12 @@ Two filters are provided for explicit registration:
 |===
 |Filter |Module |Use Case
 
-|`io.narayana.lra.client.JwtTokenClientRequestFilter`
-|`lra-client`
+|`io.narayana.lra.connectors.http.client.outbound.JwtTokenClientRequestFilter`
+|`lra-connector-http-client`
 |Participants calling the coordinator
 
-|`io.narayana.lra.coordinator.security.JwtTokenCallbackRequestFilter`
-|`lra-coordinator-jar`
+|`io.narayana.lra.connectors.http.coordinator.api.security.JwtTokenCallbackRequestFilter`
+|`lra-connector-http-coordinator`
 |Coordinator calling participant callbacks
 |===
 
@@ -98,14 +98,14 @@ Two filters are provided for explicit registration:
 
 [source,properties]
 ----
-lra.http-client.providers=io.narayana.lra.client.JwtTokenClientRequestFilter
+lra.http-client.providers=io.narayana.lra.connectors.http.client.outbound.JwtTokenClientRequestFilter
 ----
 
 ==== Coordinator Configuration
 
 [source,properties]
 ----
-lra.http-client.providers=io.narayana.lra.coordinator.security.JwtTokenCallbackRequestFilter
+lra.http-client.providers=io.narayana.lra.connectors.http.coordinator.api.security.JwtTokenCallbackRequestFilter
 ----
 
 The configuration key (`lra.http-client.providers`) is shared: `RestClientConfig` in the

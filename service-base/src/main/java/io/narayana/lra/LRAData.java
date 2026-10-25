@@ -5,14 +5,13 @@
 
 package io.narayana.lra;
 
-import io.narayana.lra.callbacks.CallbackResult;
 import java.beans.Transient;
 import java.net.URI;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 /**
  * DTO object which serves to transfer data of particular LRA instance.
- * It's used by {@code io.narayana.lra.coordinator.api.Coordinator}
+ * It's used by {@code io.narayana.lra.connectors.http.coordinator.api.Coordinator}
  * for JSON response creation when LRA info is asked for.
  */
 public class LRAData {
@@ -23,13 +22,12 @@ public class LRAData {
     private boolean isRecovering;
     private long startTime;
     private long finishTime;
-    private CallbackResult callbackResult;
 
     public LRAData() {
     }
 
     public LRAData(URI lraId, String clientId, LRAStatus status, boolean isTopLevel, boolean isRecovering,
-            long startTime, long finishTime, CallbackResult callbackResult) {
+            long startTime, long finishTime) {
         this.lraId = lraId;
         this.clientId = clientId;
         this.status = status;
@@ -37,7 +35,6 @@ public class LRAData {
         this.isRecovering = isRecovering;
         this.startTime = startTime;
         this.finishTime = finishTime;
-        this.callbackResult = callbackResult;
     }
 
     public URI getLraId() {
@@ -101,10 +98,6 @@ public class LRAData {
         this.finishTime = finishTime;
     }
 
-    public CallbackResult getCallbackResult() {
-        return this.callbackResult;
-    }
-
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -123,8 +116,8 @@ public class LRAData {
     @Override
     public String toString() {
         return String.format(
-                "%s {lraId='%s', clientId='%s', status='%s', isTopLevel=%b, isRecovering=%b, startTime=%d, finishTime=%d, httpStatus=%d}",
+                "%s {lraId='%s', clientId='%s', status='%s', isTopLevel=%b, isRecovering=%b, startTime=%d, finishTime=%d}",
                 this.getClass().getSimpleName(), lraId, clientId, status,
-                isTopLevel, isRecovering, startTime, finishTime, callbackResult);
+                isTopLevel, isRecovering, startTime, finishTime);
     }
 }

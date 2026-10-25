@@ -1,0 +1,18 @@
+/*
+   Copyright The Narayana Authors
+   SPDX-License-Identifier: Apache-2.0
+ */
+
+package io.narayana.lra.proxy.test.manual;
+
+import jakarta.ws.rs.NotFoundException;
+import java.io.Serializable;
+import java.net.URI;
+import java.util.concurrent.Future;
+
+public interface LRAProxyParticipant extends Serializable {
+
+    Future<Void> completeWork(URI lraId) throws NotFoundException;
+
+    Future<Void> compensateWork(URI lraId) throws NotFoundException;
+}

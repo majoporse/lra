@@ -6,7 +6,7 @@
 package io.narayana.lra.arquillian;
 
 import io.narayana.lra.LRAData;
-import io.narayana.lra.client.NarayanaLRAClient;
+import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import java.net.URI;

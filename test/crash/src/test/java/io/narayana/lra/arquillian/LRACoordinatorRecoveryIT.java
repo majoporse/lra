@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.arquillian.internal.BytemanSignal;
 import io.narayana.lra.arquillian.resource.LRAListener;
-import io.narayana.lra.client.NarayanaLRAClient;
+import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.NotFoundException;

@@ -36,12 +36,12 @@
     </dependency>
     <dependency>
       <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>lra-client</artifactId>
+      <artifactId>lra-connector-http-client</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
       <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>lra-proxy-api</artifactId>
+      <artifactId>lra-connector-common-client</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>

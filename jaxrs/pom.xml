@@ -19,11 +19,15 @@
   <dependencies>
     <dependency>
       <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>lra-client</artifactId>
+      <artifactId>lra-connector-http-client</artifactId>
     </dependency>
     <dependency>
       <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>lra-proxy-api</artifactId>
+      <artifactId>lra-connector-common-client</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss.narayana.lra</groupId>
+      <artifactId>lra-connector-common-contracts</artifactId>
     </dependency>
     <dependency>
       <groupId>org.eclipse.microprofile.lra</groupId>

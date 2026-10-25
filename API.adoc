@@ -33,7 +33,7 @@ The API can be generated as `yaml/json` file with
 
 [source,sh]
 ----
-cd coordinator
+cd connectors/http/coordinator
 mvn process-classes -Popenapi-schema
 ----
 

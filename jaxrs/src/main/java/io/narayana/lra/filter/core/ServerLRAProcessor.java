@@ -12,17 +12,17 @@ import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static jakarta.ws.rs.core.Response.Status.PRECONDITION_FAILED;
 import static jakarta.ws.rs.core.Response.Status.SERVICE_UNAVAILABLE;
 
-import io.narayana.lra.BearerTokenResolver;
 import io.narayana.lra.Current;
 import io.narayana.lra.api.LRA.Propagation;
-import io.narayana.lra.callbacks.ParticipantCallbacks;
-import io.narayana.lra.client.LRAClient;
-import io.narayana.lra.client.LRAParticipantData;
-import io.narayana.lra.client.ParticipantIdProvider;
-import io.narayana.lra.client.internal.proxy.callback.CallbackParticipantRegistry;
-import io.narayana.lra.client.internal.proxy.callback.ContractParticipant;
-import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipant;
-import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
+import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
+import io.narayana.lra.connectors.common.client.LRAClient;
+import io.narayana.lra.connectors.common.client.LRAParticipantData;
+import io.narayana.lra.connectors.common.client.ParticipantCallbackAddressResolver;
+import io.narayana.lra.connectors.common.client.ParticipantIdProvider;
+import io.narayana.lra.connectors.common.client.participant.LRAParticipantRegistry;
+import io.narayana.lra.connectors.common.client.participant.Participant;
+import io.narayana.lra.connectors.http.client.legacy.LegacyLRAParticipant;
+import io.narayana.lra.connectors.http.support.BearerTokenResolver;
 import io.narayana.lra.filter.core.ServerLRAContext.Progress;
 import io.narayana.lra.filter.core.ServerLRAContext.ProgressStep;
 import io.narayana.lra.filter.resolver.LRAAnnotationResolver;
@@ -55,21 +55,21 @@ public class ServerLRAProcessor {
     private static final Pattern START_END_QUOTES_PATTERN = Pattern.compile("^\"|\"$");
 
     private final LRAParticipantRegistry lraParticipantRegistry;
-    private final CallbackParticipantRegistry callbackParticipantRegistry;
     private final LRAParticipantData data;
     private final int enlistMaxRetries;
     private final LRAAnnotationResolver resolver;
     private final LRAClient lraClient;
+    private final ParticipantCallbackAddressResolver callbackResolver;
 
     public ServerLRAProcessor(LRAParticipantRegistry lraParticipantRegistry,
-            CallbackParticipantRegistry callbackParticipantRegistry, LRAParticipantData data,
-            int enlistMaxRetries, LRAAnnotationResolver resolver, LRAClient lraClient) {
+            LRAParticipantData data, int enlistMaxRetries, LRAAnnotationResolver resolver, LRAClient lraClient,
+            ParticipantCallbackAddressResolver callbackResolver) {
         this.lraParticipantRegistry = lraParticipantRegistry;
-        this.callbackParticipantRegistry = callbackParticipantRegistry;
         this.data = data;
         this.enlistMaxRetries = enlistMaxRetries;
         this.resolver = resolver;
         this.lraClient = lraClient;
+        this.callbackResolver = callbackResolver;
     }
 
     /**
@@ -364,30 +364,38 @@ public class ServerLRAProcessor {
         context.setClearContextHeader(true);
     }
 
-    private void handleEnlistment(ServerLRAContext context) {
-        ContractParticipant contractParticipant = callbackParticipantRegistry != null
-                ? callbackParticipantRegistry.getParticipant(context.getResourceClass().getName())
-                : null;
-
-        LRAParticipant participant = contractParticipant == null && lraParticipantRegistry != null
-                ? lraParticipantRegistry.getParticipant(context.getResourceClass().getName())
-                : null;
-
-        ParticipantCallbacks callbacks;
-
-        if (contractParticipant != null) {
-            callbacks = contractParticipant.terminationCallbacks(context.getUriPrefix(), context.getBaseUri());
-        } else {
-            callbacks = (participant != null ? participant : new LRAParticipant(context.getResourceClass()))
-                    .terminationCallbacks(context.getUriPrefix(),
-                            participant != null ? context.getBaseUri() : null);
+    private Participant participant(Class<?> resourceClass) {
+        if (lraParticipantRegistry == null) {
+            /*
+             * No CDI container: discovery never ran (a plain JAX-RS deployment or a unit test), so
+             * build the legacy model from the resource class, as the filter always did.
+             */
+            return new LegacyLRAParticipant(resourceClass);
         }
+
+        Participant participant = lraParticipantRegistry.getParticipant(resourceClass.getName());
+
+        if (participant == null) {
+            throw new IllegalStateException(String.format(
+                    "No LRA participant model is registered for %s: the class was not discovered as an"
+                            + " LRA participant",
+                    resourceClass.getName()));
+        }
+
+        return participant;
+    }
+
+    private void handleEnlistment(ServerLRAContext context) {
+        Participant participant = participant(context.getResourceClass());
+
+        ParticipantCallbacks callbacks = participant.terminationCallbacks(callbackResolver,
+                context.getUriPrefix(), context.getBaseUri());
 
         long timeLimit = context.getTimeout() != null && callbacks.hasCompensateOrComplete()
                 ? context.getTimeout()
                 : DEFAULT_TIMEOUT_MILLIS;
 
-        if (callbacks.hasAnyCallback() || participant != null || contractParticipant != null) {
+        if (callbacks.hasAnyCallback()) {
             context.setCallbacks(callbacks);
 
             try {

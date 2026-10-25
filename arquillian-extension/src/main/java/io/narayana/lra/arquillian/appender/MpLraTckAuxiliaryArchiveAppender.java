@@ -5,9 +5,14 @@
 
 package io.narayana.lra.arquillian.appender;
 
+import com.fasterxml.jackson.databind.Module;
 import io.narayana.lra.arquillian.spi.NarayanaLRARecovery;
+import io.narayana.lra.connectors.common.client.extension.LRACDIExtension;
+import io.narayana.lra.connectors.common.client.extension.spi.LegacyParticipantFactory;
 import java.util.Map;
 import java.util.Optional;
+import java.util.ServiceLoader;
+import java.util.stream.Collectors;
 import org.jboss.arquillian.config.descriptor.api.ArquillianDescriptor;
 import org.jboss.arquillian.config.descriptor.api.ExtensionDef;
 import org.jboss.arquillian.container.test.spi.client.deployment.AuxiliaryArchiveAppender;
@@ -64,19 +69,30 @@ public class MpLraTckAuxiliaryArchiveAppender implements AuxiliaryArchiveAppende
                 .addPackages(false,
                         "io.narayana.lra.logging",
                         "io.narayana.lra.provider",
-                        "io.narayana.lra.client",
-                        "io.narayana.lra.client.internal",
+                        "io.narayana.lra.connectors.common.client.internal",
                         "org.eclipse.microprofile.lra")
                 .addPackages(true,
                         "io.narayana.lra",
                         "io.narayana.lra.filter",
-                        "io.narayana.lra.client.internal.proxy",
-                        "io.narayana.lra.contracts",
+                        "io.narayana.lra.connectors.common.client.extension",
+                        "io.narayana.lra.connectors.http.client.inbound",
+                        "io.narayana.lra.connectors.http.client.outbound",
+                        "io.narayana.lra.connectors.http.client.legacy",
+                        "io.narayana.lra.connectors.common.client.participant",
+                        "io.narayana.lra.connectors",
                         "org.eclipse.microprofile.lra.annotation",
                         "io.smallrye.stork",
                         "io.smallrye.mutiny.helpers")
-                // registration of the LRA CDI extensions as Weld extensions to be booted-up
-                .addAsResource("META-INF/services/jakarta.enterprise.inject.spi.Extension")
+                // registration of the LRA CDI extension as a Weld extension to be booted-up: WildFly
+                // does not expose a module's services to the deployment, so list it explicitly
+                .addAsResource(new StringAsset(LRACDIExtension.class.getName() + "\n"),
+                        "META-INF/services/jakarta.enterprise.inject.spi.Extension")
+                // the callback-address Jackson modules are services too, and WildFly does not expose
+                // a module's services to the deployment: list them on this classpath explicitly
+                .addAsResource(new StringAsset(callbackAddressModules()),
+                        "META-INF/services/com.fasterxml.jackson.databind.Module")
+                .addAsResource(new StringAsset(legacyParticipantFactories()),
+                        "META-INF/services/io.narayana.lra.connectors.common.client.extension.spi.LegacyParticipantFactory")
 
                 // explicitly define to work with annotated beans
                 .addAsManifestResource(new StringAsset("<beans version=\"1.1\" bean-discovery-mode=\"annotated\"></beans>"),
@@ -99,6 +115,19 @@ public class MpLraTckAuxiliaryArchiveAppender implements AuxiliaryArchiveAppende
                 "META-INF/services/org.eclipse.microprofile.lra.tck.service.spi.LRARecoveryService");
 
         return archive;
+    }
+
+    private static String callbackAddressModules() {
+        return ServiceLoader.load(Module.class).stream()
+                .map(provider -> provider.type().getName())
+                .filter(name -> name.startsWith("io.narayana.lra."))
+                .collect(Collectors.joining("\n")) + "\n";
+    }
+
+    private static String legacyParticipantFactories() {
+        return ServiceLoader.load(LegacyParticipantFactory.class).stream()
+                .map(provider -> provider.type().getName())
+                .collect(Collectors.joining("\n")) + "\n";
     }
 
 }

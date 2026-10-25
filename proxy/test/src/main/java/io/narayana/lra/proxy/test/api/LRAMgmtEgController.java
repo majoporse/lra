@@ -7,7 +7,7 @@ package io.narayana.lra.proxy.test.api;
 
 import static io.narayana.lra.proxy.test.api.LRAMgmtEgController.LRAM_PATH;
 
-import io.narayana.lra.client.internal.proxy.ProxyService;
+import io.narayana.lra.proxy.test.manual.ProxyService;
 import io.narayana.lra.proxy.test.model.Activity;
 import io.narayana.lra.proxy.test.model.Participant;
 import io.narayana.lra.proxy.test.service.ActivityService;
@@ -24,7 +24,7 @@ import java.net.URISyntaxException;
 import java.time.temporal.ChronoUnit;
 
 /**
- * for testing {@link io.narayana.lra.client.internal.proxy.ProxyService}
+ * for testing {@link io.narayana.lra.proxy.test.manual.ProxyService}
  */
 @Path(LRAM_PATH)
 public class LRAMgmtEgController {

@@ -223,7 +223,7 @@ To generate the OpenAPI schema:
 
 [source,sh]
 ----
-cd coordinator
+cd connectors/http/coordinator
 mvn process-classes -Popenapi-schema
 ----
 

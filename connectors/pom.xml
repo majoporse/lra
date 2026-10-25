@@ -18,7 +18,7 @@
   <description>Protocol connectors for the LRA coordinator and participants</description>
 
   <modules>
-    <module>api</module>
+    <module>common</module>
     <module>http</module>
     <module>kafka</module>
   </modules>

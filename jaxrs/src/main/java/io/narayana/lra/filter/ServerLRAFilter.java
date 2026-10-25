@@ -12,17 +12,19 @@ import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVER
 
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
-import io.narayana.lra.client.LRAClient;
-import io.narayana.lra.client.LRAParticipantData;
-import io.narayana.lra.client.NarayanaLRAClient;
-import io.narayana.lra.client.internal.proxy.ParticipantProtocolRegistry;
-import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipant;
-import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
+import io.narayana.lra.connectors.common.client.LRAClient;
+import io.narayana.lra.connectors.common.client.LRAParticipantData;
+import io.narayana.lra.connectors.common.client.ParticipantCallbackAddressResolver;
+import io.narayana.lra.connectors.common.client.internal.ParticipantProtocolRegistry;
+import io.narayana.lra.connectors.common.client.participant.LRAParticipantRegistry;
+import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
+import io.narayana.lra.connectors.http.client.legacy.LegacyLRAParticipant;
 import io.narayana.lra.filter.core.ServerLRAContext;
 import io.narayana.lra.filter.core.ServerLRAProcessor;
 import io.narayana.lra.filter.resolver.MicroProfileLRAAnnotationResolver;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.container.ContainerRequestContext;
@@ -52,7 +54,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
     protected ResourceInfo resourceInfo;
 
     @Inject
-    private LRAParticipantRegistry lraParticipantRegistry;
+    private Instance<LRAParticipantRegistry> lraParticipantRegistry;
 
     @Inject
     private ParticipantProtocolRegistry protocolRegistry;
@@ -101,7 +103,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
 
         if (context == null) {
             // the request filter did not run (or did not produce a context); nothing to report
-            Current.updateLRAContext(responseContext);
+            updateLRAContext(responseContext);
             Current.popAll();
             Current.clearAuthToken();
             return;
@@ -116,7 +118,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
 
             if (responseContext.getStatus() == Response.Status.OK.getStatusCode()
                     && resourceInfo.getResourceMethod() != null
-                    && LRAParticipant.isAsyncCompletion(resourceInfo.getResourceMethod())) {
+                    && LegacyLRAParticipant.isAsyncCompletion(resourceInfo.getResourceMethod())) {
                 LRALogger.i18nLogger.warn_lraParticipantqForAsync(
                         resourceInfo.getResourceMethod().getDeclaringClass().getName(),
                         resourceInfo.getResourceMethod().getName(),
@@ -143,7 +145,7 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
                 Current.push(context.getIncomingLRA(), null);
             }
 
-            Current.updateLRAContext(responseContext);
+            updateLRAContext(responseContext);
 
             Current.popAll();
             Current.removeActiveLRACache(context.getCurrentLRA());
@@ -282,19 +284,36 @@ public class ServerLRAFilter implements ContainerRequestFilter, ContainerRespons
     private ServerLRAProcessor getProcessor() {
         if (processor == null) {
             // no need to lock
-            processor = new ServerLRAProcessor(lraParticipantRegistry, null, data, enlistMaxRetries,
-                    new MicroProfileLRAAnnotationResolver(), lraClient());
+            LRAParticipantRegistry legacyRegistry = lraParticipantRegistry != null
+                    && lraParticipantRegistry.isResolvable()
+                            ? lraParticipantRegistry.get()
+                            : null;
+            processor = new ServerLRAProcessor(legacyRegistry, data, enlistMaxRetries,
+                    new MicroProfileLRAAnnotationResolver(), lraClient(), callbackResolver());
         }
 
         return processor;
     }
 
-    private LRAClient lraClient() {
-        if (protocolRegistry != null) {
-            return protocolRegistry.client();
-        }
+    private static void updateLRAContext(ContainerResponseContext responseContext) {
+        java.net.URI lraId = Current.peek();
 
-        // non-CDI deployments (the RESTEasy/Undertow tests) do not inject the provider's fields
+        if (lraId != null) {
+            responseContext.getHeaders().put(LRA_HTTP_CONTEXT_HEADER, Current.getContexts());
+        } else {
+            responseContext.getHeaders().remove(LRA_HTTP_CONTEXT_HEADER);
+        }
+    }
+
+    private LRAClient lraClient() {
+        // This filter is application-scoped and its processor is shared across requests. A
+        // request-scoped CDI client proxy cannot be used when RESTEasy resumes an async response
+        // on a non-request thread. The legacy filter is HTTP-only, so use a directly constructed
+        // HTTP client (which also covers the non-CDI RESTEasy/Undertow tests).
         return new NarayanaLRAClient();
+    }
+
+    private ParticipantCallbackAddressResolver callbackResolver() {
+        return protocolRegistry != null ? protocolRegistry.resolver() : null;
     }
 }

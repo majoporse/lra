@@ -6,9 +6,9 @@
 package io.narayana.lra.arquillian.resource;
 
 import io.narayana.lra.api.LRA;
-import io.narayana.lra.callbacks.contracts.common.AfterLRACallback;
-import io.narayana.lra.callbacks.contracts.common.CompensateCallback;
-import io.narayana.lra.callbacks.contracts.common.CompleteCallback;
+import io.narayana.lra.connectors.common.contracts.AfterLRACallback;
+import io.narayana.lra.connectors.common.contracts.CompensateCallback;
+import io.narayana.lra.connectors.common.contracts.CompleteCallback;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;

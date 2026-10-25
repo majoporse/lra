@@ -17,14 +17,15 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.narayana.lra.LRAConstants;
-import io.narayana.lra.callbacks.LegacyHttpCallback;
-import io.narayana.lra.callbacks.ParticipantCallbacks;
-import io.narayana.lra.client.NarayanaLRAClient;
-import io.narayana.lra.contracts.http.JoinLRAHttp;
-import io.narayana.lra.contracts.http.NestedCompensateLRAHttp;
-import io.narayana.lra.contracts.http.NestedCompleteLRAHttp;
-import io.narayana.lra.contracts.http.NestedStatusLRAHttp;
-import io.narayana.lra.coordinator.api.Coordinator;
+import io.narayana.lra.connectors.common.callbacks.CallbackType;
+import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
+import io.narayana.lra.connectors.http.address.LegacyHttpAddress;
+import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
+import io.narayana.lra.connectors.http.contracts.JoinLRAHttp;
+import io.narayana.lra.connectors.http.contracts.NestedCompensateLRAHttp;
+import io.narayana.lra.connectors.http.contracts.NestedCompleteLRAHttp;
+import io.narayana.lra.connectors.http.contracts.NestedStatusLRAHttp;
+import io.narayana.lra.connectors.http.coordinator.api.Coordinator;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.filter.ServerLRAFilter;
@@ -243,9 +244,9 @@ public class LRAStateModelTest extends LRATestBase {
 
     private static ParticipantCallbacks callbacksFor(String prefix) {
         ParticipantCallbacks callbacks = new ParticipantCallbacks();
-        callbacks.compensateCallback = LegacyHttpCallback.compensateCallback(
+        callbacks.compensateCallback = LegacyHttpAddress.of(CallbackType.COMPENSATE,
                 URI.create(String.format("%s/%s", prefix, "compensate")));
-        callbacks.completeCallback = LegacyHttpCallback.completeCallback(
+        callbacks.completeCallback = LegacyHttpAddress.of(CallbackType.COMPLETE,
                 URI.create(String.format("%s/%s", prefix, "complete")));
         return callbacks;
     }

@@ -41,8 +41,6 @@
     <module>service-base</module>
     <module>connectors</module>
     <module>coordinator-core</module>
-    <module>contracts</module>
-    <module>client</module>
     <module>coordinator</module>
     <module>coordinator-war</module>
     <module>proxy</module>
@@ -125,9 +123,11 @@
     <version.httpcomponents>4.5.14</version.httpcomponents>
     <version.io.narayana.checkstyle-config>1.0.1.Final</version.io.narayana.checkstyle-config>
     <version.io.netty>4.2.16.Final</version.io.netty>
+    <version.io.smallrye.jandex>3.6.0</version.io.smallrye.jandex>
 
     <version.io.smallrye.smallrye-config>3.18.1</version.io.smallrye.smallrye-config>
     <version.io.smallrye.smallrye-stork>3.0.0</version.io.smallrye.smallrye-stork>
+    <version.jakarta.annotation-api>2.1.1</version.jakarta.annotation-api>
     <version.jakarta.concurrent>3.1.1</version.jakarta.concurrent>
     <version.jakarta.enterprise>4.1.0</version.jakarta.enterprise>
     <version.jakarta.inject.jakarta.inject-api>2.0.1</version.jakarta.inject.jakarta.inject-api>
@@ -314,19 +314,19 @@
       <!-- end undertow with RestEasy -->
 
       <dependency>
+        <groupId>jakarta.annotation</groupId>
+        <artifactId>jakarta.annotation-api</artifactId>
+        <version>${version.jakarta.annotation-api}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.smallrye</groupId>
+        <artifactId>jandex</artifactId>
+        <version>${version.io.smallrye.jandex}</version>
+      </dependency>
+      <dependency>
         <groupId>jakarta.ws.rs</groupId>
         <artifactId>jakarta.ws.rs-api</artifactId>
         <version>${version.jakarta.ws.rs.jakarta-ws-rs-api}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.jboss.narayana.lra</groupId>
-        <artifactId>lra-client</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.jboss.narayana.lra</groupId>
-        <artifactId>lra-contracts</artifactId>
-        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>org.jboss.narayana.lra</groupId>
@@ -335,7 +335,17 @@
       </dependency>
       <dependency>
         <groupId>org.jboss.narayana.lra</groupId>
-        <artifactId>lra-connector-api</artifactId>
+        <artifactId>lra-connector-common-contracts</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-common-client</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-common-coordinator</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
@@ -371,11 +381,6 @@
       <dependency>
         <groupId>org.jboss.narayana.lra</groupId>
         <artifactId>lra-coordinator-core</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.jboss.narayana.lra</groupId>
-        <artifactId>lra-proxy-api</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

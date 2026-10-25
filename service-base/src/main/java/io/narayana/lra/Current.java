@@ -5,9 +5,6 @@
 
 package io.narayana.lra;
 
-import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT_HEADER;
-
-import jakarta.ws.rs.container.ContainerResponseContext;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -254,21 +251,6 @@ public class Current {
         return current.stack.stream()
                 .map(context -> (Object) LRAConstants.toLRAId(context.lraId()))
                 .collect(Collectors.toList());
-    }
-
-    /**
-     * If there is an LRA context on the calling thread then add it to the provided headers
-     *
-     * @param responseContext the header map to add the KRA context to
-     */
-    public static void updateLRAContext(ContainerResponseContext responseContext) {
-        URI lraId = Current.peek();
-
-        if (lraId != null) {
-            responseContext.getHeaders().put(LRA_HTTP_CONTEXT_HEADER, getContexts());
-        } else {
-            responseContext.getHeaders().remove(LRA_HTTP_CONTEXT_HEADER);
-        }
     }
 
     public static void popAll() {

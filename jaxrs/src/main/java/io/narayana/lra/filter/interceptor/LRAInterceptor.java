@@ -12,11 +12,11 @@ import io.narayana.lra.AnnotationResolver;
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.api.LRA;
-import io.narayana.lra.client.LRAClient;
-import io.narayana.lra.client.LRAParticipantData;
-import io.narayana.lra.client.internal.proxy.ParticipantProtocolRegistry;
-import io.narayana.lra.client.internal.proxy.callback.CallbackParticipantRegistry;
-import io.narayana.lra.client.internal.proxy.nonjaxrs.LRAParticipantRegistry;
+import io.narayana.lra.connectors.common.client.LRAClient;
+import io.narayana.lra.connectors.common.client.LRAParticipantData;
+import io.narayana.lra.connectors.common.client.ParticipantCallbackAddressResolver;
+import io.narayana.lra.connectors.common.client.internal.ParticipantProtocolRegistry;
+import io.narayana.lra.connectors.common.client.participant.LRAParticipantRegistry;
 import io.narayana.lra.filter.core.ServerLRAContext;
 import io.narayana.lra.filter.core.ServerLRAProcessor;
 import io.narayana.lra.filter.resolver.CDILRAAnnotationResolver;
@@ -69,13 +69,10 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 public class LRAInterceptor {
 
     @Inject
-    private LRAParticipantRegistry lraParticipantRegistry;
+    private Instance<LRAParticipantRegistry> lraParticipantRegistry;
 
     @Inject
     private ParticipantProtocolRegistry protocolRegistry;
-
-    @Inject
-    private Instance<CallbackParticipantRegistry> callbackParticipantRegistry;
 
     @Inject
     LRAParticipantData data;
@@ -321,11 +318,12 @@ public class LRAInterceptor {
         if (processor == null) {
             synchronized (this) {
                 if (processor == null) {
-                    CallbackParticipantRegistry contractRegistry = callbackParticipantRegistry.isResolvable()
-                            ? callbackParticipantRegistry.get()
-                            : null;
-                    processor = new ServerLRAProcessor(lraParticipantRegistry, contractRegistry, data,
-                            enlistMaxRetries, new CDILRAAnnotationResolver(), lraClient());
+                    LRAParticipantRegistry registry = lraParticipantRegistry != null
+                            && lraParticipantRegistry.isResolvable()
+                                    ? lraParticipantRegistry.get()
+                                    : null;
+                    processor = new ServerLRAProcessor(registry, data, enlistMaxRetries,
+                            new CDILRAAnnotationResolver(), lraClient(), callbackResolver());
                 }
             }
         }
@@ -339,5 +337,13 @@ public class LRAInterceptor {
                 : new ParticipantProtocolRegistry();
 
         return registry.client();
+    }
+
+    private ParticipantCallbackAddressResolver callbackResolver() {
+        ParticipantProtocolRegistry registry = protocolRegistry != null
+                ? protocolRegistry
+                : new ParticipantProtocolRegistry();
+
+        return registry.resolver();
     }
 }
