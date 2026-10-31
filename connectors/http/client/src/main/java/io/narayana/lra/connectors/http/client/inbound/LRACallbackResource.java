@@ -22,6 +22,7 @@ import io.narayana.lra.connectors.http.contracts.HttpForgetCallback;
 import io.narayana.lra.connectors.http.contracts.HttpStatusCallback;
 import io.narayana.lra.connectors.http.support.HttpContractPaths;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.RequestScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.POST;
@@ -30,7 +31,7 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 
-@ApplicationScoped
+@RequestScoped
 @Path(HttpContractPaths.RESOURCE_PATH)
 public class LRACallbackResource {
 
