@@ -375,18 +375,16 @@ public class ServerLRAProcessor {
 
         Participant participant = lraParticipantRegistry.getParticipant(resourceClass.getName());
 
-        if (participant == null) {
-            throw new IllegalStateException(String.format(
-                    "No LRA participant model is registered for %s: the class was not discovered as an"
-                            + " LRA participant",
-                    resourceClass.getName()));
-        }
-
+        // a bean that only starts or joins an LRA is not a participant; it has no callback model
         return participant;
     }
 
     private void handleEnlistment(ServerLRAContext context) {
         Participant participant = participant(context.getResourceClass());
+
+        if (participant == null) {
+            return;
+        }
 
         ParticipantCallbacks callbacks = participant.terminationCallbacks(callbackResolver,
                 context.getUriPrefix(), context.getBaseUri());

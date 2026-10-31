@@ -7,7 +7,7 @@ package io.narayana.lra.arquillian.appender;
 
 import com.fasterxml.jackson.databind.Module;
 import io.narayana.lra.arquillian.spi.NarayanaLRARecovery;
-import io.narayana.lra.connectors.common.client.extension.LRACDIExtension;
+import io.narayana.lra.connectors.common.client.extension.PortableParticipantDiscovery;
 import io.narayana.lra.connectors.common.client.extension.spi.LegacyParticipantFactory;
 import java.util.Map;
 import java.util.Optional;
@@ -85,7 +85,7 @@ public class MpLraTckAuxiliaryArchiveAppender implements AuxiliaryArchiveAppende
                         "io.smallrye.mutiny.helpers")
                 // registration of the LRA CDI extension as a Weld extension to be booted-up: WildFly
                 // does not expose a module's services to the deployment, so list it explicitly
-                .addAsResource(new StringAsset(LRACDIExtension.class.getName() + "\n"),
+                .addAsResource(new StringAsset(PortableParticipantDiscovery.class.getName() + "\n"),
                         "META-INF/services/jakarta.enterprise.inject.spi.Extension")
                 // the callback-address Jackson modules are services too, and WildFly does not expose
                 // a module's services to the deployment: list them on this classpath explicitly

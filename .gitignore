@@ -10,8 +10,8 @@ jboss-eap
 *.swp
 *~
 
-wildfly-*.zip
-wildfly-*/
+/wildfly-*.zip
+/wildfly-*/
 
 *.orig
 qa/ext/log4j.jar
@@ -26,7 +26,21 @@ audit.log
 *.json
 .cache
 *.log
-kafka/
-kafka1/
+/kafka/
+/kafka1/
 .factorypath
 
+# Nested connector module build and plugin output
+connectors/**/target/
+connectors/**/.cache/
+**/dependency-reduced-pom.xml
+**/.flattened-pom.xml
+**/pom.xml.versionsBackup
+
+# Generated design artefacts
+.scratch/
+
+.slim/deepwork/
+GLOSSARY.md
+AGENTS.md
+docs/

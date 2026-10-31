@@ -36,40 +36,9 @@
 
     <!-- LRA participant support -->
     <dependency>
-      <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-narayana-lra</artifactId>
-      <exclusions>
-        <exclusion>
-          <groupId>org.jboss.narayana.lra</groupId>
-          <artifactId>narayana-lra</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.jboss.resteasy</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-
-    <!-- Make it explicit that we replace narayana-lra -->
-    <dependency>
       <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>narayana-lra</artifactId>
+      <artifactId>lra-quarkus</artifactId>
       <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>lra-connector-http-client</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>lra-connector-common-client</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>io.smallrye.config</groupId>
-      <artifactId>smallrye-config-common</artifactId>
-      <version>${version.io.smallrye.smallrye-config}</version>
     </dependency>
 
     <!-- Use RESTEasy Classic instead of Quarkus REST -->

@@ -136,7 +136,7 @@
               <arguments>
                 <argument>-Dquarkus.http.host=${lra.initiator.host}</argument>
                 <argument>-Dquarkus.http.port=${lra.initiator.port}</argument>
-                <argument>-Dquarkus.lra.coordinator-url=${lra.coordinator.url}</argument>
+                <argument>-Dlra.coordinator.url=${lra.coordinator.url}</argument>
                 <argument>-jar</argument>
                 <argument>${quarkus.jar}</argument>
               </arguments>

@@ -42,6 +42,13 @@ To apply code formatting (enabled by default via the `format` profile):
 ./mvnw clean package -DskipTests
 ----
 
+The Quarkus extension has a JVM and native smoke test (the native build uses Docker):
+
+[source,sh]
+----
+./mvnw -Dnative -Dquarkus.native.container-build=true -pl quarkus/integration-tests verify
+----
+
 == Project Modules
 
 [cols="1,3"]
@@ -62,6 +69,9 @@ To apply code formatting (enabled by default via the `format` profile):
 
 | `jaxrs`
 | JAX-RS integration including filters, context providers, and request/response handling
+
+| `quarkus`
+| Quarkus participant extension (`lra-quarkus` runtime and `lra-quarkus-deployment` build steps)
 
 | `proxy`
 | Proxy API module for LRA proxy functionality
@@ -135,13 +145,14 @@ The coordinator is then available at `http://localhost:8080/lra-coordinator`.
 
 === Quarkus participant — connecting to the coordinator
 
-The `quarkus-narayana-lra` extension makes a Quarkus service an LRA _participant_. It does not run a coordinator itself — add it to your participant application and point it at whichever coordinator is running:
+Add the LRA Quarkus extension to the participant application:
 
 [source,xml]
 ----
 <dependency>
-  <groupId>io.quarkus</groupId>
-  <artifactId>quarkus-narayana-lra</artifactId>
+  <groupId>org.jboss.narayana.lra</groupId>
+  <artifactId>lra-quarkus</artifactId>
+  <version>2.0.0.Final-SNAPSHOT</version>
 </dependency>
 ----
 
@@ -150,30 +161,34 @@ The `quarkus-narayana-lra` extension makes a Quarkus service an LRA _participant
 # application.properties — adjust the URL to match the coordinator runtime
 # WildFly:            http://coordinator-host:8080/lra-coordinator/lra-coordinator
 # Quarkus/container:  http://coordinator-host:8080/lra-coordinator
-quarkus.lra.coordinator-url=http://localhost:8080/lra-coordinator
+lra.coordinator.url=http://localhost:8888/lra-coordinator
 ----
+
+The extension performs participant discovery at build time and registers native-image reflection.
+It does not require `quarkus.index-dependency.*`, `quarkus.arc.unremovable-types`, or a local
+registry producer.
 
 **Using SNAPSHOT Narayana artifacts**
 
-`quarkus-narayana-lra` bundles its own `narayana-lra` version. To replace it with the SNAPSHOT from this repo, exclude the bundled jar and declare the local one:
+The Quarkus BOM manages the released `narayana-lra` and `lra-service-base` versions. Override those
+two entries in the application dependency management when using the SNAPSHOT from this repo:
 
 [source,xml]
 ----
-<dependency>
-  <groupId>io.quarkus</groupId>
-  <artifactId>quarkus-narayana-lra</artifactId>
-  <exclusions>
-    <exclusion>
+<dependencyManagement>
+  <dependencies>
+    <dependency>
       <groupId>org.jboss.narayana.lra</groupId>
       <artifactId>narayana-lra</artifactId>
-    </exclusion>
-  </exclusions>
-</dependency>
-<dependency>
-  <groupId>org.jboss.narayana.lra</groupId>
-  <artifactId>narayana-lra</artifactId>
-  <version>${project.version}</version>
-</dependency>
+      <version>2.0.0.Final-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss.narayana.lra</groupId>
+      <artifactId>lra-service-base</artifactId>
+      <version>2.0.0.Final-SNAPSHOT</version>
+    </dependency>
+  </dependencies>
+</dependencyManagement>
 ----
 
 Requires `./mvnw clean install -DskipTests` first so the SNAPSHOT is in the local Maven repository.

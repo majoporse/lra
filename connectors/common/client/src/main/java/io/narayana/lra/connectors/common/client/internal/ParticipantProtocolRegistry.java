@@ -10,8 +10,11 @@ import io.narayana.lra.connectors.common.client.LRAClient;
 import io.narayana.lra.connectors.common.client.ParticipantCallbackAddressResolver;
 import io.narayana.lra.connectors.common.client.ParticipantConnector;
 import io.narayana.lra.connectors.common.config.CallbackConfig;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.CDI;
+import jakarta.inject.Inject;
 import java.lang.annotation.Annotation;
 import java.util.Set;
 import java.util.TreeSet;
@@ -21,14 +24,23 @@ import org.eclipse.microprofile.config.ConfigProvider;
 /**
  * Selects the participant's connector by {@code quarkus.lra.client.protocol}.
  * <p>
- * Selection is a runtime decision. It works the same under Weld and Arc, and it does not
- * instantiate the connectors that are not selected (a Kafka client may need configuration that is
- * absent when the participant protocol is HTTP).
+ * Selection is a runtime decision. The injected {@link Instance} keeps every connector bean visible
+ * to the CDI container (Quarkus Arc would otherwise remove beans used only through programmatic
+ * lookup), but a connector is not instantiated until it is selected.
  * <p>
- * The class has no injected state so the CDI extension can register it with a plain instance; it
- * resolves the container lazily when a selection is requested.
+ * The class is a normal CDI bean so both Weld and Arc discover it; the portable CDI extension does
+ * not register it.
  */
+@ApplicationScoped
 public class ParticipantProtocolRegistry {
+
+    @Inject
+    @Any
+    Instance<LRAClient> clients;
+
+    @Inject
+    @Any
+    Instance<ParticipantCallbackAddressResolver> resolvers;
 
     public String protocolId() {
         String configured = ConfigProvider.getConfig()
@@ -44,15 +56,25 @@ public class ParticipantProtocolRegistry {
     }
 
     public LRAClient client() {
-        return select(CDI.current().select(LRAClient.class), "client");
+        return select(clients(), "client");
     }
 
     public ParticipantCallbackAddressResolver resolver() {
-        return select(CDI.current().select(ParticipantCallbackAddressResolver.class), "resolver");
+        return select(resolvers(), "resolver");
     }
 
     public Set<String> connectorIds() {
-        return connectorIds(CDI.current().select(LRAClient.class));
+        return connectorIds(clients());
+    }
+
+    // the fallback keeps manually constructed registries (unit tests, non-CDI callers) working
+    private Instance<LRAClient> clients() {
+        return clients != null ? clients : CDI.current().select(LRAClient.class, Any.Literal.INSTANCE);
+    }
+
+    private Instance<ParticipantCallbackAddressResolver> resolvers() {
+        return resolvers != null ? resolvers
+                : CDI.current().select(ParticipantCallbackAddressResolver.class, Any.Literal.INSTANCE);
     }
 
     private <T> T select(Instance<T> instance, String role) {

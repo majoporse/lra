@@ -12,7 +12,7 @@ import java.util.Map;
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
-import org.jboss.jandex.Index;
+import org.jboss.jandex.IndexView;
 
 /**
  * Collects the annotations of a class, its superclasses and its interfaces (transitively), because
@@ -20,7 +20,8 @@ import org.jboss.jandex.Index;
  */
 public class JandexAnnotationResolver {
 
-    public static Map<DotName, List<AnnotationInstance>> getAllAnnotationsFromClassInfoHierarchy(DotName name, Index index) {
+    public static Map<DotName, List<AnnotationInstance>> getAllAnnotationsFromClassInfoHierarchy(DotName name,
+            IndexView index) {
         Map<DotName, List<AnnotationInstance>> annotations = new HashMap<>();
 
         collect(name, index, annotations);
@@ -28,7 +29,7 @@ public class JandexAnnotationResolver {
         return annotations;
     }
 
-    private static void collect(DotName name, Index index, Map<DotName, List<AnnotationInstance>> annotations) {
+    private static void collect(DotName name, IndexView index, Map<DotName, List<AnnotationInstance>> annotations) {
         if (name == null || name.equals(DotNames.OBJECT)) {
             return;
         }

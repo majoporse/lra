@@ -22,20 +22,20 @@ import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
-import org.jboss.jandex.Index;
+import org.jboss.jandex.IndexView;
 
 /**
  * The Jandex and bean-manager helpers both participant discoveries need.
  */
 final class ParticipantDiscoverySupport {
 
-    private final Index index;
+    private final IndexView index;
 
-    ParticipantDiscoverySupport(Index index) {
+    ParticipantDiscoverySupport(IndexView index) {
         this.index = index;
     }
 
-    Index index() {
+    IndexView index() {
         return index;
     }
 
@@ -52,7 +52,10 @@ final class ParticipantDiscoverySupport {
     }
 
     Class<?> loadClass(ClassInfo classInfo) throws ClassNotFoundException {
-        String className = classInfo.name().toString();
+        return loadClass(classInfo.name().toString());
+    }
+
+    Class<?> loadClass(String className) throws ClassNotFoundException {
         try {
             return getClass().getClassLoader().loadClass(className);
         } catch (ClassNotFoundException cnfe) {

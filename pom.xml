@@ -45,6 +45,7 @@
     <module>coordinator-war</module>
     <module>proxy</module>
     <module>jaxrs</module>
+    <module>quarkus</module>
     <module>arquillian-extension</module>
   </modules>
 
@@ -386,6 +387,16 @@
       <dependency>
         <groupId>org.jboss.narayana.lra</groupId>
         <artifactId>narayana-lra</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-quarkus</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-quarkus-deployment</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

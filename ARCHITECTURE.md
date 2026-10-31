@@ -31,6 +31,9 @@ coordinator-war/              lra-coordinator-war         deployable WAR (base +
 proxy/
   test/                       lra-proxy-test              sample participant application
 jaxrs/                        narayana-lra                interceptor/filter runtime
+quarkus/
+  runtime/                    lra-quarkus                 Quarkus runtime adapter
+  deployment/                 lra-quarkus-deployment      Quarkus build steps
 arquillian-extension/         lra-test-arquillian-extension
 test/                         lra-test + TCK/basic/security/crash/quarkus
 ```
@@ -82,7 +85,7 @@ Rules:
   loop through a `LegacyParticipantFactory` service; the discovery loop itself is in
   `common/client`. Protocol connectors contain no discovery loop.
 - The TCK auxiliary archive (`MpLraTckAuxiliaryArchiveAppender`) must list the participant CDI
-  extension (`LRACDIExtension`) explicitly: WildFly does not expose a module's
+  extension (`PortableParticipantDiscovery`) explicitly: WildFly does not expose a module's
   `META-INF/services` to the deployment.
 
 ## Core seams
@@ -93,7 +96,11 @@ Rules:
   live in `lra-connector-common-client`. The filter/interceptor uses them; connector client modules
   implement the client and resolver.
 - `ParticipantProtocolRegistry` selects the client and address resolver by
-  `quarkus.lra.client.protocol`.
+  `quarkus.lra.client.protocol`. It is a normal CDI bean with injected
+  `Instance<LRAClient>`/`Instance<ParticipantCallbackAddressResolver>` lookups.
+- `ParticipantScanner` (`lra-connector-common-client`) is the shared Jandex scan. The portable CDI
+  adapter (`PortableParticipantDiscovery`) and the Quarkus build step
+  (`ParticipantDiscoveryProcessor`) both use it.
 - `Participant` (`lra-connector-common-client`) is the participant model seam: `LRAParticipant`
   is the transport-neutral model and the default, `LegacyLRAParticipant` (in the HTTP client) is the
   MicroProfile `@Path` model. One `LRAParticipantRegistry` holds both.
@@ -227,6 +234,9 @@ are heavier; run them with the `arq` profile against that downloaded `wildfly.ho
 - Do not put participant discovery in a protocol connector. Add a participant model through the
   `LegacyParticipantFactory` / `ParticipantCallbackDispatcher` seam and keep the scan and the single
   registry in `common/client`. Do not add a second registry or a second discovery extension.
+- Quarkus-specific code lives under `quarkus/runtime` and `quarkus/deployment`. The Quarkus build
+  step and the portable CDI adapter must both use `ParticipantScanner`; do not duplicate the
+  annotation scan.
 - Do not add protocol `switch`/`instanceof` chains or protocol string checks to core code. Use the
   polymorphic address subtype and the delivery registry.
 - Keep callback semantics in `CallbackReceiver`, `CallbackSender` and `CallbackOutcomeMapper`.

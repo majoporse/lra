@@ -14,7 +14,7 @@ import io.narayana.lra.connectors.http.client.legacy.LegacyLRAParticipant;
  * <p>
  * {@link LegacyLRAParticipant} is the JAX-RS-bound model (it scans {@code @Path} verbs and its
  * callbacks may return {@code Response}); the discovery itself lives in
- * {@code extension.io.narayana.lra.connectors.common.client.extension.LRACDIExtension}.
+ * {@code io.narayana.lra.connectors.common.client.extension.PortableParticipantDiscovery}.
  */
 public final class HttpLegacyParticipantFactory implements LegacyParticipantFactory {
 
