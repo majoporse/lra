@@ -21,12 +21,12 @@ import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
-import io.narayana.lra.connectors.common.client.CallbackPaths;
-import io.narayana.lra.connectors.common.client.LRAClient;
-import io.narayana.lra.connectors.common.client.ParticipantConnector;
+import io.narayana.lra.connectors.common.client.coordinator.LRAClient;
+import io.narayana.lra.connectors.common.client.participant.protocol.CallbackPaths;
+import io.narayana.lra.connectors.common.client.participant.protocol.ParticipantConnector;
 import io.narayana.lra.connectors.http.address.LegacyHttpAddress;
-import io.narayana.lra.connectors.http.client.outbound.CoordinatorClient;
-import io.narayana.lra.connectors.http.client.outbound.RestClientConfig;
+import io.narayana.lra.connectors.http.client.coordinator.CoordinatorClient;
+import io.narayana.lra.connectors.http.client.coordinator.RestClientConfig;
 import io.narayana.lra.connectors.http.contracts.CancelLRAHttp;
 import io.narayana.lra.connectors.http.contracts.CloseLRAHttp;
 import io.narayana.lra.connectors.http.contracts.JoinLRAHttp;
@@ -552,7 +552,18 @@ public class NarayanaLRAClient implements LRAClient {
                     req)
                     .toCompletableFuture().get(LEAVE_TIMEOUT, TimeUnit.SECONDS);
 
-        } catch (InterruptedException | ExecutionException | TimeoutException e) {
+        } catch (ExecutionException e) {
+            rethrowIfUnauthorized(e);
+            Throwable cause = e.getCause();
+
+            if (cause instanceof WebApplicationException webApplicationException) {
+                // keep the coordinator's status and body (for example 400 for an unknown participant)
+                throw webApplicationException;
+            }
+
+            throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
+                    .entity("leave LRA client request failed: " + e.getMessage()).build());
+        } catch (InterruptedException | TimeoutException e) {
             rethrowIfUnauthorized(e);
             throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
                     .entity("leave LRA client request timed out, try again later").build());

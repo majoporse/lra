@@ -5,7 +5,7 @@
 
 package io.narayana.lra.connectors.common.contracts;
 
-import io.narayana.lra.api.LRA;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 
 /**
  * The shared shape of a contract reply: the participant's declared outcome and an optional error.
@@ -16,7 +16,7 @@ import io.narayana.lra.api.LRA;
  */
 public interface CallbackOutcome {
 
-    LRA.ParticipantOutcome status();
+    ParticipantStatus status();
 
     String error();
 }

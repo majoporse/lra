@@ -1,7 +1,7 @@
 package io.narayana.lra.connectors.common.client.participant;
 
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
-import io.narayana.lra.connectors.common.client.ParticipantCallbackDispatcher;
+import io.narayana.lra.connectors.common.client.callback.ParticipantCallbackDispatcher;
 import io.narayana.lra.connectors.common.contracts.ParticipantReply;
 import io.narayana.lra.connectors.common.contracts.ParticipantRequest;
 import io.narayana.lra.proxy.logging.LRAProxyLogger;

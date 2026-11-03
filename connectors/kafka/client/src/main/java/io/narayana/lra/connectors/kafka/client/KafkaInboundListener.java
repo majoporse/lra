@@ -8,7 +8,8 @@ package io.narayana.lra.connectors.kafka.client;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
-import io.narayana.lra.connectors.common.client.CallbackReceiver;
+import io.narayana.lra.connectors.common.client.callback.CallbackReceiver;
+import io.narayana.lra.connectors.common.client.invocation.CurrentScope;
 import io.narayana.lra.connectors.common.config.CallbackConfig;
 import io.narayana.lra.connectors.common.contracts.ParticipantReply;
 import io.narayana.lra.connectors.common.contracts.ParticipantRequest;
@@ -77,7 +78,17 @@ public class KafkaInboundListener {
     private void handleCallback(LRAKafkaEnvelope envelope) throws Exception {
         CallbackType callbackType = callbackType(envelope.type);
         ParticipantRequest request = objectMapper.convertValue(envelope.payload, requestClass(callbackType));
-        ParticipantReply reply = callbackReceiver.receive(callbackType, request);
+        ParticipantReply reply;
+
+        CurrentScope scope = CurrentScope.capture();
+        scope.activate(request.lraId);
+
+        try {
+            reply = callbackReceiver.receive(callbackType, request);
+        } finally {
+            scope.restore();
+        }
+
         KafkaCallbackReply kafkaReply = toKafkaReply(callbackType, request, reply);
 
         kafkaOutbound.send(replyTopic(request), kafkaReply);

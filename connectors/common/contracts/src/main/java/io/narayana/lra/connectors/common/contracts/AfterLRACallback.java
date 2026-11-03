@@ -1,23 +1,23 @@
 package io.narayana.lra.connectors.common.contracts;
 
-import io.narayana.lra.api.LRA;
 import java.net.URI;
+import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 public class AfterLRACallback {
     public static class Request extends ParticipantRequest {
-        public LRA.TransactionStatus endStatus;
+        public LRAStatus endStatus;
 
         public Request() {
         }
 
         public Request(URI lraId, URI parentId, String recoveryUrl, String compensatorData,
-                LRA.TransactionStatus endStatus) {
+                LRAStatus endStatus) {
             super(lraId, parentId, recoveryUrl, compensatorData);
             this.endStatus = endStatus;
         }
 
         public Request(String participantId, URI lraId, URI parentId, String recoveryUrl,
-                String compensatorData, LRA.TransactionStatus endStatus) {
+                String compensatorData, LRAStatus endStatus) {
             super(participantId, lraId, parentId, recoveryUrl, compensatorData);
             this.endStatus = endStatus;
         }

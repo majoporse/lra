@@ -1,7 +1,7 @@
 package io.narayana.lra.connectors.common.contracts;
 
-import io.narayana.lra.api.LRA;
 import java.net.URI;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 
 public class CompensateCallback {
     public static class Request extends ParticipantRequest {
@@ -22,11 +22,11 @@ public class CompensateCallback {
         public Reply() {
         }
 
-        public Reply(LRA.ParticipantOutcome status) {
+        public Reply(ParticipantStatus status) {
             super(status);
         }
 
-        public Reply(LRA.ParticipantOutcome status, String error) {
+        public Reply(ParticipantStatus status, String error) {
             super(status, error);
         }
     }

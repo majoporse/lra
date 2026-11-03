@@ -5,7 +5,6 @@
 
 package io.narayana.lra.connectors.kafka.coordinator;
 
-import io.narayana.lra.api.LRA;
 import io.narayana.lra.connectors.common.callbacks.CallbackContext;
 import io.narayana.lra.connectors.common.callbacks.CallbackResult;
 import io.narayana.lra.connectors.common.callbacks.CallbackStatus;
@@ -25,6 +24,7 @@ import jakarta.inject.Inject;
 import java.net.URI;
 import java.time.Duration;
 import java.util.UUID;
+import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 /**
  * Delivers a callback on the participant's Kafka service topic and maps the contract reply.
@@ -80,7 +80,7 @@ public class KafkaDelivery implements CallbackDelivery<KafkaAddress> {
                 String payload = context.getPayload();
                 yield new AfterLRAKafkaCallback.Request(correlationId, replyTopic, participantId,
                         lraUri, parentUri, recoveryUrl, compensatorData,
-                        payload == null ? null : LRA.TransactionStatus.valueOf(payload));
+                        payload == null ? null : LRAStatus.valueOf(payload));
             }
         };
     }

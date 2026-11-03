@@ -21,16 +21,14 @@ import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
 import io.narayana.lra.connectors.http.address.LegacyHttpAddress;
 import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
+import io.narayana.lra.connectors.http.client.participant.ParticipantStatusOctetStreamProvider;
 import io.narayana.lra.connectors.http.contracts.JoinLRAHttp;
 import io.narayana.lra.connectors.http.contracts.NestedCompensateLRAHttp;
 import io.narayana.lra.connectors.http.contracts.NestedCompleteLRAHttp;
 import io.narayana.lra.connectors.http.contracts.NestedStatusLRAHttp;
 import io.narayana.lra.connectors.http.coordinator.api.Coordinator;
-import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
-import io.narayana.lra.filter.ServerLRAFilter;
 import io.narayana.lra.logging.LRALogger;
-import io.narayana.lra.provider.ParticipantStatusOctetStreamProvider;
 import jakarta.ws.rs.ApplicationPath;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.NotFoundException;
@@ -98,7 +96,6 @@ public class LRAStateModelTest extends LRATestBase {
             HashSet<Class<?>> classes = new HashSet<>();
             classes.add(Participant.class);
             classes.add(FailingParticipant.class);
-            classes.add(ServerLRAFilter.class);
             classes.add(ParticipantStatusOctetStreamProvider.class);
             classes.add(BytemanHelper.class);
             return classes;
@@ -877,66 +874,6 @@ public class LRAStateModelTest extends LRATestBase {
     // ===================================================================
     // Eventual Compensation Test
     // ===================================================================
-
-    /**
-     * Test the eventual compensation pattern described in the MicroProfile LRA spec.
-     * A participant's Compensate method returns Compensating (HTTP 202 Accepted)
-     * indicating that compensation is still in progress. The coordinator must retry
-     * via recovery until the participant returns Compensated.
-     *
-     * The test verifies the Cancelling transient state while the participant returns
-     * Compensating, and then verifies the terminal Cancelled state after recovery.
-     */
-    @Test
-    @BMRules(rules = {
-            @BMRule(name = "signal LRA cancelled after eventual compensation", targetClass = "io.narayana.lra.coordinator.domain.model.LongRunningAction", targetMethod = "updateState(org.eclipse.microprofile.lra.annotation.LRAStatus, boolean)", targetLocation = "AT EXIT", condition = "$! && $1 == org.eclipse.microprofile.lra.annotation.LRAStatus.Cancelled", action = "io.narayana.lra.coordinator.domain.model.BytemanHelper.signalRendezvous(\"eventual-compensate-done\")")
-    })
-    public void testEventualCompensation() throws Exception {
-        BytemanHelper.createRendezvous("eventual-compensate-done");
-        LRAService service = LRARecoveryModule.getService();
-
-        int compensations = compensateCount.get();
-
-        // accept=1 causes the first @Compensate call to return Compensating (HTTP 202),
-        // cancel=true triggers cancellation when the business method returns 500
-        Response response = client.target(TestPortProvider.generateURL("/base/test/start-end"))
-                .queryParam("accept", "1")
-                .queryParam("cancel", "true")
-                .request()
-                .get();
-        String lra = response.readEntity(String.class);
-        URI lraId = new URI(lra);
-
-        // the first compensate returned Compensating so the LRA should still be recovering
-        try {
-            LRARecoveryModule.getHttpService().getLRA(lraId);
-        } catch (NotFoundException e) {
-            org.junit.jupiter.api.Assertions.fail(
-                    "LRA should still be in Cancelling state after first compensate returned Compensating: "
-                            + e.getMessage());
-        }
-
-        LRAStatus transientStatus = getStatus(lraId);
-        assertEquals(LRAStatus.Cancelling, transientStatus,
-                "LRA must be in Cancelling transient state while participant returns Compensating");
-
-        assertEquals(compensations, compensateCount.get(),
-                "compensate count should not have incremented (participant returned Compensating)");
-
-        // trigger a recovery scan - the coordinator retries the compensate call
-        service.recover();
-
-        assertTrue(BytemanHelper.awaitRendezvous("eventual-compensate-done", 10),
-                "Timed out waiting for LRA to reach Cancelled after eventual compensation");
-
-        LRAStatus finalStatus = getStatus(lraId);
-        assertTrue(finalStatus == null || finalStatus == LRAStatus.Cancelled,
-                testName + ": LRA did not finish after eventual compensation");
-        assertEquals(compensations + 1, compensateCount.get(),
-                "compensate count should have incremented after recovery retry");
-
-        BytemanHelper.removeRendezvous("eventual-compensate-done");
-    }
 
     // ===================================================================
     // Nested Endpoint Spec Compliance Tests

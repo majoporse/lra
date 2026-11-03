@@ -8,7 +8,7 @@ package io.narayana.lra.connectors.http.client;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import io.narayana.lra.LRAConstants;
-import io.narayana.lra.connectors.http.client.outbound.JwtTokenClientRequestFilter;
+import io.narayana.lra.connectors.http.client.coordinator.JwtTokenClientRequestFilter;
 import jakarta.ws.rs.ApplicationPath;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;

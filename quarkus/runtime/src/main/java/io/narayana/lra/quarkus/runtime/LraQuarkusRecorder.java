@@ -5,9 +5,8 @@
 
 package io.narayana.lra.quarkus.runtime;
 
-import io.narayana.lra.connectors.common.client.extension.ParticipantForm;
-import io.narayana.lra.connectors.common.client.extension.spi.LegacyParticipantFactory;
-import io.narayana.lra.connectors.common.client.participant.LRAParticipant;
+import io.narayana.lra.connectors.common.client.discovery.MicroProfileParticipantFactory;
+import io.narayana.lra.connectors.common.client.discovery.ParticipantDiscovery;
 import io.narayana.lra.connectors.common.client.participant.LRAParticipantRegistry;
 import io.narayana.lra.connectors.common.client.participant.Participant;
 import io.quarkus.runtime.RuntimeValue;
@@ -23,28 +22,15 @@ import java.util.ServiceLoader;
 @Recorder
 public class LraQuarkusRecorder {
 
-    public RuntimeValue<LRAParticipantRegistry> participantRegistry(
-            ParticipantForm form,
-            List<String> participantClasses) {
+    public RuntimeValue<LRAParticipantRegistry> participantRegistry(List<String> participantClasses) {
         Map<String, Participant> participants = new HashMap<>();
+        MicroProfileParticipantFactory factory = microProfileParticipantFactory();
 
-        if (form == ParticipantForm.LEGACY) {
-            LegacyParticipantFactory factory = legacyParticipantFactory();
+        for (String className : participantClasses) {
+            Participant participant = ParticipantDiscovery.select(load(className), factory);
 
-            if (!participantClasses.isEmpty() && factory == null) {
-                throw new IllegalStateException("No LegacyParticipantFactory is registered for the legacy participants");
-            }
-
-            for (String className : participantClasses) {
-                Participant participant = factory.create(load(className));
-
-                if (participant != null) {
-                    participants.put(participant.participantId(), participant);
-                }
-            }
-        } else {
-            for (String className : participantClasses) {
-                LRAParticipant participant = new LRAParticipant(load(className));
+            if (participant != null && participant.hasCallbacks()) {
+                ParticipantDiscovery.requireTermination(participant);
                 participants.put(participant.participantId(), participant);
             }
         }
@@ -52,8 +38,8 @@ public class LraQuarkusRecorder {
         return new RuntimeValue<>(new LRAParticipantRegistry(participants));
     }
 
-    private static LegacyParticipantFactory legacyParticipantFactory() {
-        for (LegacyParticipantFactory factory : ServiceLoader.load(LegacyParticipantFactory.class)) {
+    private static MicroProfileParticipantFactory microProfileParticipantFactory() {
+        for (MicroProfileParticipantFactory factory : ServiceLoader.load(MicroProfileParticipantFactory.class)) {
             return factory;
         }
 

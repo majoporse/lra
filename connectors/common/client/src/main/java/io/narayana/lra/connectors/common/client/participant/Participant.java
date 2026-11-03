@@ -7,7 +7,6 @@ package io.narayana.lra.connectors.common.client.participant;
 
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
-import io.narayana.lra.connectors.common.client.ParticipantCallbackAddressResolver;
 import io.narayana.lra.connectors.common.contracts.ParticipantReply;
 import io.narayana.lra.connectors.common.contracts.ParticipantRequest;
 import java.net.URI;
@@ -18,7 +17,7 @@ import java.net.URI;
  * <p>
  * There are two forms. {@link LRAParticipant} is the default: transport-neutral callback methods
  * that take and return the common callback contract. {@code
- * io.narayana.lra.connectors.http.client.legacy.LegacyLRAParticipant} is the MicroProfile form: JAX-RS resource
+ * io.narayana.lra.connectors.http.client.participant.MicroProfileLRAParticipant} is the MicroProfile form: JAX-RS resource
  * methods with {@code URI} arguments and {@code ParticipantStatus}/{@code Response} results.
  * <p>
  * Both are invoked through the same {@code CallbackReceiver} and looked up in the same
@@ -36,6 +35,13 @@ public interface Participant {
      * @return whether the bean declares at least one LRA callback
      */
     boolean hasCallbacks();
+
+    /**
+     * @return whether the bean declares the given callback kind
+     */
+    default boolean hasCallback(CallbackType type) {
+        return false;
+    }
 
     /**
      * Bind the bean instance the callback methods are invoked on.

@@ -112,30 +112,6 @@ public final class LRAConstants {
     public static final String NARAYANA_LRA_BASE_URI_PROPERTY_NAME = "narayana.lra.base-uri";
 
     /**
-     * When set to {@code true} the server side LRA processing is handled by the CDI interceptor
-     * ({@code @LRA.Transaction} beans) instead of the legacy JAX-RS {@code ServerLRAFilter}.
-     * Defaults to {@code false}, ie the legacy filter is used.
-     */
-    public static final String SERVER_FILTER_INTERCEPTOR_PROPERTY_NAME = "lra.server.filter.interceptor";
-
-    /**
-     * @return whether the CDI interceptor (instead of the legacy JAX-RS filter) owns the server
-     *         side LRA processing: {@value #SERVER_FILTER_INTERCEPTOR_PROPERTY_NAME}, defaulting to
-     *         {@code false}
-     */
-    public static boolean isInterceptorMode() {
-        try {
-            return ConfigProvider.getConfig()
-                    .getOptionalValue(SERVER_FILTER_INTERCEPTOR_PROPERTY_NAME, Boolean.class)
-                    .orElse(false);
-        } catch (Exception e) {
-            // no MicroProfile Config provider is installed; system properties are the lowest
-            // common denominator
-            return Boolean.parseBoolean(System.getProperty(SERVER_FILTER_INTERCEPTOR_PROPERTY_NAME, "false"));
-        }
-    }
-
-    /**
      * @return the base URI used to build participant callback URIs (the address the LRA
      *         coordinator can use to reach this application), or empty when not set
      */

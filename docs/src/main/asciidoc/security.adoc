@@ -85,7 +85,7 @@ Two filters are provided for explicit registration:
 |===
 |Filter |Module |Use Case
 
-|`io.narayana.lra.connectors.http.client.outbound.JwtTokenClientRequestFilter`
+|`io.narayana.lra.connectors.http.client.coordinator.JwtTokenClientRequestFilter`
 |`lra-connector-http-client`
 |Participants calling the coordinator
 
@@ -98,7 +98,7 @@ Two filters are provided for explicit registration:
 
 [source,properties]
 ----
-lra.http-client.providers=io.narayana.lra.connectors.http.client.outbound.JwtTokenClientRequestFilter
+lra.http-client.providers=io.narayana.lra.connectors.http.client.coordinator.JwtTokenClientRequestFilter
 ----
 
 ==== Coordinator Configuration

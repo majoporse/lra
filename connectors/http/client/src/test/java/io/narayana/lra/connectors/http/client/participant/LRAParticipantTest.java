@@ -5,8 +5,8 @@
 
 package io.narayana.lra.connectors.http.client.participant;
 
-import io.narayana.lra.api.LRA;
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
+import io.narayana.lra.connectors.common.client.discovery.ParticipantDiscovery;
 import io.narayana.lra.connectors.common.client.participant.LRAParticipant;
 import io.narayana.lra.connectors.common.client.participant.LRAParticipantRegistry;
 import io.narayana.lra.connectors.common.contracts.AfterLRACallback;
@@ -16,12 +16,17 @@ import io.narayana.lra.connectors.common.contracts.ForgetCallback;
 import io.narayana.lra.connectors.common.contracts.ParticipantReply;
 import io.narayana.lra.connectors.common.contracts.StatusCallback;
 import io.narayana.lra.connectors.http.address.HttpContractAddress;
-import io.narayana.lra.connectors.http.client.outbound.HttpAddressResolver;
 import io.narayana.lra.connectors.http.contracts.HttpCompensateCallback;
 import java.net.URI;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import org.eclipse.microprofile.lra.annotation.AfterLRA;
+import org.eclipse.microprofile.lra.annotation.Compensate;
+import org.eclipse.microprofile.lra.annotation.Complete;
+import org.eclipse.microprofile.lra.annotation.Forget;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
+import org.eclipse.microprofile.lra.annotation.Status;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -81,7 +86,7 @@ public class LRAParticipantTest {
     @Test
     public void rejectsAParticipantWithoutATerminationCallback() {
         Assertions.assertThrows(IllegalStateException.class,
-                () -> new LRAParticipant(StatusOnlyParticipant.class));
+                () -> ParticipantDiscovery.requireTermination(new LRAParticipant(StatusOnlyParticipant.class)));
     }
 
     @Test
@@ -98,7 +103,7 @@ public class LRAParticipantTest {
         ParticipantReply reply = participant.invoke(CallbackType.COMPENSATE,
                 new HttpCompensateCallback.Request(participant.participantId(), LRA_ID, null, null, null));
 
-        Assertions.assertEquals(LRA.ParticipantOutcome.Compensated, reply.status);
+        Assertions.assertEquals(ParticipantStatus.Compensated, reply.status);
     }
 
     @Test
@@ -109,7 +114,7 @@ public class LRAParticipantTest {
         ParticipantReply reply = participant.invoke(CallbackType.COMPENSATE, request(participant));
 
         Assertions.assertInstanceOf(CompensateCallback.Reply.class, reply);
-        Assertions.assertEquals(LRA.ParticipantOutcome.Compensated, reply.status);
+        Assertions.assertEquals(ParticipantStatus.Compensated, reply.status);
     }
 
     @Test
@@ -119,7 +124,7 @@ public class LRAParticipantTest {
 
         ParticipantReply reply = participant.invoke(CallbackType.COMPENSATE, request(participant));
 
-        Assertions.assertEquals(LRA.ParticipantOutcome.FailedToCompensate, reply.status);
+        Assertions.assertEquals(ParticipantStatus.FailedToCompensate, reply.status);
         Assertions.assertTrue(reply.error.contains("boom"));
     }
 
@@ -138,10 +143,10 @@ public class LRAParticipantTest {
         CompensateCallback.Request request = request(participant);
 
         ParticipantReply first = participant.invoke(CallbackType.COMPENSATE, request);
-        Assertions.assertEquals(LRA.ParticipantOutcome.Compensating, first.status);
+        Assertions.assertEquals(ParticipantStatus.Compensating, first.status);
 
         ParticipantReply status = participant.invoke(CallbackType.STATUS, statusRequest(participant));
-        Assertions.assertEquals(LRA.ParticipantOutcome.Compensated, status.status);
+        Assertions.assertEquals(ParticipantStatus.Compensated, status.status);
     }
 
     @Test
@@ -165,7 +170,7 @@ public class LRAParticipantTest {
 
         ParticipantReply reply = registry.dispatch(CallbackType.COMPENSATE, request(participant));
 
-        Assertions.assertEquals(LRA.ParticipantOutcome.Compensated, reply.status);
+        Assertions.assertEquals(ParticipantStatus.Compensated, reply.status);
     }
 
     private static CompensateCallback.Request request(LRAParticipant participant) {
@@ -177,93 +182,93 @@ public class LRAParticipantTest {
     }
 
     public static class SyncParticipant {
-        @LRA.Compensate
+        @Compensate
         public CompensateCallback.Reply compensate(CompensateCallback.Request request) {
-            return new CompensateCallback.Reply(LRA.ParticipantOutcome.Compensated);
+            return new CompensateCallback.Reply(ParticipantStatus.Compensated);
         }
 
-        @LRA.Complete
+        @Complete
         public CompleteCallback.Reply complete(CompleteCallback.Request request) {
-            return new CompleteCallback.Reply(LRA.ParticipantOutcome.Completed);
+            return new CompleteCallback.Reply(ParticipantStatus.Completed);
         }
 
-        @LRA.Status
+        @Status
         public StatusCallback.Reply status(StatusCallback.Request request) {
-            return new StatusCallback.Reply(LRA.ParticipantOutcome.Compensated);
+            return new StatusCallback.Reply(ParticipantStatus.Compensated);
         }
     }
 
     public static class AsyncParticipant {
-        @LRA.Compensate
+        @Compensate
         public CompletionStage<CompensateCallback.Reply> compensate(CompensateCallback.Request request) {
             return CompletableFuture.completedFuture(
-                    new CompensateCallback.Reply(LRA.ParticipantOutcome.Compensated));
+                    new CompensateCallback.Reply(ParticipantStatus.Compensated));
         }
 
-        @LRA.Status
+        @Status
         public CompletionStage<StatusCallback.Reply> status(StatusCallback.Request request) {
             return CompletableFuture.completedFuture(
-                    new StatusCallback.Reply(LRA.ParticipantOutcome.Compensating));
+                    new StatusCallback.Reply(ParticipantStatus.Compensating));
         }
     }
 
     public static class FailingParticipant {
-        @LRA.Compensate
+        @Compensate
         public CompensateCallback.Reply compensate(CompensateCallback.Request request) {
             throw new IllegalStateException("boom");
         }
     }
 
     public static class WrongRequestParticipant {
-        @LRA.Compensate
+        @Compensate
         public CompensateCallback.Reply compensate(CompleteCallback.Request request) {
-            return new CompensateCallback.Reply(LRA.ParticipantOutcome.Compensated);
+            return new CompensateCallback.Reply(ParticipantStatus.Compensated);
         }
     }
 
     public static class WrongReturnParticipant {
-        @LRA.Compensate
+        @Compensate
         public CompleteCallback.Reply compensate(CompensateCallback.Request request) {
-            return new CompleteCallback.Reply(LRA.ParticipantOutcome.Completed);
+            return new CompleteCallback.Reply(ParticipantStatus.Completed);
         }
     }
 
     public static class MultipleInvalidParticipant {
-        @LRA.Compensate
+        @Compensate
         public CompensateCallback.Reply compensate(CompleteCallback.Request request) {
-            return new CompensateCallback.Reply(LRA.ParticipantOutcome.Compensated);
+            return new CompensateCallback.Reply(ParticipantStatus.Compensated);
         }
 
-        @LRA.Complete
+        @Complete
         public CompensateCallback.Reply complete(CompleteCallback.Request request) {
-            return new CompensateCallback.Reply(LRA.ParticipantOutcome.Compensated);
+            return new CompensateCallback.Reply(ParticipantStatus.Compensated);
         }
     }
 
     public static class AsyncForgetParticipant {
-        @LRA.Forget
+        @Forget
         public CompletionStage<ForgetCallback.Reply> forget(ForgetCallback.Request request) {
             return CompletableFuture.completedFuture(new ForgetCallback.Reply());
         }
 
-        @LRA.AfterLRA
+        @AfterLRA
         public AfterLRACallback.Reply after(AfterLRACallback.Request request) {
             return new AfterLRACallback.Reply();
         }
     }
 
     public static class StatusOnlyParticipant {
-        @LRA.Status
+        @Status
         public StatusCallback.Reply status(StatusCallback.Request request) {
-            return new StatusCallback.Reply(LRA.ParticipantOutcome.Compensated);
+            return new StatusCallback.Reply(ParticipantStatus.Compensated);
         }
     }
 
     public static class AsyncTerminationOnlyParticipant {
-        @LRA.Compensate
+        @Compensate
         public CompletionStage<CompensateCallback.Reply> compensate(CompensateCallback.Request request) {
             return CompletableFuture.completedFuture(
-                    new CompensateCallback.Reply(LRA.ParticipantOutcome.Compensated));
+                    new CompensateCallback.Reply(ParticipantStatus.Compensated));
         }
     }
 }

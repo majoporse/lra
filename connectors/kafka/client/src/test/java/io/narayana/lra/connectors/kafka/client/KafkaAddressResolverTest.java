@@ -7,7 +7,7 @@ package io.narayana.lra.connectors.kafka.client;
 
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
-import io.narayana.lra.connectors.common.client.ParticipantCallbackTarget;
+import io.narayana.lra.connectors.common.client.participant.ParticipantCallbackTarget;
 import io.narayana.lra.connectors.common.config.CallbackConfig;
 import io.narayana.lra.connectors.kafka.address.KafkaAddress;
 import java.net.URI;

@@ -7,9 +7,9 @@ package io.narayana.lra.connectors.http.client;
 
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
-import io.narayana.lra.connectors.common.client.ParticipantCallbackTarget;
+import io.narayana.lra.connectors.common.client.participant.ParticipantCallbackTarget;
 import io.narayana.lra.connectors.http.address.HttpContractAddress;
-import io.narayana.lra.connectors.http.client.outbound.HttpAddressResolver;
+import io.narayana.lra.connectors.http.client.participant.HttpAddressResolver;
 import java.net.URI;
 import java.util.Set;
 import org.junit.jupiter.api.Assertions;

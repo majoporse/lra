@@ -1,8 +1,8 @@
 package io.narayana.lra.connectors.kafka.contracts;
 
-import io.narayana.lra.api.LRA;
 import io.narayana.lra.connectors.common.contracts.ForgetCallback;
 import java.net.URI;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 
 /**
  * Kafka transport for the participant {@code @Forget} notification.
@@ -69,7 +69,7 @@ public class ForgetKafkaCallback {
         }
 
         @Override
-        public LRA.ParticipantOutcome getStatus() {
+        public ParticipantStatus getStatus() {
             return status;
         }
 

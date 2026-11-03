@@ -1,18 +1,18 @@
 package io.narayana.lra.connectors.kafka.contracts;
 
-import io.narayana.lra.api.LRA;
 import io.narayana.lra.connectors.common.contracts.CallbackOutcome;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 
 public interface KafkaCallbackReply extends KafkaReply, CallbackOutcome {
 
     String getCorrelationId();
 
-    LRA.ParticipantOutcome getStatus();
+    ParticipantStatus getStatus();
 
     String getError();
 
     @Override
-    default LRA.ParticipantOutcome status() {
+    default ParticipantStatus status() {
         return getStatus();
     }
 

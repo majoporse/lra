@@ -1,11 +1,18 @@
 package io.narayana.lra.connectors.kafka.support;
 
+import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT_HEADER;
+
 import java.util.Set;
 
 public final class LRAKafkaConstants {
 
     private LRAKafkaConstants() {
     }
+
+    /**
+     * The record header carrying the effective LRA, with the same name HTTP uses.
+     */
+    public static final String LRA_CONTEXT_HEADER = LRA_HTTP_CONTEXT_HEADER;
 
     // Kafka topic/channel names
     public static final String TOPIC_REQUEST = "lra-request";

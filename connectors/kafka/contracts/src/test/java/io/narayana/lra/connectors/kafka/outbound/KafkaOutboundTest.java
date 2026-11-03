@@ -7,7 +7,6 @@ package io.narayana.lra.connectors.kafka.outbound;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.narayana.lra.api.LRA;
 import io.narayana.lra.connectors.kafka.contracts.CompensateKafkaCallback;
 import io.narayana.lra.connectors.kafka.contracts.StatusLRAKafka;
 import io.narayana.lra.connectors.kafka.support.LRAKafkaConstants;
@@ -23,6 +22,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import org.junit.jupiter.api.Assertions;
@@ -64,7 +64,7 @@ public class KafkaOutboundTest {
 
         CompensateKafkaCallback.Reply reply = replyFuture.get(2, TimeUnit.SECONDS);
         Assertions.assertEquals("c1", reply.getCorrelationId());
-        Assertions.assertEquals(LRA.ParticipantOutcome.Compensated, reply.getStatus());
+        Assertions.assertEquals(ParticipantStatus.Compensated, reply.getStatus());
     }
 
     @Test

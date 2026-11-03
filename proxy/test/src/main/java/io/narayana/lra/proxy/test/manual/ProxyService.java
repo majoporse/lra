@@ -7,8 +7,8 @@ package io.narayana.lra.proxy.test.manual;
 
 import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 
-import io.narayana.lra.connectors.common.client.CallbackPaths;
-import io.narayana.lra.connectors.common.client.ParticipantConnector;
+import io.narayana.lra.connectors.common.client.participant.protocol.CallbackPaths;
+import io.narayana.lra.connectors.common.client.participant.protocol.ParticipantConnector;
 import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
 import io.narayana.lra.proxy.logging.LRAProxyLogger;
 import jakarta.annotation.PostConstruct;

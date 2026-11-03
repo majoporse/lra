@@ -19,11 +19,13 @@ connectors/
     coordinator/              lra-connector-common-coordinator coordinator-side connector SPI
   http/
     contracts/                lra-connector-http-contracts HTTP DTOs, address module, Link parsing
-    client/                   lra-connector-http-client   HTTP participant client (outbound, inbound, legacy model)
+    client/                   lra-connector-http-client   HTTP participant client, HTTP filters/providers,
+                                                          legacy model, HTTP runtime adapters
     coordinator/              lra-connector-http-coordinator HTTP resources, callback deliveries, callback-token support
   kafka/
     contracts/                lra-connector-kafka-contracts Kafka DTOs, envelopes, KafkaOutbound
-    client/                   lra-connector-kafka-client  Kafka participant client + inbound listener
+    client/                   lra-connector-kafka-client  Kafka participant client, inbound listener,
+                                                          producer LRA propagation
     coordinator/              lra-connector-kafka-coordinator Kafka coordinator listener + delivery
 coordinator-core/             lra-coordinator-core        domain, recovery, operations, callback sender
 coordinator/                  lra-coordinator-jar         startup listener + coordinator configuration/resources
@@ -46,6 +48,36 @@ callback model is in `common.callbacks`; protocol addresses are in `<protocol>.a
 in `<protocol>.support`, runtime senders in `<protocol>.outbound` and configuration in
 `<protocol>.config`. Coordinator-side JAX-RS resources live in `<protocol>.coordinator.api`; the
 HTTP callback-token support lives in `http.coordinator.api.security`. See ADR-0009.
+
+Inside `lra-connector-http-client` the packages describe roles, not directions:
+
+- `lifecycle` — the LRA state machine and the MicroProfile annotation reader;
+- `jaxrs` — the JAX-RS adapter (request/response filters, transport context, abort mapper);
+- `propagation` — the JAX-RS client filters that put the LRA on outgoing calls;
+- `participant` — the MicroProfile callback shape, its address resolver and the callback endpoint
+  the coordinator calls;
+- `coordinator` — the outbound coordinator transport and its configuration.
+
+See ADR-0012.
+
+`lra-connector-common-client` uses the same idea:
+
+```text
+common.client
+  coordinator/   LRAClient
+  interceptor/   LRAAnnotationResolver, LRATransportContext
+  callback/      CallbackReceiver, ParticipantCallbackDispatcher
+  discovery/     ParticipantScanner/Descriptor/Discovery/Support, MicroProfileParticipantFactory,
+                 cdi/ (PortableParticipantDiscovery, LraBindingExtension),
+                 jandex/ (ClassPathIndexer, DotNames, JandexAnnotationResolver)
+  participant/   Participant, LRAParticipant, LRAParticipantRegistry, ParticipantIdProvider,
+                 ParticipantCallbackAddressResolver/Target,
+                 protocol/ (ParticipantConnector, CallbackPaths, ParticipantProtocolRegistry)
+  invocation/    ServerLRAContext, LRATransactionMetadata, LraInvocation, LRAParticipantData
+  LRAAbortException
+```
+
+See ADR-0013.
 
 ## Dependency direction
 
@@ -79,36 +111,75 @@ Rules:
 - Participant client abstractions (`LRAClient`, `LRAParticipantData`, `ParticipantIdProvider`,
   `ParticipantProtocolRegistry`), the participant model seam (`Participant`, `LRAParticipant`), the
   one `LRAParticipantRegistry` and all CDI participant discovery live in
-  `lra-connector-common-client`. Discovery is transport-agnostic; it scans LRA annotations.
-- The participant HTTP client owns the legacy `@Path` participant **model**
-  (`LegacyLRAParticipant`) and the HTTP adapters. It contributes that model to the shared discovery
-  loop through a `LegacyParticipantFactory` service; the discovery loop itself is in
-  `common/client`. Protocol connectors contain no discovery loop.
+  `lra-connector-common-client`. Discovery is transport-agnostic; it scans the MicroProfile LRA
+  annotations only and never looks at `@Path`.
+- The transport-neutral lifecycle runtime (`ServerLRAContext`, `LRAAnnotationResolver`,
+  `LRATransactionMetadata`, `LraInvocation`) lives in `common.client.invocation`; it never imports
+  Jakarta REST. `LRATransportContext` and `LRAAbortException` are neutral SPIs there too. A future
+  Kafka adapter reuses these constructs and supplies its own transport adapter.
+- `narayana-lra` (`jaxrs`) is now the CDI interceptor module only: `LRAInterceptor`.
+  Everything that touches `ContainerRequestContext`/`ContainerResponseContext`, `Response.Status`,
+  JAX-RS client filters or `@Provider` discovery lives in `lra-connector-http-client`
+  (`inbound`/`outbound`).
+- The participant HTTP client owns the MicroProfile callback-shape **model**
+  (`MicroProfileLRAParticipant`), the HTTP request/response filters and the HTTP adapters. It contributes
+  that model to the shared discovery loop through a `MicroProfileParticipantFactory` service; the
+  discovery loop itself is in `common/client`. Protocol connectors contain no discovery loop.
 - The TCK auxiliary archive (`MpLraTckAuxiliaryArchiveAppender`) must list the participant CDI
-  extension (`PortableParticipantDiscovery`) explicitly: WildFly does not expose a module's
-  `META-INF/services` to the deployment.
+  extensions (`PortableParticipantDiscovery` and `LraBindingExtension`) explicitly: WildFly does not
+  expose a module's `META-INF/services` to the deployment.
 
 ## Core seams
 
 ### Participant side
 
 - `LRAClient`, `LRAParticipantData`, `ParticipantIdProvider` and `ParticipantProtocolRegistry`
-  live in `lra-connector-common-client`. The filter/interceptor uses them; connector client modules
+  live in `lra-connector-common-client`. The interceptor uses them; connector client modules
   implement the client and resolver.
+- `LRAInterceptor` is the only lifecycle driver. It reads `@LRA` (MicroProfile, now a CDI
+  interceptor binding), `@Leave` and `@PropagateToken`, and delegates to `ServerLRAProcessor`.
+  `ServerLRAFilter` no longer exists. `LraRequestContextFilter` captures the request context and
+  `LraResponseFilter` completes the invocation with the final HTTP status, writes the response
+  header and restores the thread-local state; neither reads annotations or owns lifecycle state.
+- JAX-RS resolves `@HeaderParam` before the interceptor chain, so the interceptor also replaces the
+  resolved LRA header arguments (context, parent, recovery) with the effective values.
 - `ParticipantProtocolRegistry` selects the client and address resolver by
   `quarkus.lra.client.protocol`. It is a normal CDI bean with injected
   `Instance<LRAClient>`/`Instance<ParticipantCallbackAddressResolver>` lookups.
 - `ParticipantScanner` (`lra-connector-common-client`) is the shared Jandex scan. The portable CDI
-  adapter (`PortableParticipantDiscovery`) and the Quarkus build step
-  (`ParticipantDiscoveryProcessor`) both use it.
-- `Participant` (`lra-connector-common-client`) is the participant model seam: `LRAParticipant`
-  is the transport-neutral model and the default, `LegacyLRAParticipant` (in the HTTP client) is the
-  MicroProfile `@Path` model. One `LRAParticipantRegistry` holds both.
+  adapter (`PortableParticipantDiscovery`), the binding extension (`LraBindingExtension`) and the
+  Quarkus build step (`ParticipantDiscoveryProcessor`) use it. Neither the scanner nor any other
+  common module references Jakarta REST.
+- `Participant` (`lra-connector-common-client`) is the participant model seam. `LRAParticipant`
+  owns the contract callback shape; `MicroProfileLRAParticipant` (in the HTTP client) owns the
+  MicroProfile shape (`URI` arguments, `ParticipantStatus`/`Response`, `@Path` endpoints).
+  `CompositeParticipant` selects the strategy per callback method, so one bean may mix both shapes;
+  one `LRAParticipantRegistry` holds the result.
 - `ParticipantCallbackAddressResolver` (`lra-connector-common-client`) writes the join addresses.
-  Legacy `@Path` participants ask it for each endpoint instead of building addresses themselves;
-  their callbacks without an endpoint are registered as contract addresses.
+  MicroProfile-shaped callbacks that declare `@Path` and an HTTP verb ask it for their own endpoint;
+  every other callback (including all contract-shaped ones) is registered as a callback-proxy
+  address.
 - `CallbackReceiver` (`lra-connector-common-client`) is the only callback dispatcher. Inbound
   adapters (`LRACallbackResource`, `KafkaInboundListener`) only translate wire data.
+
+### LRA propagation
+
+- HTTP puts the effective LRA on outbound calls with `ClientLRARequestFilter` (header
+  `Long-Running-Action`) and restores the caller's `Current` with `ClientLRAResponseFilter`.
+- Kafka does the same with `KafkaLRAProducerInterceptor`, a plain Kafka `ProducerInterceptor` that
+  the application installs per outgoing channel:
+  `mp.messaging.outgoing.<channel>.interceptor.classes=io.narayana.lra.connectors.kafka.client.propagation.KafkaLRAProducerInterceptor`.
+  The record header uses the HTTP header name and carries `lra://<uuid>`; an explicit header wins
+  and nothing is written when there is no effective LRA.
+- `mp.lra.propagation.active` (default `true`) gates both transports. The connector does not
+  instrument its own `lra-outbound` channel: control records already carry the LRA in the envelope.
+- `KafkaInboundListener` activates the callback's LRA for the duration of
+  `CallbackReceiver.receive(...)` and restores the caller's state. `CurrentScope`
+  (`common.client.invocation`) is the one capture/restore implementation; it also registers the LRA
+  in the active cache, without which `Current.peek()` discards the context.
+- Restoring an LRA from an inbound *business* record is not implemented: no per-record hook can
+  scope a thread-local around an application's `@Incoming` method. See
+  [ADR-0014](docs/adr/0014-kafka-lra-propagation.md).
 
 ### Coordinator side
 
@@ -232,7 +303,7 @@ are heavier; run them with the `arq` profile against that downloaded `wildfly.ho
 - Do not import JAX-RS/Kafka types into `lra-service-base`, the `lra-connector-common-*` modules or
   `lra-coordinator-core`.
 - Do not put participant discovery in a protocol connector. Add a participant model through the
-  `LegacyParticipantFactory` / `ParticipantCallbackDispatcher` seam and keep the scan and the single
+  `MicroProfileParticipantFactory` / `ParticipantCallbackDispatcher` seam and keep the scan and the single
   registry in `common/client`. Do not add a second registry or a second discovery extension.
 - Quarkus-specific code lives under `quarkus/runtime` and `quarkus/deployment`. The Quarkus build
   step and the portable CDI adapter must both use `ParticipantScanner`; do not duplicate the
@@ -255,15 +326,16 @@ are heavier; run them with the `arq` profile against that downloaded `wildfly.ho
   owns URI formatting; the helper can be folded into it later.
 - `LegacyHttpAddress.of` is the legacy address factory; `HttpContractPaths` owns the HTTP
   callback-proxy path and the `http-contract` discriminator.
-- `LegacyLRAParticipant` is the legacy JAX-RS participant model and stays in
+- `MicroProfileLRAParticipant` is the legacy JAX-RS participant model and stays in
   `lra-connector-http-client` (`@Path`, `@Suspended`, `Response` results). The shared discovery loop
-  builds it through `HttpLegacyParticipantFactory`. Callbacks without an endpoint of their own are
+  builds it through `HttpMicroProfileParticipantFactory`. Callbacks without an endpoint of their own are
   served by the contract proxy; there is no `lra-participant-proxy` adapter.
 - Participant client code is split by role: the API, participant model and discovery live in
   `io.narayana.lra.connectors.common.client`; the HTTP and Kafka implementations live in
   `io.narayana.lra.connectors.http.client` and `io.narayana.lra.connectors.kafka.client`.
-- The legacy `@Path`/MicroProfile participant world remains supported in
-  `lra-connector-http-client`; it is selected by the existing `lra.server.filter.interceptor`
-  switch (ADR-0001/0004).
+- There is one participant vocabulary (MicroProfile `@LRA` and its callback annotations) and one
+  lifecycle driver (`LRAInterceptor`, ADR-0011). The HTTP callback shape (`@Path`, `@Suspended`,
+  `Response`) still lives in `lra-connector-http-client`; the shape is selected per callback method,
+  not by a global switch.
 - The full MicroProfile LRA TCK (133 tests) runs green against WildFly 41 after the connector
   common split. `test/basic`, `test/security` and `test/crash` were not run end to end.

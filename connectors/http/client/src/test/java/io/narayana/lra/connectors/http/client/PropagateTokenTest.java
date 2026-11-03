@@ -10,8 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import io.narayana.lra.Current;
 import io.narayana.lra.LRAConstants;
-import io.narayana.lra.connectors.http.client.outbound.JwtTokenClientRequestFilter;
-import io.narayana.lra.connectors.http.client.outbound.RestClientConfig;
+import io.narayana.lra.connectors.http.client.coordinator.JwtTokenClientRequestFilter;
+import io.narayana.lra.connectors.http.client.coordinator.RestClientConfig;
 import jakarta.ws.rs.ApplicationPath;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;

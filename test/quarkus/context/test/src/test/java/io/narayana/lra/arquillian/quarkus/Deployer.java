@@ -19,10 +19,7 @@ public class Deployer {
         return ShrinkWrap.create(WebArchive.class, appName + ".war")
                 .addPackages(true,
                         "org.eclipse.microprofile.lra",
-                        "io.narayana.lra.connectors.common.client.extension",
-                        "io.narayana.lra.connectors.http.client.inbound",
-                        "io.narayana.lra.connectors.http.client.outbound",
-                        "io.narayana.lra.connectors.http.client.legacy",
+                        "io.narayana.lra.connectors.common.client.discovery",
                         "io.narayana.lra.connectors.common.client.participant",
                         "io.narayana.lra.connectors",
                         "io.smallrye.stork",
@@ -33,9 +30,7 @@ public class Deployer {
                         "io.narayana.lra.api",
                         "io.narayana.lra.connectors.common.callbacks",
                         "io.narayana.lra.logging",
-                        "io.narayana.lra.provider",
                         "io.narayana.lra.context",
-                        "io.narayana.lra.connectors.common.client.internal",
                         "io.narayana.lra.arquillian.spi",
                         "io.smallrye.stork",
                         "io.smallrye.mutiny", // recursive addPacakges doesn't seem to resolve the missing classes, so:

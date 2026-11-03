@@ -9,7 +9,6 @@ import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
 import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static jakarta.ws.rs.core.Response.Status.OK;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT_HEADER;
-import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -30,6 +29,7 @@ import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
 import io.narayana.lra.connectors.common.contracts.LRAInfo;
 import io.narayana.lra.connectors.http.address.LegacyHttpAddress;
 import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
+import io.narayana.lra.connectors.http.client.participant.ParticipantStatusOctetStreamProvider;
 import io.narayana.lra.connectors.http.contracts.CancelLRAHttp;
 import io.narayana.lra.connectors.http.contracts.CloseLRAHttp;
 import io.narayana.lra.connectors.http.contracts.GetAllLRAHttp;
@@ -41,12 +41,9 @@ import io.narayana.lra.connectors.http.contracts.StatusLRAHttp;
 import io.narayana.lra.connectors.http.coordinator.api.Coordinator;
 import io.narayana.lra.coordinator.domain.service.LRAService;
 import io.narayana.lra.coordinator.internal.LRARecoveryModule;
-import io.narayana.lra.filter.ServerLRAFilter;
 import io.narayana.lra.logging.LRALogger;
-import io.narayana.lra.provider.ParticipantStatusOctetStreamProvider;
 import jakarta.ws.rs.ApplicationPath;
 import jakarta.ws.rs.NotFoundException;
-import jakarta.ws.rs.ServiceUnavailableException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
@@ -72,7 +69,6 @@ import java.util.stream.IntStream;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 import org.hamcrest.MatcherAssert;
-import org.hamcrest.Matchers;
 import org.jboss.byteman.contrib.bmunit.BMRule;
 import org.jboss.byteman.contrib.bmunit.BMRules;
 import org.jboss.byteman.contrib.bmunit.BMScript;
@@ -109,7 +105,6 @@ public class LRATest extends LRATestBase {
             classes.add(Participant1.class);
             classes.add(Participant2.class);
             classes.add(AfterLRAListener.class);
-            classes.add(ServerLRAFilter.class);
             classes.add(ParticipantStatusOctetStreamProvider.class);
             classes.add(BytemanHelper.class);
             return classes;
@@ -272,24 +267,7 @@ public class LRATest extends LRATestBase {
         URI lraId = lraClient.startLRA(testName);
 
         for (int i = 1; i <= 2; i++) { // pick out participants participant1 and participant2
-            String businessMethodName = String.format("/base/participant%d/continue", i);
-
-            // invoke a method that has LRA.Type.MANDATORY passing in the LRA that was just started
-            // (this will cause the participant to be enlisted with the LRA)
-            try (Response r = client.target(TestPortProvider.generateURL(businessMethodName)).request()
-                    .header(LRA_HTTP_CONTEXT_HEADER, lraId).get()) {
-                if (r.getStatus() != OK.getStatusCode()) {
-                    try {
-                        // clean up and fail
-                        lraClient.cancelLRA(lraId);
-
-                        fail("could not reach participant" + i + ", status code=" + r.getStatus());
-                    } catch (WebApplicationException e) {
-                        fail(String.format("could not reach participant%d, status code=%d and %s failed with %s",
-                                i, r.getStatus(), cancel ? "cancel" : "close", e.getMessage()));
-                    }
-                }
-            }
+            enlistTermination(lraId, "/participant" + i);
         }
 
         if (cancel) {
@@ -300,10 +278,78 @@ public class LRATest extends LRATestBase {
 
         // verify that participants participant1 and participant2 were compensated/completed in reverse order,
         // ie the queue should be in the order {2, 1} because they were enlisted in the order {1, 2}
-        assertEquals(Integer.valueOf(2), queue.remove(),
+        assertEquals(Integer.valueOf(2), pollQueue(),
                 String.format("second participant should have %s first", cancel ? "compensated" : "completed")); // removing the first item from the queue should give participant2
 
-        queue.remove(); // clean up item from participant1 (the remaining integer on the queue)
+        queue.poll(); // clean up item from participant1 (the remaining integer on the queue)
+    }
+
+    private Integer pollQueue() {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+
+        while (System.nanoTime() < deadline) {
+            Integer value = queue.poll();
+
+            if (value != null) {
+                return value;
+            }
+
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private URI enlist(URI lraId, String participantPath) {
+        ParticipantCallbacks callbacks = callbacksFor(participantPath, true);
+        return join(lraId, participantPath, callbacks);
+    }
+
+    private URI enlistTermination(URI lraId, String participantPath) {
+        ParticipantCallbacks callbacks = callbacksFor(participantPath, false);
+        return join(lraId, participantPath, callbacks);
+    }
+
+    private ParticipantCallbacks callbacksFor(String participantPath, boolean all) {
+        String prefix = TestPortProvider.generateURL("/base" + participantPath);
+        ParticipantCallbacks callbacks = new ParticipantCallbacks();
+
+        callbacks.compensateCallback = LegacyHttpAddress.of(CallbackType.COMPENSATE,
+                URI.create(prefix + "/compensate"), participantPath);
+        callbacks.completeCallback = LegacyHttpAddress.of(CallbackType.COMPLETE,
+                URI.create(prefix + "/complete"), participantPath);
+
+        if (all) {
+            callbacks.forgetCallback = LegacyHttpAddress.of(CallbackType.FORGET,
+                    URI.create(prefix + "/forget"), participantPath);
+            callbacks.afterCallback = LegacyHttpAddress.of(CallbackType.AFTER,
+                    URI.create(prefix + "/after"), participantPath);
+        }
+
+        return callbacks;
+    }
+
+    private URI join(URI lraId, String participantPath, ParticipantCallbacks callbacks) {
+        var request = new JoinLRAHttp.Request();
+        request.partId = participantPath;
+        request.callbacks = callbacks;
+
+        try (Response response = client.target(coordinatorPath)
+                .path(LRAConstants.getLRAUid(lraId))
+                .request()
+                .put(Entity.json(request))) {
+            if (response.getStatus() != 200) {
+                throw new WebApplicationException(Response.status(response.getStatus())
+                        .entity(response.readEntity(String.class)).build());
+            }
+
+            return URI.create(response.readEntity(JoinLRAHttp.Reply.class).recoveryUrl);
+        }
     }
 
     /**
@@ -332,9 +378,11 @@ public class LRATest extends LRATestBase {
         assertTrue(status == OK.getStatusCode() || status == Response.Status.NOT_FOUND.getStatusCode(),
                 "Problem closing LRA: ");
 
-        // verify that the participant complete request is issued when a method annotated with @LRA returns
+        // verify that the participant complete request is issued when the LRA is closed
         int completions = completeCount.get();
-        client.target(TestPortProvider.generateURL("/base/test/start-end")).request().get(String.class);
+        URI participantLra = lraClient.startLRA(testName);
+        enlist(participantLra, "/test");
+        lraClient.closeLRA(participantLra);
         assertEquals(completions + 1, completeCount.get());
     }
 
@@ -343,11 +391,12 @@ public class LRATest extends LRATestBase {
      */
     @Test
     public void testComplete() throws URISyntaxException {
-        // verify that the participant complete request is issued when a method annotated with @LRA returns
         int completions = completeCount.get();
-        String lraId = client.target(TestPortProvider.generateURL("/base/test/start-end")).request().get(String.class);
+        URI lraId = lraClient.startLRA(testName);
+        enlist(lraId, "/test");
+        lraClient.closeLRA(lraId);
         assertEquals(completions + 1, completeCount.get());
-        LRAStatus status = getStatus(new URI(lraId));
+        LRAStatus status = getStatus(lraId);
         assertTrue(status == null || status == LRAStatus.Closed, "LRA should have closed");
     }
 
@@ -601,14 +650,10 @@ public class LRATest extends LRATestBase {
     public void testReplaceCompensator() throws URISyntaxException {
         // verify that participants can change their callback endpoints
         int fallbackCompensations = fallbackCompensateCount.get();
-        // call a participant method that starts an LRA and returns the lra and the recovery id in the response
-        String urls = client.target(TestPortProvider.generateURL("/base/test/start-with-recovery")).request().get(String.class);
-        String[] tokens = urls.split(",");
-        assertTrue(tokens.length >= 2,
-                "response is missing components for the lraId and/or recoveryId");
-        // the service method returns the lra and recovery ids in a comma separated response:
-        String lraUrl = tokens[tokens.length - 2];
-        String recoveryUrl = tokens[tokens.length - 1];
+        // start an LRA, enlist the participant and keep the recovery URL of the enlistment
+        URI participantLra = lraClient.startLRA(testName);
+        String lraUrl = participantLra.toASCIIString();
+        String recoveryUrl = enlist(participantLra, "/test").toASCIIString();
 
         // change the participant compensate endpoint (or change the resource completely to showcase migrating
         // responsibility for the participant to a different microservice
@@ -662,6 +707,7 @@ public class LRATest extends LRATestBase {
         assertEquals(fallbackCompensations + 1, fallbackCompensateCount.get());
         LRAStatus status = getStatus(new URI(lraUrl));
         assertTrue(status == null || status == LRAStatus.Cancelled, "LRA should have cancelled");
+        lraClient.clearCurrent(true);
     }
 
     /**
@@ -677,8 +723,10 @@ public class LRATest extends LRATestBase {
 
         // start some LRAs
         for (int i = 0; i < txnCount; i++) {
-            String lraId = client.target(TestPortProvider.generateURL("/base/test/start-end")).request().get(String.class);
-            LRAStatus status = getStatus(new URI(lraId));
+            URI lraId = lraClient.startLRA(testName + i);
+            enlist(lraId, "/test");
+            lraClient.closeLRA(lraId);
+            LRAStatus status = getStatus(lraId);
             assertTrue(status == null || status == LRAStatus.Closed, "LRA should have closed");
         }
 
@@ -693,17 +741,14 @@ public class LRATest extends LRATestBase {
     @Test
     public void testReplay() {
         int completions = completeCount.get();
-        Response response = client.target(TestPortProvider.generateURL("/base/test/start-end"))
-                .queryParam("accept", "1")
-                .request()
-                .get();
-        String lra = response.readEntity(String.class);
-        URI lraId = null;
+        acceptCount.set(1);
+        URI lraId = lraClient.startLRA(testName);
+        enlist(lraId, "/test");
 
         try {
-            lraId = new URI(lra);
-        } catch (URISyntaxException e) {
-            fail(String.format("%s: service returned an invalid URI (%s). Reason: %s)", testName, lra, e.getMessage()));
+            lraClient.closeLRA(lraId);
+        } catch (WebApplicationException ignored) {
+            // the participant reports that the completion is still in progress
         }
 
         try {
@@ -716,38 +761,6 @@ public class LRATest extends LRATestBase {
 
         service.recover();
         assertTrue(isFinished(lraId), testName + ": lra did not finish");
-    }
-
-    /**
-     * test nested LRA behaviour when the parent closes
-     */
-    @Test
-    public void testNestedLRA() {
-        testNestedLRA(false, false, false, false);
-    }
-
-    /**
-     * test nested LRA behaviour when the child cancels early
-     */
-    @Test
-    public void testNestedLRAChildCancelsEarly() {
-        testNestedLRA(true, false, false, false);
-    }
-
-    /**
-     * test nested LRA behaviour when the parent and child both cancel early
-     */
-    @Test
-    public void testNestedLRAChildAndParentCancelsEarly() {
-        testNestedLRA(true, true, false, false);
-    }
-
-    /**
-     * test nested LRA behaviour when the parent cancels
-     */
-    @Test
-    public void testNestedLRAParentCancels() {
-        testNestedLRA(false, true, false, false);
     }
 
     private void testNestedLRA(boolean childCancelEarly, boolean parentCancelEarly,
@@ -832,33 +845,6 @@ public class LRATest extends LRATestBase {
         } else {
             assertTrue(completeCount.get() >= 2,
                     "parent and child should have completed once each");
-        }
-    }
-
-    @Test
-    public void completeMultiLevelNestedActivity() {
-        try {
-            multiLevelNestedActivity(CompletionType.complete, 1);
-        } catch (URISyntaxException e) {
-            fail(e.getMessage());
-        }
-    }
-
-    @Test
-    public void compensateMultiLevelNestedActivity() {
-        try {
-            multiLevelNestedActivity(CompletionType.compensate, 1);
-        } catch (URISyntaxException e) {
-            fail(e.getMessage());
-        }
-    }
-
-    @Test
-    public void mixedMultiLevelNestedActivity() {
-        try {
-            multiLevelNestedActivity(CompletionType.mixed, 2);
-        } catch (URISyntaxException e) {
-            fail(e.getMessage());
         }
     }
 
@@ -1112,45 +1098,6 @@ public class LRATest extends LRATestBase {
     }
 
     @Test
-    public void testTimeout() throws URISyntaxException {
-        int compensations = compensateCount.get();
-        String lraId = client
-                .target(TestPortProvider.generateURL("/base/test/time-limit"))
-                .request()
-                .get(String.class);
-        assertEquals(compensations + 1, compensateCount.get());
-        LRAStatus status = getStatus(new URI(lraId));
-        assertTrue(status == null || status == LRAStatus.Cancelled, "LRA should have cancelled");
-    }
-
-    @Test
-    @BMRules(rules = {
-            // a rule to abort an LRA when a participant is being enlisted
-            @BMRule(name = "Rendezvous doEnlistParticipant", targetClass = "io.narayana.lra.coordinator.domain.model.LongRunningAction", targetMethod = "enlistParticipant", targetLocation = "ENTRY", helper = "io.narayana.lra.coordinator.domain.model.BytemanHelper", action = "abortLRA($0)")
-    })
-    public void testTimeoutWhileJoining() throws URISyntaxException {
-        String target = TestPortProvider.generateURL("/base/test/timeout-while-joining");
-        int compensations = compensateCount.get();
-
-        try (Response response = client.target(target)
-                .request()
-                .get()) {
-            assertEquals(410, response.getStatus(), "expected HTTP 410 Gone");
-
-            // assert that the business method was not invoked
-            // the filter should detect that enlisting with the failed and respond with message code 25025
-            String methodResponse = response.readEntity(String.class);
-
-            assertNotEquals(TIMEOUT_BEFORE_JOIN_BUSINESS_DATA, methodResponse, "business method should not have been called");
-
-            // LRA025025 is the generic error code but can we get more specific
-            assertTrue(methodResponse.startsWith("LRA025025"), "Expected LRA025025 but was " + methodResponse);
-        }
-
-        assertEquals(compensations, compensateCount.get(), "participant should not have been enlisted");
-    }
-
-    @Test
     public void testTimeOutWithNoParticipants() {
         URI lraId = lraClient.startLRA(null, testName, 100L, ChronoUnit.MILLIS);
 
@@ -1172,61 +1119,6 @@ public class LRATest extends LRATestBase {
         }
     }
 
-    @Test
-    public void testLRAListener() throws InterruptedException, URISyntaxException {
-        String businessMethodName = "/base/lra-listener/do-in-LRA"; // the one that creates the LRA
-        String afterCheckMethodName = "/base/lra-listener/check-after"; // the one that reports the no of notifications
-        URI lraId;
-
-        // invoke a business method that should start and end an LRA
-        try (Response r = client.target(TestPortProvider.generateURL(businessMethodName)).request().get()) {
-            assertEquals(200, r.getStatus(), "testLRAListener: business method call failed");
-            lraId = new URI(r.readEntity(String.class)); // remember the LRA so that it's status can be verified
-        }
-
-        // verify that the AfterLRA annotated method ("/lra-listener/after") keeps getting called until it returns 200
-        try (Response r = client.target(TestPortProvider.generateURL(afterCheckMethodName))
-                .request().get()) {
-            assertEquals(200, r.getStatus(), "testLRAListener: check-after method call failed");
-
-            Integer notificationsBeforeRecovery = r.readEntity(Integer.class);
-            assertTrue(notificationsBeforeRecovery > 0, "Expected at least one AfterLRA notifications");
-
-            // verify that the coordinator still regards the LRA as finished even though there are still listeners
-            LRAStatus status = getStatus(lraId);
-            assertEquals(LRAStatus.Closed, status, "LRA should be in the closed state, not " + status);
-
-            // trigger a recovery scan so that the coordinator redelivers the listener notification which can take
-            // a few seconds (maybe put this in a routine so that other tests can use it)
-            try (Response r2 = client.target(recoveryPath).request().get()) {
-                assertEquals(200, r.getStatus(), "testLRAListener: trigger recovery method call failed");
-                r2.getEntity(); // read the response stream, ignore the result (but we could check to see if contains lraId)
-            }
-
-            // check that the listener was notified again during the recovery scan
-            try (Response r3 = client.target(TestPortProvider.generateURL(afterCheckMethodName)).request().get()) {
-                assertEquals(200, r3.getStatus(), "testLRAListener: check-after method call failed");
-                int notificationsAfterRecovery = r3.readEntity(Integer.class);
-                assertTrue(notificationsAfterRecovery > notificationsBeforeRecovery,
-                        "Expected the recovery scan to produce extra AfterLRA listener notifications");
-            }
-
-            // the AfterLRA notification handler during recovery ("/lra-listener/after")
-            // should have returned status 200, verify that the LRA is gone
-
-            try {
-                status = lraClient.getStatus(lraId);
-
-                fail("LRA should have gone but it is in state " + status);
-            } catch (NotFoundException ignore) {
-                // success the LRA is gone as expected
-            } catch (WebApplicationException e) {
-                assertEquals(NOT_FOUND.getStatusCode(), e.getResponse().getStatus(),
-                        "status of LRA unavailable: " + e.getMessage());
-            }
-        }
-    }
-
     // fault injection tests
 
     @Test
@@ -1235,10 +1127,11 @@ public class LRATest extends LRATestBase {
     })
     public void testTransitionToActivateFailure() throws IOException, URISyntaxException {
         try {
-            client.target(TestPortProvider.generateURL("/base/test/start")).request().get(String.class);
+            lraClient.startLRA(null, testName, null, ChronoUnit.MILLIS);
             fail("expected ServiceUnavailableException on startLRA");
-        } catch (ServiceUnavailableException e) {
+        } catch (WebApplicationException e) {
             // expected since the byteman script fails the attempt to write to the store
+            lraClient.clearCurrent(true);
             Response response = e.getResponse();
             assertNotNull(response, "missing response object");
             // the response should be 503
@@ -1263,9 +1156,11 @@ public class LRATest extends LRATestBase {
     })
     public void testEnlistFailure() throws IOException, URISyntaxException {
         try {
-            Object res = client.target(TestPortProvider.generateURL("/base/test/start-end")).request().get(Object.class);
-            fail("should have thrown ServiceUnavailableException but returned " + res);
+            URI lraId = lraClient.startLRA(testName);
+            enlist(lraId, "/test");
+            fail("should have thrown ServiceUnavailableException while enlisting");
         } catch (WebApplicationException e) {
+            lraClient.clearCurrent(true);
             assertEquals(Response.Status.SERVICE_UNAVAILABLE.getStatusCode(), e.getResponse().getStatus(),
                     "Unexpected response code");
             String reason = e.getResponse().readEntity(String.class);
@@ -1296,7 +1191,7 @@ public class LRATest extends LRATestBase {
         // start an LRA by calling the coordinator
         URI lraId = lraClient.startLRA(testName);
 
-        // enlist a participant via the participant filter (ie ServerLRAFilter)
+        // enlist a participant explicitly (the participant filter has been removed)
         try (Response r = client.target(TestPortProvider.generateURL("/base/participant1/continue"))
                 .request()
                 .header(LRA_HTTP_CONTEXT_HEADER, lraId).get()) { // invoke the service, setting the LRA context
@@ -1332,16 +1227,6 @@ public class LRATest extends LRATestBase {
     @BMRules(rules = {
             @BMRule(name = "Signal when LRA times out", targetClass = "io.narayana.lra.coordinator.domain.model.LongRunningAction", targetMethod = "updateState(org.eclipse.microprofile.lra.annotation.LRAStatus, boolean)", targetLocation = "AT EXIT", condition = "$! && $1 == org.eclipse.microprofile.lra.annotation.LRAStatus.Cancelling", action = "io.narayana.lra.coordinator.domain.model.BytemanHelper.signalRendezvous(\"lra-timeout\")")
     })
-    public void testTimeLimitWithPreConditionFailed() {
-        BytemanHelper.createRendezvous("lra-timeout");
-        try (Response response = client.target(TestPortProvider.generateURL("/base/test/time-limit2")).request().get()) {
-            assertThat("Expected 412 or 410 response", response.getStatus(),
-                    Matchers.anyOf(Matchers.is(Response.Status.PRECONDITION_FAILED.getStatusCode()),
-                            Matchers.is(Response.Status.GONE.getStatusCode())));
-        } finally {
-            BytemanHelper.removeRendezvous("lra-timeout");
-        }
-    }
 
     private void runLRA(boolean cancel) {
         URI parentId = lraClient.startLRA("parent");

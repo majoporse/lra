@@ -1,8 +1,9 @@
 package io.narayana.lra.connectors.kafka.contracts;
 
-import io.narayana.lra.api.LRA;
 import io.narayana.lra.connectors.common.contracts.AfterLRACallback;
 import java.net.URI;
+import org.eclipse.microprofile.lra.annotation.LRAStatus;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 
 /**
  * Kafka transport for the participant {@code @AfterLRA} notification.
@@ -18,12 +19,12 @@ public class AfterLRAKafkaCallback {
         }
 
         public Request(String correlationId, String replyTopic, URI lraId, URI parentId,
-                String recoveryUrl, String compensatorData, LRA.TransactionStatus endStatus) {
+                String recoveryUrl, String compensatorData, LRAStatus endStatus) {
             this(correlationId, replyTopic, null, lraId, parentId, recoveryUrl, compensatorData, endStatus);
         }
 
         public Request(String correlationId, String replyTopic, String participantId, URI lraId, URI parentId,
-                String recoveryUrl, String compensatorData, LRA.TransactionStatus endStatus) {
+                String recoveryUrl, String compensatorData, LRAStatus endStatus) {
             super(participantId, lraId, parentId, recoveryUrl, compensatorData, endStatus);
             this.correlationId = correlationId;
             this.replyTopic = replyTopic;
@@ -69,7 +70,7 @@ public class AfterLRAKafkaCallback {
         }
 
         @Override
-        public LRA.ParticipantOutcome getStatus() {
+        public ParticipantStatus getStatus() {
             return status;
         }
 

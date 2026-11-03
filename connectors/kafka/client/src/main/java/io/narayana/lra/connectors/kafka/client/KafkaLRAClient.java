@@ -2,9 +2,9 @@ package io.narayana.lra.connectors.kafka.client;
 
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
-import io.narayana.lra.connectors.common.client.CallbackPaths;
-import io.narayana.lra.connectors.common.client.LRAClient;
-import io.narayana.lra.connectors.common.client.ParticipantConnector;
+import io.narayana.lra.connectors.common.client.coordinator.LRAClient;
+import io.narayana.lra.connectors.common.client.participant.protocol.CallbackPaths;
+import io.narayana.lra.connectors.common.client.participant.protocol.ParticipantConnector;
 import io.narayana.lra.connectors.common.config.CallbackConfig;
 import io.narayana.lra.connectors.kafka.contracts.CancelLRAKafka;
 import io.narayana.lra.connectors.kafka.contracts.CloseLRAKafka;

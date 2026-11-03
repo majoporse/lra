@@ -1,9 +1,9 @@
 package io.narayana.lra.connectors.http.contracts;
 
-import io.narayana.lra.api.LRA;
 import io.narayana.lra.connectors.common.contracts.AfterLRACallback;
 import io.narayana.lra.connectors.common.contracts.ParticipantReply;
 import java.net.URI;
+import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 public class HttpAfterLRACallback {
     public static final String TYPE = "after";
@@ -13,7 +13,7 @@ public class HttpAfterLRACallback {
         }
 
         public Request(String participantId, URI lraId, URI parentId, String recoveryUrl,
-                String compensatorData, LRA.TransactionStatus endStatus) {
+                String compensatorData, LRAStatus endStatus) {
             super(participantId, lraId, parentId, recoveryUrl, compensatorData, endStatus);
         }
     }

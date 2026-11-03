@@ -1,25 +1,25 @@
 package io.narayana.lra.connectors.common.contracts;
 
-import io.narayana.lra.api.LRA;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 
 public class ParticipantReply implements CallbackOutcome {
-    public LRA.ParticipantOutcome status;
+    public ParticipantStatus status;
     public String error;
 
     public ParticipantReply() {
     }
 
-    protected ParticipantReply(LRA.ParticipantOutcome status) {
+    protected ParticipantReply(ParticipantStatus status) {
         this(status, null);
     }
 
-    protected ParticipantReply(LRA.ParticipantOutcome status, String error) {
+    protected ParticipantReply(ParticipantStatus status, String error) {
         this.status = status;
         this.error = error;
     }
 
     @Override
-    public LRA.ParticipantOutcome status() {
+    public ParticipantStatus status() {
         return status;
     }
 

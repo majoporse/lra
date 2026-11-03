@@ -5,7 +5,6 @@
 
 package io.narayana.lra.arquillian.resource;
 
-import io.narayana.lra.api.LRA;
 import io.narayana.lra.connectors.common.contracts.AfterLRACallback;
 import io.narayana.lra.connectors.common.contracts.CompensateCallback;
 import io.narayana.lra.connectors.common.contracts.CompleteCallback;
@@ -13,11 +12,16 @@ import jakarta.enterprise.context.ApplicationScoped;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.eclipse.microprofile.lra.annotation.AfterLRA;
+import org.eclipse.microprofile.lra.annotation.Compensate;
+import org.eclipse.microprofile.lra.annotation.Complete;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
+import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
 
 /**
  * A plain (non-JAX-RS) CDI bean that participates in an LRA using the transport-neutral
  * annotations: {@code @LRA.Transaction} starts the LRA around the business method and
- * {@code @LRA.Compensate}/{@code @LRA.Complete}/{@code @LRA.AfterLRA} are the participant
+ * {@code @Compensate}/{@code @Complete}/{@code @AfterLRA} are the participant
  * callbacks the coordinator invokes (through the {@code lra-callback-proxy}) when the LRA
  * ends.
  */
@@ -32,7 +36,7 @@ public class LRABeanParticipant {
     /**
      * Performs business work that succeeds; the LRA is closed when this method returns.
      */
-    @LRA.Transaction(LRA.Propagation.REQUIRED)
+    @LRA(LRA.Type.REQUIRED)
     public void doWork() {
         // pretend to do some work
     }
@@ -40,24 +44,24 @@ public class LRABeanParticipant {
     /**
      * Performs business work that fails; the LRA is cancelled because the method throws.
      */
-    @LRA.Transaction(LRA.Propagation.REQUIRED)
+    @LRA(LRA.Type.REQUIRED)
     public void doFailingWork() {
         throw new IllegalStateException("the work failed, the LRA must be cancelled");
     }
 
-    @LRA.Compensate
+    @Compensate
     public CompensateCallback.Reply compensate(CompensateCallback.Request request) {
         compensateCount.incrementAndGet();
-        return new CompensateCallback.Reply(LRA.ParticipantOutcome.Compensated);
+        return new CompensateCallback.Reply(ParticipantStatus.Compensated);
     }
 
-    @LRA.Complete
+    @Complete
     public CompleteCallback.Reply complete(CompleteCallback.Request request) {
         completeCount.incrementAndGet();
-        return new CompleteCallback.Reply(LRA.ParticipantOutcome.Completed);
+        return new CompleteCallback.Reply(ParticipantStatus.Completed);
     }
 
-    @LRA.AfterLRA
+    @AfterLRA
     public AfterLRACallback.Reply afterLRA(AfterLRACallback.Request request) {
         afterCount.incrementAndGet();
         afterStatuses.add(request.endStatus.name());

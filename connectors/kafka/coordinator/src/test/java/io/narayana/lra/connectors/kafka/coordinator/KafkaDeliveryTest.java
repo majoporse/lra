@@ -5,7 +5,6 @@
 
 package io.narayana.lra.connectors.kafka.coordinator;
 
-import io.narayana.lra.api.LRA;
 import io.narayana.lra.connectors.common.callbacks.CallbackContext;
 import io.narayana.lra.connectors.common.callbacks.CallbackResult;
 import io.narayana.lra.connectors.common.callbacks.CallbackStatus;
@@ -18,6 +17,7 @@ import io.narayana.lra.connectors.kafka.contracts.KafkaRequest;
 import io.narayana.lra.connectors.kafka.outbound.KafkaOutbound;
 import io.narayana.lra.connectors.kafka.support.LRAKafkaConstants;
 import java.time.Duration;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -27,7 +27,7 @@ public class KafkaDeliveryTest {
     public void sendsTheCallbackKindAndMapsTheReply() {
         CapturingOutbound outbound = new CapturingOutbound();
         outbound.reply = new CompensateKafkaCallback.Reply("correlation",
-                LRA.ParticipantOutcome.Compensated, null);
+                ParticipantStatus.Compensated, null);
         KafkaDelivery delivery = delivery(outbound);
 
         CallbackResult result = delivery.request(

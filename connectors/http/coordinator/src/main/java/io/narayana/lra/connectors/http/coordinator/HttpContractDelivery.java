@@ -6,7 +6,6 @@
 package io.narayana.lra.connectors.http.coordinator;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.narayana.lra.api.LRA;
 import io.narayana.lra.connectors.common.callbacks.CallbackContext;
 import io.narayana.lra.connectors.common.callbacks.CallbackResult;
 import io.narayana.lra.connectors.common.callbacks.CallbackStatus;
@@ -29,6 +28,7 @@ import jakarta.ws.rs.core.Response;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import org.eclipse.microprofile.lra.annotation.LRAStatus;
 
 /**
  * Delivers the common callback contract over HTTP and maps the contract reply.
@@ -100,7 +100,7 @@ public class HttpContractDelivery implements CallbackDelivery<HttpContractAddres
             case AFTER -> {
                 String payload = context.getPayload();
                 yield new HttpAfterLRACallback.Request(participantId, lraUri, parentUri, recoveryUrl,
-                        compensatorData, payload == null ? null : LRA.TransactionStatus.valueOf(payload));
+                        compensatorData, payload == null ? null : LRAStatus.valueOf(payload));
             }
         };
     }

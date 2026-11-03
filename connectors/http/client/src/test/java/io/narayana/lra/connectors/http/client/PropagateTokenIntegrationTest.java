@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.narayana.lra.AnnotationResolver;
 import io.narayana.lra.Current;
 import io.narayana.lra.PropagateToken;
-import io.narayana.lra.connectors.http.client.outbound.JwtTokenClientRequestFilter;
+import io.narayana.lra.connectors.http.client.coordinator.JwtTokenClientRequestFilter;
 import io.narayana.lra.connectors.http.support.BearerTokenResolver;
 import jakarta.ws.rs.ApplicationPath;
 import jakarta.ws.rs.GET;

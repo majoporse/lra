@@ -1,12 +1,9 @@
 package io.narayana.lra.connectors.common.client.participant;
 
 import io.narayana.lra.AnnotationResolver;
-import io.narayana.lra.api.LRA;
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
-import io.narayana.lra.connectors.common.client.CallbackPaths;
-import io.narayana.lra.connectors.common.client.ParticipantCallbackAddressResolver;
-import io.narayana.lra.connectors.common.client.ParticipantCallbackTarget;
+import io.narayana.lra.connectors.common.client.participant.protocol.CallbackPaths;
 import io.narayana.lra.connectors.common.contracts.AfterLRACallback;
 import io.narayana.lra.connectors.common.contracts.CompensateCallback;
 import io.narayana.lra.connectors.common.contracts.CompleteCallback;
@@ -27,6 +24,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
+import org.eclipse.microprofile.lra.annotation.AfterLRA;
+import org.eclipse.microprofile.lra.annotation.Compensate;
+import org.eclipse.microprofile.lra.annotation.Complete;
+import org.eclipse.microprofile.lra.annotation.Forget;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
+import org.eclipse.microprofile.lra.annotation.Status;
 
 public class LRAParticipant implements Participant {
 
@@ -74,6 +77,11 @@ public class LRAParticipant implements Participant {
                 continue;
             }
 
+            if (!isContractShape(method, type)) {
+                // the method uses the MicroProfile callback shape; the MicroProfile model owns it
+                continue;
+            }
+
             String signatureError = verifySignature(method, type);
 
             if (signatureError != null) {
@@ -89,7 +97,6 @@ public class LRAParticipant implements Participant {
             }
         }
 
-        requireParticipantCallback(errors);
         requireStatusOrForgetForAsyncTermination(errors);
 
         if (!errors.isEmpty()) {
@@ -97,14 +104,9 @@ public class LRAParticipant implements Participant {
         }
     }
 
-    private void requireParticipantCallback(List<String> errors) {
-        if (!callbackMethods.containsKey(CallbackType.COMPENSATE)
-                && !callbackMethods.containsKey(CallbackType.COMPLETE)
-                && !callbackMethods.containsKey(CallbackType.AFTER)) {
-            errors.add(String.format(
-                    "%s declares no @LRA.Compensate, @LRA.Complete or @LRA.AfterLRA callback",
-                    javaClass.getName()));
-        }
+    private static boolean isContractShape(Method method, CallbackType type) {
+        Class<?>[] parameterTypes = method.getParameterTypes();
+        return parameterTypes.length == 1 && ParticipantRequest.class.isAssignableFrom(parameterTypes[0]);
     }
 
     private void requireStatusOrForgetForAsyncTermination(List<String> errors) {
@@ -274,9 +276,9 @@ public class LRAParticipant implements Participant {
     }
 
     private static ParticipantReply progressReply(CallbackType requestType, PendingResult pendingResult) {
-        LRA.ParticipantOutcome outcome = pendingResult.operation == CallbackType.COMPLETE
-                ? LRA.ParticipantOutcome.Completing
-                : LRA.ParticipantOutcome.Compensating;
+        ParticipantStatus outcome = pendingResult.operation == CallbackType.COMPLETE
+                ? ParticipantStatus.Completing
+                : ParticipantStatus.Compensating;
 
         return switch (requestType) {
             case COMPENSATE -> new CompensateCallback.Reply(outcome);
@@ -292,8 +294,8 @@ public class LRAParticipant implements Participant {
         LRALogger.logger.debugf("Transport-neutral %s callback failed: %s", type, message);
 
         return switch (type) {
-            case COMPENSATE -> new CompensateCallback.Reply(LRA.ParticipantOutcome.FailedToCompensate, message);
-            case COMPLETE -> new CompleteCallback.Reply(LRA.ParticipantOutcome.FailedToComplete, message);
+            case COMPENSATE -> new CompensateCallback.Reply(ParticipantStatus.FailedToCompensate, message);
+            case COMPLETE -> new CompleteCallback.Reply(ParticipantStatus.FailedToComplete, message);
             case STATUS -> new StatusCallback.Reply(null, message);
             case FORGET -> new ForgetCallback.Reply(message);
             case AFTER -> new AfterLRACallback.Reply(message);
@@ -310,11 +312,11 @@ public class LRAParticipant implements Participant {
     }
 
     private enum CallbackAnnotation {
-        COMPENSATE(LRA.Compensate.class, CallbackType.COMPENSATE),
-        COMPLETE(LRA.Complete.class, CallbackType.COMPLETE),
-        STATUS(LRA.Status.class, CallbackType.STATUS),
-        FORGET(LRA.Forget.class, CallbackType.FORGET),
-        AFTER(LRA.AfterLRA.class, CallbackType.AFTER);
+        COMPENSATE(Compensate.class, CallbackType.COMPENSATE),
+        COMPLETE(Complete.class, CallbackType.COMPLETE),
+        STATUS(Status.class, CallbackType.STATUS),
+        FORGET(Forget.class, CallbackType.FORGET),
+        AFTER(AfterLRA.class, CallbackType.AFTER);
 
         private final Class<? extends java.lang.annotation.Annotation> annotation;
         private final CallbackType type;

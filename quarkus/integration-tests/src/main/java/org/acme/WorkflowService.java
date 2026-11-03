@@ -5,32 +5,37 @@
 
 package org.acme;
 
-import io.narayana.lra.api.LRA;
+import io.narayana.lra.api.Result;
 import io.narayana.lra.connectors.common.contracts.AfterLRACallback;
 import io.narayana.lra.connectors.common.contracts.CompensateCallback;
 import io.narayana.lra.connectors.common.contracts.CompleteCallback;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.net.URI;
+import org.eclipse.microprofile.lra.annotation.AfterLRA;
+import org.eclipse.microprofile.lra.annotation.Compensate;
+import org.eclipse.microprofile.lra.annotation.Complete;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
+import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
 
 @ApplicationScoped
 public class WorkflowService {
 
-    @LRA.Transaction(value = LRA.Propagation.MANDATORY, end = false)
-    public LRA.Result<String> work(URI lraId) {
-        return LRA.Result.success("ok");
+    @LRA(value = LRA.Type.MANDATORY, end = false)
+    public Result<String> work(URI lraId) {
+        return Result.success("ok");
     }
 
-    @LRA.Complete
+    @Complete
     public CompleteCallback.Reply complete(CompleteCallback.Request request) {
-        return new CompleteCallback.Reply(LRA.ParticipantOutcome.Completed);
+        return new CompleteCallback.Reply(ParticipantStatus.Completed);
     }
 
-    @LRA.Compensate
+    @Compensate
     public CompensateCallback.Reply compensate(CompensateCallback.Request request) {
-        return new CompensateCallback.Reply(LRA.ParticipantOutcome.Compensated);
+        return new CompensateCallback.Reply(ParticipantStatus.Compensated);
     }
 
-    @LRA.AfterLRA
+    @AfterLRA
     public AfterLRACallback.Reply after(AfterLRACallback.Request request) {
         return new AfterLRACallback.Reply();
     }

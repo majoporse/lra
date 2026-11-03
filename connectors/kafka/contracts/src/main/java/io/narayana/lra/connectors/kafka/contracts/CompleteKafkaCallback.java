@@ -1,8 +1,8 @@
 package io.narayana.lra.connectors.kafka.contracts;
 
-import io.narayana.lra.api.LRA;
 import io.narayana.lra.connectors.common.contracts.CompleteCallback;
 import java.net.URI;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 
 /**
  * Kafka transport for the participant {@code @Complete} notification.
@@ -54,7 +54,7 @@ public class CompleteKafkaCallback {
         public Reply() {
         }
 
-        public Reply(String correlationId, LRA.ParticipantOutcome status, String error) {
+        public Reply(String correlationId, ParticipantStatus status, String error) {
             super(status, error);
             this.correlationId = correlationId;
         }
@@ -69,7 +69,7 @@ public class CompleteKafkaCallback {
         }
 
         @Override
-        public LRA.ParticipantOutcome getStatus() {
+        public ParticipantStatus getStatus() {
             return status;
         }
 
