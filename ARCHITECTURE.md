@@ -73,7 +73,7 @@ common.client
   participant/   Participant, LRAParticipant, LRAParticipantRegistry, ParticipantIdProvider,
                  ParticipantCallbackAddressResolver,
                  protocol/ (ParticipantConnector, CallbackPaths, ParticipantProtocolRegistry)
-  invocation/    LraInvocation, LraMethodMetadata, LRAParticipantData
+  invocation/    LraInvocation, LraMethodMetadata, LraCompletion, LRAParticipantData
   LRAAbortException
 ```
 
@@ -143,9 +143,15 @@ Rules:
   (MicroProfile, now a CDI interceptor binding), `@Leave` and `@PropagateToken`, asks `LRATransport`
   for the inbound LRA and credential, and delegates the decisions to `LraLifecycleProcessor`
   (implemented by `ServerLRAProcessor`). `ServerLRAFilter` no longer exists.
-  `LraRequestContextFilter` captures the request context and `LraResponseFilter` completes the
-  invocation with the final HTTP status, writes the response header and restores the thread-local
-  state; neither reads annotations or owns lifecycle state.
+  The interceptor maps the method result or exception through the transport into a neutral
+  `LraCompletion` and completes the invocation through `LraLifecycleProcessor.complete`. A
+  synchronous HTTP method completes there; an asynchronous HTTP method defers to
+  `LraResponseFilter`, which feeds it the final status. The response filter also writes the
+  response header, reports lifecycle failures in the response and restores the thread-local state;
+  neither filter reads annotations or owns lifecycle state. A response-phase transport owns the
+  request-boundary cleanup, so the interceptor restores `Current` only when there is no response
+  phase. The unannotated-resource propagation rule registers and removes its active-LRA cache entry
+  in the request/response filters.
 - JAX-RS resolves `@HeaderParam` before the interceptor chain, so the HTTP transport adapter also
   replaces the resolved LRA header arguments (context, parent, recovery) with the effective values.
   That code lives in `HttpLraTransport`, not in the interceptor.

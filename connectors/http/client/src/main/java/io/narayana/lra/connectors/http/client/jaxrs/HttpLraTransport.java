@@ -11,8 +11,11 @@ import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVER
 
 import io.narayana.lra.AnnotationResolver;
 import io.narayana.lra.Current;
+import io.narayana.lra.api.Outcome;
+import io.narayana.lra.api.Result;
 import io.narayana.lra.connectors.common.client.LRAAbortException;
 import io.narayana.lra.connectors.common.client.interceptor.LRATransport;
+import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
 import io.narayana.lra.connectors.http.support.BearerTokenResolver;
 import io.narayana.lra.logging.LRALogger;
@@ -31,23 +34,28 @@ import jakarta.ws.rs.OPTIONS;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.container.Suspended;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.Response;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CompletionStage;
 
 /**
  * The JAX-RS half of an intercepted invocation.
  * <p>
  * It reads the inbound LRA and credential from the request (falling back to the effective LRA on the
  * calling thread), publishes the effective LRA back onto the request and into any
- * {@code @HeaderParam} arguments JAX-RS already resolved, and claims the response phase for resource
- * methods, whose cancel rules are HTTP status codes.
+ * {@code @HeaderParam} arguments JAX-RS already resolved, and maps a synchronous result to a neutral
+ * completion. Asynchronous resource methods still defer to the response phase.
  */
 @ApplicationScoped
 @Alternative
@@ -115,23 +123,52 @@ public class HttpLraTransport implements LRATransport {
     public void bind(InvocationContext invocation, LraInvocation lraInvocation) {
         updateRequestHeaders(lraInvocation);
         patchHeaderParameters(invocation, lraInvocation);
+
+        if (isHttpResource(invocation)) {
+            LraInvocationState state = state();
+
+            if (state != null && state.getRequestContext() != null) {
+                state.getRequestContext().setProperty(LraInvocation.PROPERTY, lraInvocation);
+            }
+        }
+    }
+
+    @Override
+    public LraCompletion completionOf(LraInvocation lraInvocation, Object result, Throwable thrown) {
+        if (lraInvocation.isAborted()) {
+            return LraCompletion.ofStatus(lraInvocation.getAbortStatusCode(), lraInvocation.getAbortMessage());
+        }
+
+        if (thrown != null) {
+            if (thrown instanceof WebApplicationException webApplicationException) {
+                Response response = webApplicationException.getResponse();
+                return LraCompletion.ofStatus(response == null ? 500 : response.getStatus(), message(thrown));
+            }
+
+            return LraCompletion.ofStatus(500, message(thrown));
+        }
+
+        if (result instanceof Result<?> wrapper) {
+            Outcome outcome = wrapper.getOutcome() == null ? Outcome.SUCCESS : wrapper.getOutcome();
+            return new LraCompletion(outcome, statusOf(outcome), null, false);
+        }
+
+        if (result instanceof Response response) {
+            return LraCompletion.ofStatus(response.getStatus(), null);
+        }
+
+        return LraCompletion.ofStatus(
+                lraInvocation.getMethod().getReturnType().equals(Void.TYPE) ? 204 : 200, null);
+    }
+
+    @Override
+    public boolean hasResponsePhase(InvocationContext invocation) {
+        return isHttpResource(invocation);
     }
 
     @Override
     public boolean deferCompletion(InvocationContext invocation, LraInvocation lraInvocation) {
-        if (!isHttpResource(invocation)) {
-            return false;
-        }
-
-        LraInvocationState state = state();
-
-        if (state == null || state.getRequestContext() == null) {
-            return false;
-        }
-
-        state.getRequestContext().setProperty(LraInvocation.PROPERTY, lraInvocation);
-
-        return true;
+        return isHttpResource(invocation) && isAsynchronous(invocation.getMethod());
     }
 
     private LraInvocationState state() {
@@ -184,6 +221,34 @@ public class HttpLraTransport implements LRATransport {
 
         return Arrays.stream(HTTP_VERBS)
                 .anyMatch(annotationType -> AnnotationResolver.isAnnotationPresent(annotationType, method));
+    }
+
+    private static boolean isAsynchronous(Method method) {
+        if (CompletionStage.class.equals(method.getReturnType())) {
+            return true;
+        }
+
+        for (Parameter parameter : method.getParameters()) {
+            if (parameter.isAnnotationPresent(Suspended.class)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static String message(Throwable throwable) {
+        return throwable.getMessage() != null ? throwable.getMessage() : throwable.getClass().getName();
+    }
+
+    private static int statusOf(Outcome outcome) {
+        return switch (outcome) {
+            case SUCCESS -> 200;
+            case INFORMATIONAL -> 100;
+            case REDIRECTION -> 300;
+            case CLIENT_ERROR -> 400;
+            case SERVER_ERROR, OTHER -> 500;
+        };
     }
 
     // JAX-RS resolves @HeaderParam before the interceptor chain runs, so the LRA the processor

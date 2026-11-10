@@ -8,10 +8,12 @@ package io.narayana.lra.connectors.http.client.jaxrs;
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT_HEADER;
 
 import io.narayana.lra.Current;
+import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
 import io.narayana.lra.connectors.common.client.lifecycle.LifecycleDecision;
 import io.narayana.lra.connectors.common.client.lifecycle.LraLifecycleProcessor;
 import io.narayana.lra.logging.LRALogger;
+import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.container.ContainerRequestContext;
@@ -22,19 +24,21 @@ import java.net.URI;
 import java.util.List;
 
 /**
- * The JAX-RS side of the LRA lifecycle: it completes the invocation the interceptor started, once
- * the final HTTP status is known.
+ * The JAX-RS side of the LRA lifecycle. For a synchronous invocation the interceptor has already
+ * completed the lifecycle; this filter only reports a lifecycle failure and publishes the effective
+ * LRA. For an asynchronous invocation it completes the lifecycle once the final HTTP status is
+ * known.
  * <p>
- * It contains no annotation handling and no lifecycle state machine. It reads the state the
- * interceptor stored on the request, translates the status into a cancel decision using the rules
- * the processor already resolved, publishes the effective LRA on the response and restores the
- * thread-local state. All decisions live in {@link LraLifecycleProcessor}.
+ * It contains no annotation handling and no lifecycle state machine. All decisions live in
+ * {@link LraLifecycleProcessor}.
  */
 @Provider
 @ApplicationScoped
+@Priority(Integer.MIN_VALUE) // response filters run in reverse priority order: run last
 public class LraResponseFilter implements ContainerResponseFilter {
 
     static final String PROPAGATION_PROPERTY = LraResponseFilter.class.getName() + ".propagation";
+    static final String CACHE_PROPERTY = LraResponseFilter.class.getName() + ".cache";
 
     @Inject
     LraLifecycleProcessor processor;
@@ -44,6 +48,14 @@ public class LraResponseFilter implements ContainerResponseFilter {
         if (requestContext.getProperty(PROPAGATION_PROPERTY) != null) {
             // the request filter pushed the incoming LRA for an unannotated resource
             requestContext.removeProperty(PROPAGATION_PROPERTY);
+
+            Object cache = requestContext.getProperty(CACHE_PROPERTY);
+
+            if (cache != null) {
+                requestContext.removeProperty(CACHE_PROPERTY);
+                Current.removeActiveLRACache(URI.create(cache.toString()));
+            }
+
             Current.popAll();
             Current.clearAuthToken();
             return;
@@ -57,12 +69,19 @@ public class LraResponseFilter implements ContainerResponseFilter {
         }
 
         try {
-            LifecycleDecision decision = processor.processResponse(invocation,
-                    processor.isCancel(invocation, responseContext.getStatus()));
+            if (!invocation.isCompleted()) {
+                LifecycleDecision decision = processor.complete(invocation,
+                        LraCompletion.ofStatus(responseContext.getStatus(), null));
 
-            if (decision.hasFailure()) {
-                responseContext.setEntity(decision.failureMessage());
-                LRALogger.logger.warn(decision.failureMessage());
+                if (decision.hasFailure()) {
+                    responseContext.setEntity(decision.failureMessage());
+                    LRALogger.logger.warn(decision.failureMessage());
+                }
+
+                invocation.markCompleted();
+            } else if (invocation.getLifecycleFailure() != null) {
+                responseContext.setEntity(invocation.getLifecycleFailure());
+                LRALogger.logger.warn(invocation.getLifecycleFailure());
             }
 
             updateResponseHeader(invocation, responseContext);

@@ -5,6 +5,7 @@
 
 package io.narayana.lra.connectors.common.client.interceptor;
 
+import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
 import jakarta.interceptor.InvocationContext;
 import java.net.URI;
@@ -41,8 +42,30 @@ public interface LRATransport {
     void bind(InvocationContext invocation, LraInvocation lraInvocation);
 
     /**
-     * Offer the response phase to the transport. A transport that owns completion (HTTP, whose
-     * cancel rules are status codes) stores the invocation and completes it once the response
+     * Interpret the method result (or exception) for the LRA.
+     * <p>
+     * This is the transport's own mapping. It does not depend on the container's final response
+     * mapping: a JAX-RS adapter translates its {@code Response} and exceptions here, and a
+     * messaging adapter translates its reply.
+     *
+     * @param lraInvocation the invocation state
+     * @param result the value returned by the business method, or {@code null}
+     * @param thrown the exception thrown by the business method, or {@code null}
+     * @return the neutral completion
+     */
+    LraCompletion completionOf(LraInvocation lraInvocation, Object result, Throwable thrown);
+
+    /**
+     * @param invocation the interception context
+     * @return whether this transport has a response phase that can report lifecycle failures
+     */
+    default boolean hasResponsePhase(InvocationContext invocation) {
+        return false;
+    }
+
+    /**
+     * Offer the response phase to the transport. A transport that owns completion after a response
+     * (HTTP asynchronous responses) stores the invocation and completes it once the response
      * exists.
      *
      * @param invocation the interception context

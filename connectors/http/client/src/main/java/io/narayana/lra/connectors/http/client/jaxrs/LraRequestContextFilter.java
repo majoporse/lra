@@ -80,8 +80,11 @@ public class LraRequestContextFilter implements ContainerRequestFilter {
         }
 
         requestContext.getHeaders().remove(LRA_HTTP_CONTEXT_HEADER);
-        Current.push(URI.create(incoming), null);
+        URI lraId = URI.create(incoming);
+        Current.push(lraId, null);
+        Current.addActiveLRACache(lraId);
         requestContext.setProperty(LraResponseFilter.PROPAGATION_PROPERTY, incoming);
+        requestContext.setProperty(LraResponseFilter.CACHE_PROPERTY, incoming);
     }
 
     /**

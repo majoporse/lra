@@ -10,6 +10,7 @@ import io.narayana.lra.PropagateToken;
 import io.narayana.lra.api.LifecycleException;
 import io.narayana.lra.api.Outcome;
 import io.narayana.lra.connectors.common.client.LRAAbortException;
+import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
 import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
 import io.narayana.lra.connectors.common.client.lifecycle.LifecycleDecision;
@@ -63,6 +64,19 @@ public class LRAInterceptorTest {
                 () -> interceptor().intercept(invocation("work")));
 
         Assertions.assertEquals("close failed", thrown.getMessage());
+    }
+
+    @Test
+    public void leavesLifecycleFailuresToTheResponsePhase() throws Exception {
+        processor.decision = new LifecycleDecision(false, 0, null, "close failed");
+        transport.responsePhase = true;
+
+        Object result = interceptor().intercept(invocation("work"));
+
+        Assertions.assertEquals("ok", result);
+        Assertions.assertNotNull(transport.boundInvocation);
+        Assertions.assertEquals("close failed", transport.boundInvocation.getLifecycleFailure());
+        Assertions.assertTrue(transport.boundInvocation.isCompleted());
     }
 
     @Test
@@ -167,7 +181,9 @@ public class LRAInterceptorTest {
         boolean bindCalled;
         boolean deferred;
         boolean defer;
+        boolean responsePhase;
         String credential;
+        LraInvocation boundInvocation;
         LraInvocation deferredInvocation;
 
         @Override
@@ -183,6 +199,17 @@ public class LRAInterceptorTest {
         @Override
         public void bind(InvocationContext invocation, LraInvocation lraInvocation) {
             bindCalled = true;
+            boundInvocation = lraInvocation;
+        }
+
+        @Override
+        public boolean hasResponsePhase(InvocationContext invocation) {
+            return responsePhase;
+        }
+
+        @Override
+        public LraCompletion completionOf(LraInvocation lraInvocation, Object result, Throwable thrown) {
+            return thrown != null ? LraCompletion.failure(thrown.getMessage()) : LraCompletion.success();
         }
 
         @Override

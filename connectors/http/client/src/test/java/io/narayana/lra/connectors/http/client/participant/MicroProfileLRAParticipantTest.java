@@ -70,6 +70,45 @@ public class MicroProfileLRAParticipantTest {
     }
 
     @Test
+    public void mapsAConflictResponseToTheFailedOutcome() {
+        MicroProfileLRAParticipant participant = participant(ConflictParticipant.class, new ConflictParticipant());
+
+        ParticipantReply reply = participant.invoke(CallbackType.COMPENSATE, request());
+
+        Assertions.assertEquals(ParticipantStatus.FailedToCompensate, reply.status);
+    }
+
+    @Test
+    public void normalizesAConflictBodyToTheFailedOutcome() {
+        MicroProfileLRAParticipant participant = participant(ConflictWithBodyParticipant.class,
+                new ConflictWithBodyParticipant());
+
+        ParticipantReply reply = participant.invoke(CallbackType.COMPENSATE, request());
+
+        Assertions.assertEquals(ParticipantStatus.FailedToCompensate, reply.status);
+        Assertions.assertEquals(ParticipantStatus.Completed.name(), reply.error);
+    }
+
+    @Test
+    public void mapsAGoneResponseToTheDefinitiveOutcome() {
+        MicroProfileLRAParticipant participant = participant(GoneParticipant.class, new GoneParticipant());
+
+        Assertions.assertEquals(ParticipantStatus.Compensated,
+                participant.invoke(CallbackType.COMPENSATE, request()).status);
+    }
+
+    @Test
+    public void rejectsAnInvalidResponseEntity() {
+        MicroProfileLRAParticipant participant = participant(InvalidBodyParticipant.class,
+                new InvalidBodyParticipant());
+
+        ParticipantReply reply = participant.invoke(CallbackType.COMPENSATE, request());
+
+        Assertions.assertNull(reply.status);
+        Assertions.assertNotNull(reply.error);
+    }
+
+    @Test
     public void mapsAnAcceptedResponseToAnInProgressOutcome() {
         MicroProfileLRAParticipant participant = participant(AsyncResponseParticipant.class, new AsyncResponseParticipant());
 
@@ -174,6 +213,34 @@ public class MicroProfileLRAParticipantTest {
         @org.eclipse.microprofile.lra.annotation.Compensate
         public jakarta.ws.rs.core.Response compensate(URI lraId) {
             return jakarta.ws.rs.core.Response.accepted().build();
+        }
+    }
+
+    public static class ConflictParticipant {
+        @org.eclipse.microprofile.lra.annotation.Compensate
+        public jakarta.ws.rs.core.Response compensate(URI lraId) {
+            return jakarta.ws.rs.core.Response.status(409).build();
+        }
+    }
+
+    public static class ConflictWithBodyParticipant {
+        @org.eclipse.microprofile.lra.annotation.Compensate
+        public jakarta.ws.rs.core.Response compensate(URI lraId) {
+            return jakarta.ws.rs.core.Response.status(409).entity(ParticipantStatus.Completed).build();
+        }
+    }
+
+    public static class GoneParticipant {
+        @org.eclipse.microprofile.lra.annotation.Compensate
+        public jakarta.ws.rs.core.Response compensate(URI lraId) {
+            return jakarta.ws.rs.core.Response.status(410).build();
+        }
+    }
+
+    public static class InvalidBodyParticipant {
+        @org.eclipse.microprofile.lra.annotation.Compensate
+        public jakarta.ws.rs.core.Response compensate(URI lraId) {
+            return jakarta.ws.rs.core.Response.ok("nonsense").build();
         }
     }
 

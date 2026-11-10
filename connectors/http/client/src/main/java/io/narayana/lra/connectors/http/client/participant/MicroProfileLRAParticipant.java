@@ -233,19 +233,14 @@ public class MicroProfileLRAParticipant implements Participant {
     private ParticipantReply replyFor(CallbackType type, Response response) {
         int status = response.getStatus();
 
-        if (status == Response.Status.ACCEPTED.getStatusCode()) {
-            return progress(type);
-        }
-
-        if (status == Response.Status.NOT_FOUND.getStatusCode()) {
-            return error(type, "participant reports that the callback does not exist");
-        }
-
-        if (status >= 200 && status < 300) {
-            return entityOutcome(type, response);
-        }
-
-        return error(type, "participant reports HTTP " + status);
+        return switch (status) {
+            case 200 -> entityOutcome(type, response);
+            case 202 -> progress(type);
+            case 404 -> error(type, "participant reports that the callback does not exist");
+            case 409 -> failed(type, response);
+            case 410 -> definitive(type);
+            default -> error(type, "participant reports HTTP " + status);
+        };
     }
 
     private ParticipantReply entityOutcome(CallbackType type, Response response) {
@@ -265,9 +260,40 @@ public class MicroProfileLRAParticipant implements Participant {
                     return outcome(type, status);
                 }
             }
+
+            return error(type, "participant callback returned an invalid participant status: " + text);
         }
 
-        return definitive(type);
+        return error(type, "unsupported participant callback entity " + entity.getClass().getName());
+    }
+
+    // 409 means the termination failed; the body only has to be a valid ParticipantStatus, so it is
+    // normalized to the failure state of the operation instead of being passed through
+    private ParticipantReply failed(CallbackType type, Response response) {
+        Object entity = response.hasEntity() ? response.getEntity() : null;
+
+        if (entity != null && !(entity instanceof ParticipantStatus)
+                && !isParticipantStatusName(entity.toString())) {
+            return error(type, "participant reports HTTP 409 with an invalid participant status");
+        }
+
+        String message = entity == null ? null : entity.toString();
+
+        return switch (type) {
+            case COMPENSATE -> new CompensateCallback.Reply(ParticipantStatus.FailedToCompensate, message);
+            case COMPLETE -> new CompleteCallback.Reply(ParticipantStatus.FailedToComplete, message);
+            default -> error(type, "participant reports HTTP 409");
+        };
+    }
+
+    private static boolean isParticipantStatusName(String value) {
+        for (ParticipantStatus status : ParticipantStatus.values()) {
+            if (status.name().equals(value.trim())) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private ParticipantReply fromThrowable(CallbackType type, Throwable throwable) {

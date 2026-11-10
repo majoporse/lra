@@ -62,6 +62,8 @@ public final class LraInvocation {
 
     private boolean currentLRACancelled;
     private boolean endLRAClosed;
+    private boolean completed;
+    private String lifecycleFailure;
 
     public LraInvocation(Method method, Class<?> resourceClass, LraMethodMetadata metadata,
             List<Object> contextsOnEntry, String authTokenOnEntry) {
@@ -249,6 +251,25 @@ public final class LraInvocation {
 
     public void setEndLRAClosed(boolean endLRAClosed) {
         this.endLRAClosed = endLRAClosed;
+    }
+
+    /**
+     * @return whether the lifecycle was already completed for this invocation
+     */
+    public boolean isCompleted() {
+        return completed;
+    }
+
+    public void markCompleted() {
+        this.completed = true;
+    }
+
+    public String getLifecycleFailure() {
+        return lifecycleFailure;
+    }
+
+    public void setLifecycleFailure(String lifecycleFailure) {
+        this.lifecycleFailure = lifecycleFailure;
     }
 
     /**

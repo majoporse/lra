@@ -10,6 +10,7 @@ import io.narayana.lra.api.LifecycleException;
 import io.narayana.lra.api.Outcome;
 import io.narayana.lra.api.Result;
 import io.narayana.lra.connectors.common.client.LRAAbortException;
+import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
 import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
 import io.narayana.lra.connectors.common.client.lifecycle.LifecycleDecision;
@@ -101,15 +102,12 @@ public class LRAInterceptor {
         boolean aborted = invocation.isAborted();
         Object result = null;
         Throwable thrown = null;
-        Outcome outcome = aborted ? Outcome.SERVER_ERROR : Outcome.SUCCESS;
 
         if (!aborted) {
             try {
                 result = invocationContext.proceed();
-                outcome = outcomeOf(result);
             } catch (Exception | Error e) {
                 thrown = e;
-                outcome = Outcome.SERVER_ERROR;
             }
         }
 
@@ -124,13 +122,19 @@ public class LRAInterceptor {
             return result;
         }
 
+        LraCompletion completion = transport.completionOf(invocation, result, thrown);
+
         LifecycleDecision decision;
 
         try {
-            decision = processor.processResponse(invocation,
-                    processor.isCancel(invocation, outcome, thrown != null || aborted));
+            decision = processor.complete(invocation, completion);
         } finally {
-            invocation.restoreCurrent();
+            invocation.markCompleted();
+
+            if (!transport.hasResponsePhase(invocationContext)) {
+                // a response-phase transport owns the request-boundary cleanup
+                invocation.restoreCurrent();
+            }
         }
 
         if (aborted) {
@@ -145,12 +149,17 @@ public class LRAInterceptor {
          * attaches it to an exception the method itself threw.
          */
         if (decision.hasFailure()) {
-            LRALogger.logger.error(decision.failureMessage());
-
-            if (thrown != null) {
-                thrown.addSuppressed(new LifecycleException(decision.failureMessage()));
+            if (transport.hasResponsePhase(invocationContext)) {
+                // the response adapter writes the failure into the response
+                invocation.setLifecycleFailure(decision.failureMessage());
             } else {
-                throw new LifecycleException(decision.failureMessage());
+                LRALogger.logger.error(decision.failureMessage());
+
+                if (thrown != null) {
+                    thrown.addSuppressed(new LifecycleException(decision.failureMessage()));
+                } else {
+                    throw new LifecycleException(decision.failureMessage());
+                }
             }
         }
 
@@ -172,15 +181,6 @@ public class LRAInterceptor {
 
     private static boolean isAsynchronous(Method method) {
         return method.getReturnType().equals(CompletionStage.class);
-    }
-
-    private Outcome outcomeOf(Object result) {
-        if (result instanceof Result<?> wrapper) {
-            Outcome outcome = wrapper.getOutcome();
-            return outcome == null ? Outcome.SUCCESS : outcome;
-        }
-
-        return Outcome.SUCCESS;
     }
 
     private Class<?> resolveResourceClass(InvocationContext invocationContext, Method method) {

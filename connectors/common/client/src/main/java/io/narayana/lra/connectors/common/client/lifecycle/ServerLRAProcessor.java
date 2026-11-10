@@ -16,6 +16,7 @@ import io.narayana.lra.connectors.common.client.coordinator.LRAClientException;
 import io.narayana.lra.connectors.common.client.discovery.MicroProfileParticipantFactory;
 import io.narayana.lra.connectors.common.client.discovery.ParticipantDiscovery;
 import io.narayana.lra.connectors.common.client.invocation.LRAParticipantData;
+import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation.Progress;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation.ProgressStep;
@@ -204,37 +205,13 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
     public boolean isCancel(LraInvocation context, int statusCode) {
         Set<Outcome> families = context.getCancelOnFamily();
 
-        if (families != null && families.contains(outcomeOf(statusCode))) {
+        if (families != null && families.contains(LraCompletion.outcomeOf(statusCode))) {
             return true;
         }
 
         Set<Integer> codes = context.getCancelOn();
 
         return codes != null && codes.contains(statusCode);
-    }
-
-    private static Outcome outcomeOf(int statusCode) {
-        if (statusCode >= 100 && statusCode < 200) {
-            return Outcome.INFORMATIONAL;
-        }
-
-        if (statusCode >= 200 && statusCode < 300) {
-            return Outcome.SUCCESS;
-        }
-
-        if (statusCode >= 300 && statusCode < 400) {
-            return Outcome.REDIRECTION;
-        }
-
-        if (statusCode >= 400 && statusCode < 500) {
-            return Outcome.CLIENT_ERROR;
-        }
-
-        if (statusCode >= 500 && statusCode < 600) {
-            return Outcome.SERVER_ERROR;
-        }
-
-        return Outcome.OTHER;
     }
 
     /**

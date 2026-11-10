@@ -6,6 +6,7 @@
 package io.narayana.lra.connectors.common.client.lifecycle;
 
 import io.narayana.lra.api.Outcome;
+import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
 
 /**
@@ -53,4 +54,20 @@ public interface LraLifecycleProcessor {
      * @return whether the LRA must be cancelled
      */
     boolean isCancel(LraInvocation context, int statusCode);
+
+    /**
+     * Run the response phase from a transport-neutral completion. This is the one completion entry
+     * point used by the interceptor and by a transport response adapter.
+     *
+     * @param invocation the invocation being completed
+     * @param completion the neutral completion produced by the transport
+     * @return the decision for this invocation
+     */
+    default LifecycleDecision complete(LraInvocation invocation, LraCompletion completion) {
+        boolean cancel = completion.statusCode() != null
+                ? isCancel(invocation, completion.statusCode())
+                : isCancel(invocation, completion.outcome(), completion.failed());
+
+        return processResponse(invocation, cancel);
+    }
 }
