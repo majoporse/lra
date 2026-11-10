@@ -12,7 +12,6 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Supplier;
 import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
 
 /**
@@ -27,10 +26,7 @@ public class ServerLRAContext {
     private final Method method;
     private final Class<?> resourceClass;
 
-    private String authHeader;
     private URI incomingLRA;
-    private Supplier<String> uriPrefix;
-    private URI baseUri;
 
     private LRA.Type type;
     private boolean endLRA;
@@ -43,8 +39,8 @@ public class ServerLRAContext {
     private URI currentLRA;
     private boolean suspendedLRA;
     private URI parentLRA;
-    private boolean parentHeaderHandled;
-    private boolean clearContextHeader;
+    private boolean parentDecided;
+    private boolean clearIncomingLRA;
 
     private ParticipantCallbacks callbacks;
     private String recoveryUrl;
@@ -73,36 +69,12 @@ public class ServerLRAContext {
         return resourceClass;
     }
 
-    public String getAuthHeader() {
-        return authHeader;
-    }
-
-    public void setAuthHeader(String authHeader) {
-        this.authHeader = authHeader;
-    }
-
     public URI getIncomingLRA() {
         return incomingLRA;
     }
 
     public void setIncomingLRA(URI incomingLRA) {
         this.incomingLRA = incomingLRA;
-    }
-
-    public String getUriPrefix() {
-        return uriPrefix == null ? null : uriPrefix.get();
-    }
-
-    public void setUriPrefix(Supplier<String> uriPrefix) {
-        this.uriPrefix = uriPrefix;
-    }
-
-    public URI getBaseUri() {
-        return baseUri;
-    }
-
-    public void setBaseUri(URI baseUri) {
-        this.baseUri = baseUri;
     }
 
     public LRA.Type getType() {
@@ -185,20 +157,20 @@ public class ServerLRAContext {
         this.parentLRA = parentLRA;
     }
 
-    public boolean isParentHeaderHandled() {
-        return parentHeaderHandled;
+    public boolean isParentDecided() {
+        return parentDecided;
     }
 
-    public void setParentHeaderHandled(boolean parentHeaderHandled) {
-        this.parentHeaderHandled = parentHeaderHandled;
+    public void setParentDecided(boolean parentDecided) {
+        this.parentDecided = parentDecided;
     }
 
-    public boolean isClearContextHeader() {
-        return clearContextHeader;
+    public boolean isClearIncomingLRA() {
+        return clearIncomingLRA;
     }
 
-    public void setClearContextHeader(boolean clearContextHeader) {
-        this.clearContextHeader = clearContextHeader;
+    public void setClearIncomingLRA(boolean clearIncomingLRA) {
+        this.clearIncomingLRA = clearIncomingLRA;
     }
 
     public ParticipantCallbacks getCallbacks() {

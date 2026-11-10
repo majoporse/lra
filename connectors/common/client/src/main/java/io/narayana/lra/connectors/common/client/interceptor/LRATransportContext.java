@@ -5,45 +5,50 @@
 
 package io.narayana.lra.connectors.common.client.interceptor;
 
-import io.narayana.lra.Current;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
+import io.narayana.lra.connectors.common.client.invocation.ServerLRAContext;
+import jakarta.interceptor.InvocationContext;
 import java.net.URI;
-import java.util.List;
 
 /**
- * Transport-neutral access to the LRA metadata associated with the invocation currently being
- * processed by {@link LRAInterceptor}.
+ * The transport half of an intercepted invocation: it supplies inbound data and transport
+ * mechanics, and never decides LRA state.
  * <p>
- * The names used are the canonical header names defined by the MicroProfile LRA specification
- * (for example {@code Long-Running-Action}). HTTP maps them onto request/response headers,
- * messaging systems onto record/message headers and gRPC onto metadata. Each transport supplies
- * its own implementation of this interface; when none is present the default
- * {@link HttpLRATransportContext}, which reads the JAX-RS request and falls back to the
- * {@link Current} thread-local, is used.
- * <p>
- * Only the inbound side is modelled for now. Facilities for writing the LRA context onto an
- * outgoing message will be added together with the transports that require them.
+ * Each transport supplies an implementation (HTTP reads headers and patches JAX-RS arguments; a
+ * messaging transport reads record headers). When none is present the interceptor falls back to
+ * {@link CurrentTransportContext}.
  */
 public interface LRATransportContext {
 
     /**
-     * @param name the canonical LRA header name
-     * @return all the values associated with the given name, or an empty list when there are none
+     * @return the LRA the caller propagated, or {@code null} when there is none
+     * @throws io.narayana.lra.connectors.common.client.LRAAbortException when the inbound value is
+     *         malformed and the invocation must be stopped before the business method runs
      */
-    List<String> getHeaders(String name);
+    URI incomingLRA();
 
     /**
-     * Convenience accessor returning the last value associated with the given name.
+     * @return the raw credential the caller propagated (for example a JWT), or {@code null}
+     */
+    String credential();
+
+    /**
+     * Publish the effective LRA to the transport and patch any arguments the transport resolved
+     * before the interceptor chain ran.
      *
-     * @param name the canonical LRA header name
-     * @return the last value or {@code null} when there is none
+     * @param invocation the interception context
+     * @param context the state associated with this invocation
      */
-    default String getHeader(String name) {
-        return Current.getLast(getHeaders(name));
-    }
+    void bind(InvocationContext invocation, ServerLRAContext context);
 
     /**
-     * @return the base URI used to build URIs for LRA participant callbacks, or {@code null} when
-     *         not configured; a deployment setting, never derived from the current invocation
+     * Offer the response phase to the transport. A transport that owns completion (HTTP, whose
+     * cancel rules are status codes) stores the invocation and completes it once the response
+     * exists.
+     *
+     * @param invocation the interception context
+     * @param lraInvocation the invocation state to complete later
+     * @return whether the transport will complete the lifecycle itself
      */
-    URI getBaseUri();
+    boolean deferCompletion(InvocationContext invocation, LraInvocation lraInvocation);
 }
