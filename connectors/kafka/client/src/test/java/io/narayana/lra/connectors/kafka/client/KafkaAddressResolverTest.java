@@ -7,11 +7,11 @@ package io.narayana.lra.connectors.kafka.client;
 
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
-import io.narayana.lra.connectors.common.client.participant.ParticipantCallbackTarget;
+import io.narayana.lra.connectors.common.client.participant.LRAParticipant;
 import io.narayana.lra.connectors.common.config.CallbackConfig;
+import io.narayana.lra.connectors.common.contracts.CompensateCallback;
+import io.narayana.lra.connectors.common.contracts.StatusCallback;
 import io.narayana.lra.connectors.kafka.address.KafkaAddress;
-import java.net.URI;
-import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,23 +40,27 @@ public class KafkaAddressResolverTest {
 
     @Test
     public void writesTheServiceTopicAddresses() {
-        ParticipantCallbacks callbacks = new KafkaAddressResolver().resolve(new ParticipantCallbackTarget(
-                "order-service",
-                Set.of(CallbackType.COMPENSATE, CallbackType.STATUS),
-                URI.create("http://order:8080/")));
+        ParticipantCallbacks callbacks = new KafkaAddressResolver().resolve(new LRAParticipant(KafkaParticipant.class));
 
         KafkaAddress compensate = (KafkaAddress) callbacks.callback(CallbackType.COMPENSATE);
         KafkaAddress status = (KafkaAddress) callbacks.callback(CallbackType.STATUS);
 
         Assertions.assertEquals(SERVICE_TOPIC, compensate.topic());
-        Assertions.assertEquals("order-service", compensate.participantId());
+        Assertions.assertEquals(KafkaParticipant.class.getName(), compensate.participantId());
         Assertions.assertEquals(CallbackType.COMPENSATE, compensate.operation());
         Assertions.assertEquals(CallbackType.STATUS, status.operation());
         Assertions.assertNull(callbacks.callback(CallbackType.FORGET));
     }
 
-    @Test
-    public void hasTheKafkaProtocolId() {
-        Assertions.assertEquals("kafka", new KafkaAddressResolver().protocolId());
+    public static class KafkaParticipant {
+        @org.eclipse.microprofile.lra.annotation.Compensate
+        public CompensateCallback.Reply compensate(CompensateCallback.Request request) {
+            return null;
+        }
+
+        @org.eclipse.microprofile.lra.annotation.Status
+        public StatusCallback.Reply status(StatusCallback.Request request) {
+            return null;
+        }
     }
 }

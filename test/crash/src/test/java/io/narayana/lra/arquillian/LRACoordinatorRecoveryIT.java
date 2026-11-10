@@ -14,10 +14,10 @@ import static org.junit.jupiter.api.Assertions.fail;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.arquillian.internal.BytemanSignal;
 import io.narayana.lra.arquillian.resource.LRAListener;
+import io.narayana.lra.connectors.common.client.coordinator.LRAClientException;
 import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
 import io.narayana.lra.coordinator.domain.model.LongRunningAction;
 import io.narayana.lra.logging.LRALogger;
-import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.Entity;
@@ -289,8 +289,11 @@ public class LRACoordinatorRecoveryIT extends UnmanagedTestBase {
     private LRAStatus getStatus(URI lra) {
         try {
             return lraClient.getStatus(lra);
-        } catch (NotFoundException ignore) {
-            return null;
+        } catch (LRAClientException e) {
+            if (e.getKind() == LRAClientException.Kind.NOT_FOUND) {
+                return null;
+            }
+            throw e;
         }
     }
 

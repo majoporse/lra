@@ -11,13 +11,10 @@ import static io.narayana.lra.connectors.common.callbacks.CallbackType.COMPLETE;
 import static io.narayana.lra.connectors.common.callbacks.CallbackType.FORGET;
 import static io.narayana.lra.connectors.common.callbacks.CallbackType.STATUS;
 
-import io.narayana.lra.AnnotationResolver;
-import io.narayana.lra.connectors.common.callbacks.CallbackAddress;
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
 import io.narayana.lra.connectors.common.client.participant.Participant;
 import io.narayana.lra.connectors.common.client.participant.ParticipantCallbackAddressResolver;
-import io.narayana.lra.connectors.common.client.participant.ParticipantCallbackTarget;
 import io.narayana.lra.connectors.common.contracts.AfterLRACallback;
 import io.narayana.lra.connectors.common.contracts.CompensateCallback;
 import io.narayana.lra.connectors.common.contracts.CompleteCallback;
@@ -25,39 +22,19 @@ import io.narayana.lra.connectors.common.contracts.ForgetCallback;
 import io.narayana.lra.connectors.common.contracts.ParticipantReply;
 import io.narayana.lra.connectors.common.contracts.ParticipantRequest;
 import io.narayana.lra.connectors.common.contracts.StatusCallback;
-import io.narayana.lra.connectors.http.address.LegacyHttpAddress;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.enterprise.inject.spi.CDI;
-import jakarta.ws.rs.DELETE;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.HEAD;
-import jakarta.ws.rs.OPTIONS;
-import jakarta.ws.rs.POST;
-import jakarta.ws.rs.PUT;
-import jakarta.ws.rs.Path;
 import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.container.Suspended;
 import jakarta.ws.rs.core.Response;
-import java.lang.annotation.Annotation;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
 import java.net.URI;
-import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletionStage;
-import org.eclipse.microprofile.lra.annotation.AfterLRA;
-import org.eclipse.microprofile.lra.annotation.Compensate;
-import org.eclipse.microprofile.lra.annotation.Complete;
-import org.eclipse.microprofile.lra.annotation.Forget;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
-import org.eclipse.microprofile.lra.annotation.Status;
 
 /**
  * The MicroProfile LRA participant form: a bean whose callback methods are JAX-RS resource methods
@@ -68,10 +45,6 @@ import org.eclipse.microprofile.lra.annotation.Status;
  * transport-neutral callback proxy and registered as a contract address.
  */
 public class MicroProfileLRAParticipant implements Participant {
-
-    private static final Class<? extends Annotation>[] HTTP_VERBS = new Class[] {
-            GET.class, POST.class, PUT.class, DELETE.class, HEAD.class, OPTIONS.class
-    };
 
     private final Class<?> javaClass;
 
@@ -90,35 +63,11 @@ public class MicroProfileLRAParticipant implements Participant {
     public MicroProfileLRAParticipant(Class<?> javaClass) {
         this.javaClass = javaClass;
 
-        for (Method method : javaClass.getMethods()) {
-            CallbackType type = callbackTypeOf(method);
+        MicroProfileCallbackScan scan = MicroProfileCallbackScan.of(javaClass);
 
-            if (type == null) {
-                continue;
-            }
-
-            if (isContractShape(method)) {
-                // the method uses the transport-neutral callback contract; LRAParticipant owns it
-                continue;
-            }
-
-            if (isJaxRsMethod(method)) {
-                Path path = AnnotationResolver.resolveAnnotation(Path.class, method);
-
-                if (path != null) {
-                    pathCallbacks.put(type, normalise(path.value()));
-
-                    if (isAsyncCompletion(method) && (type == COMPENSATE || type == COMPLETE)) {
-                        asyncTermination = true;
-                    }
-                }
-
-                continue;
-            }
-
-            verifySignature(method, type);
-            callbackMethods.put(type, method);
-        }
+        callbackMethods.putAll(scan.generatedMethods());
+        pathCallbacks.putAll(scan.ownEndpointPaths());
+        asyncTermination = scan.asyncTermination();
     }
 
     @Override
@@ -136,14 +85,8 @@ public class MicroProfileLRAParticipant implements Participant {
         return callbackMethods.containsKey(type) || pathCallbacks.containsKey(type);
     }
 
-    /**
-     * @return whether the participant has callbacks the proxy has to invoke reflectively
-     */
-    public boolean hasGeneratedCallbacks() {
-        return !callbackMethods.isEmpty();
-    }
-
-    public Class<?> getJavaClass() {
+    @Override
+    public Class<?> participantClass() {
         return javaClass;
     }
 
@@ -153,18 +96,8 @@ public class MicroProfileLRAParticipant implements Participant {
     }
 
     @Override
-    public ParticipantCallbacks terminationCallbacks(ParticipantCallbackAddressResolver resolver, String uriPrefix,
-            URI baseUri) {
-        ParticipantCallbacks callbacks = new ParticipantCallbacks();
-
-        for (Map.Entry<CallbackType, String> entry : pathCallbacks.entrySet()) {
-            if (uriPrefix != null) {
-                callbacks.callback(entry.getKey(),
-                        address(resolver, entry.getKey(), URI.create(uriPrefix + entry.getValue())));
-            }
-        }
-
-        addGeneratedCallbacks(resolver, callbacks, baseUri);
+    public ParticipantCallbacks terminationCallbacks(ParticipantCallbackAddressResolver resolver) {
+        ParticipantCallbacks callbacks = resolver.resolve(this);
         checkAsyncTermination(callbacks, asyncTermination);
 
         return callbacks;
@@ -233,7 +166,8 @@ public class MicroProfileLRAParticipant implements Participant {
     // @Status to drain it
     private ParticipantReply pendingReply(CallbackType type, Method method, ParticipantRequest request,
             CompletionStage<?> stage) {
-        ParticipantResult pending = new ParticipantResult(getCompletionStageActualType(method));
+        ParticipantResult pending = new ParticipantResult(
+                MicroProfileCallbackScan.getCompletionStageActualType(method));
         participantStatusMap.put(request.lraId, pending);
 
         stage.thenAccept(pending::setValue)
@@ -414,41 +348,6 @@ public class MicroProfileLRAParticipant implements Participant {
                 && response.getStatus() == Response.Status.ACCEPTED.getStatusCode();
     }
 
-    private static String normalise(String path) {
-        return path.startsWith("/") ? path : "/" + path;
-    }
-
-    private CallbackAddress address(ParticipantCallbackAddressResolver resolver, CallbackType type, URI uri) {
-        // no resolver is wired when the filter runs outside a CDI container (unit tests, plain JAX-RS)
-        return resolver == null ? LegacyHttpAddress.of(type, uri, javaClass.getName())
-                : resolver.address(type, javaClass.getName(), uri);
-    }
-
-    // every callback without an endpoint of its own is served by the transport-neutral callback proxy
-    private void addGeneratedCallbacks(ParticipantCallbackAddressResolver resolver, ParticipantCallbacks callbacks,
-            URI baseUri) {
-        if (baseUri == null || resolver == null) {
-            return;
-        }
-
-        Set<CallbackType> generated = new LinkedHashSet<>();
-
-        for (CallbackType type : callbackMethods.keySet()) {
-            if (callbacks.callback(type) == null) {
-                generated.add(type);
-            }
-        }
-
-        if (generated.isEmpty()) {
-            return;
-        }
-
-        ParticipantCallbacks resolved = resolver.resolve(
-                new ParticipantCallbackTarget(javaClass.getName(), generated, baseUri));
-
-        generated.forEach(type -> callbacks.callback(type, resolved.callback(type)));
-    }
-
     // an asynchronous termination without a @Status or @Forget callback is invalid
     private void checkAsyncTermination(ParticipantCallbacks callbacks, boolean async) {
         if (async && callbacks.callback(STATUS) == null && callbacks.callback(FORGET) == null) {
@@ -457,137 +356,6 @@ public class MicroProfileLRAParticipant implements Participant {
             throw new WebApplicationException(
                     Response.status(Response.Status.BAD_REQUEST).entity(logMsg).build());
         }
-    }
-
-    private CallbackType callbackTypeOf(Method method) {
-        if (AnnotationResolver.isAnnotationPresent(AfterLRA.class, method)) {
-            return AFTER;
-        }
-        if (AnnotationResolver.isAnnotationPresent(Compensate.class, method)) {
-            return COMPENSATE;
-        }
-        if (AnnotationResolver.isAnnotationPresent(Complete.class, method)) {
-            return COMPLETE;
-        }
-        if (AnnotationResolver.isAnnotationPresent(Status.class, method)) {
-            return STATUS;
-        }
-        if (AnnotationResolver.isAnnotationPresent(Forget.class, method)) {
-            return FORGET;
-        }
-
-        return null;
-    }
-
-    private void verifySignature(Method method, CallbackType type) {
-        Class<?>[] parameterTypes = method.getParameterTypes();
-
-        if (type == AFTER) {
-            if (!method.getReturnType().equals(Void.TYPE)) {
-                throw new IllegalStateException(method.toGenericString() + ": invalid return type for @AfterLRA method");
-            }
-            if (parameterTypes.length > 2) {
-                throw new IllegalStateException(
-                        method.toGenericString() + ": @AfterLRA method cannot have more than 2 arguments");
-            }
-            if (parameterTypes.length > 0 && !parameterTypes[0].equals(URI.class)) {
-                throw new IllegalStateException(method.toGenericString() + ": invalid first argument of @AfterLRA method");
-            }
-            if (parameterTypes.length > 1 && !parameterTypes[1].equals(LRAStatus.class)) {
-                throw new IllegalStateException(method.toGenericString() + ": invalid second argument of @AfterLRA method");
-            }
-            return;
-        }
-
-        verifyReturnType(method);
-
-        if (parameterTypes.length > 2) {
-            throw new IllegalStateException(
-                    method.toGenericString() + ": participant method cannot have more than 2 arguments");
-        }
-        if (parameterTypes.length > 0 && !parameterTypes[0].equals(URI.class)) {
-            throw new IllegalStateException(method.toGenericString() + ": invalid argument type in LRA participant method");
-        }
-        if (parameterTypes.length > 1 && !parameterTypes[1].equals(URI.class)) {
-            throw new IllegalStateException(method.toGenericString() + ": invalid argument type in LRA participant method");
-        }
-    }
-
-    private boolean isJaxRsMethod(Method method) {
-        return Arrays.stream(HTTP_VERBS)
-                .anyMatch(annotationType -> AnnotationResolver.isAnnotationPresent(annotationType, method));
-    }
-
-    private static boolean isContractShape(Method method) {
-        Class<?>[] parameterTypes = method.getParameterTypes();
-
-        if (parameterTypes.length == 1 && ParticipantRequest.class.isAssignableFrom(parameterTypes[0])) {
-            return true;
-        }
-
-        Class<?> returnType = method.getReturnType();
-
-        if (ParticipantReply.class.isAssignableFrom(returnType)) {
-            return true;
-        }
-
-        if (returnType.equals(CompletionStage.class)) {
-            Type genericReturnType = method.getGenericReturnType();
-
-            return genericReturnType instanceof ParameterizedType parameterizedType
-                    && parameterizedType.getActualTypeArguments()[0] instanceof Class<?> actual
-                    && ParticipantReply.class.isAssignableFrom(actual);
-        }
-
-        return false;
-    }
-
-    private void verifyReturnType(Method method) {
-        Class<?> returnType = method.getReturnType();
-
-        if (returnType.equals(CompletionStage.class)) {
-            verifyReturnType(getCompletionStageActualType(method), method.toGenericString(), true);
-            return;
-        }
-
-        verifyReturnType(returnType, method.toGenericString(), false);
-    }
-
-    private void verifyReturnType(Class<?> returnType, String methodGenericString, boolean inCompletionStage) {
-        if (!returnType.equals(Void.TYPE) &&
-                !returnType.equals(Void.class) &&
-                !returnType.equals(ParticipantStatus.class) &&
-                !returnType.equals(Response.class)) {
-            throw new IllegalStateException(String.format("%s: %s",
-                    methodGenericString, "Invalid return type for participant method "
-                            + (inCompletionStage ? "CompletionStage<" + returnType + ">" : returnType)));
-        }
-    }
-
-    private static Class<?> getCompletionStageActualType(Method method) {
-        Type genericReturnType = method.getGenericReturnType();
-        ParameterizedType parameterizedType = (ParameterizedType) genericReturnType;
-        return (Class<?>) parameterizedType.getActualTypeArguments()[0];
-    }
-
-    /**
-     * @return whether the method is defined to be completed asynchronously, ie has a JAX-RS
-     *         {@link Suspended} parameter while annotated with {@link Complete} or {@link Compensate}
-     */
-    public static boolean isAsyncCompletion(Method method) {
-        if (AnnotationResolver.isAnnotationPresent(Complete.class, method)
-                || AnnotationResolver.isAnnotationPresent(Compensate.class, method)) {
-            for (Annotation[] ann : method.getParameterAnnotations()) {
-                for (Annotation an : ann) {
-                    if (Suspended.class.isAssignableFrom(an.annotationType())) {
-                        LRALogger.logger.warn("JAX-RS @Suspended annotation is untested");
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
     }
 
     private static final class ParticipantResult {

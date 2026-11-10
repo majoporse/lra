@@ -6,14 +6,11 @@
 package io.narayana.lra.connectors.http.client.participant;
 
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
-import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
 import io.narayana.lra.connectors.common.contracts.AfterLRACallback;
 import io.narayana.lra.connectors.common.contracts.CompensateCallback;
 import io.narayana.lra.connectors.common.contracts.ParticipantReply;
 import io.narayana.lra.connectors.common.contracts.ParticipantRequest;
 import io.narayana.lra.connectors.common.contracts.StatusCallback;
-import io.narayana.lra.connectors.http.address.HttpContractAddress;
-import io.narayana.lra.connectors.http.address.LegacyHttpAddress;
 import java.net.URI;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -25,56 +22,24 @@ import org.junit.jupiter.api.Test;
 public class MicroProfileLRAParticipantTest {
 
     private static final URI LRA_ID = URI.create("http://localhost:8080/lra/1");
-    private static final URI BASE_URI = URI.create("http://service:8080");
 
     @Test
-    public void registersTheJaxRsEndpointsOfTheParticipant() {
+    public void reportsTheDeclaredCallbacks() {
         MicroProfileLRAParticipant participant = new MicroProfileLRAParticipant(JaxRsParticipant.class);
 
-        ParticipantCallbacks callbacks = participant.terminationCallbacks(new HttpAddressResolver(),
-                BASE_URI.toASCIIString(), BASE_URI);
-
-        LegacyHttpAddress compensate = (LegacyHttpAddress) callbacks.callback(CallbackType.COMPENSATE);
-        Assertions.assertEquals(BASE_URI + "/work/compensate", compensate.uri().toASCIIString());
-        Assertions.assertEquals("PUT", compensate.method());
-        Assertions.assertEquals("ACTIVE", compensate.contextType());
-
-        LegacyHttpAddress status = (LegacyHttpAddress) callbacks.callback(CallbackType.STATUS);
-        Assertions.assertEquals(BASE_URI + "/work/status", status.uri().toASCIIString());
-        Assertions.assertEquals("GET", status.method());
+        Assertions.assertTrue(participant.hasCallbacks());
+        Assertions.assertTrue(participant.hasCallback(CallbackType.COMPENSATE));
+        Assertions.assertTrue(participant.hasCallback(CallbackType.STATUS));
+        Assertions.assertFalse(participant.hasCallback(CallbackType.FORGET));
+        Assertions.assertEquals(JaxRsParticipant.class, participant.participantClass());
     }
 
     @Test
-    public void registersGeneratedCallbacksOnTheContractProxy() {
+    public void reportsTheCallbacksServedByTheProxy() {
         MicroProfileLRAParticipant participant = new MicroProfileLRAParticipant(PlainParticipant.class);
 
-        ParticipantCallbacks callbacks = participant.terminationCallbacks(new HttpAddressResolver(), "", BASE_URI);
-
-        HttpContractAddress compensate = (HttpContractAddress) callbacks.callback(CallbackType.COMPENSATE);
-        Assertions.assertEquals(BASE_URI + "/lra-callback-proxy/" + PlainParticipant.class.getName() + "/compensate",
-                compensate.uri().toASCIIString());
-    }
-
-    @Test
-    public void registersAnEndpointDeclaredOnAnInterface() {
-        MicroProfileLRAParticipant participant = new MicroProfileLRAParticipant(InterfaceCallbackParticipant.class);
-
-        ParticipantCallbacks callbacks = participant.terminationCallbacks(new HttpAddressResolver(),
-                BASE_URI.toASCIIString(), null);
-
-        LegacyHttpAddress compensate = (LegacyHttpAddress) callbacks.callback(CallbackType.COMPENSATE);
-        Assertions.assertEquals(BASE_URI + "/work/compensate", compensate.uri().toASCIIString());
-    }
-
-    @Test
-    public void mixesEndpointAndGeneratedCallbacks() {
-        MicroProfileLRAParticipant participant = new MicroProfileLRAParticipant(MixedParticipant.class);
-
-        ParticipantCallbacks callbacks = participant.terminationCallbacks(new HttpAddressResolver(),
-                BASE_URI.toASCIIString(), BASE_URI);
-
-        Assertions.assertInstanceOf(LegacyHttpAddress.class, callbacks.callback(CallbackType.COMPENSATE));
-        Assertions.assertInstanceOf(HttpContractAddress.class, callbacks.callback(CallbackType.COMPLETE));
+        Assertions.assertTrue(participant.hasCallbacks());
+        Assertions.assertTrue(participant.hasCallback(CallbackType.COMPENSATE));
     }
 
     @Test
@@ -189,37 +154,6 @@ public class MicroProfileLRAParticipantTest {
         @org.eclipse.microprofile.lra.annotation.Compensate
         public ParticipantStatus compensate(URI lraId) {
             return ParticipantStatus.Compensated;
-        }
-    }
-
-    public interface CallbackInterface {
-
-        @jakarta.ws.rs.PUT
-        @jakarta.ws.rs.Path("/work/compensate")
-        @org.eclipse.microprofile.lra.annotation.Compensate
-        ParticipantStatus compensate(URI lraId);
-    }
-
-    @jakarta.ws.rs.Path("/callback-interface")
-    public static class InterfaceCallbackParticipant implements CallbackInterface {
-
-        @Override
-        public ParticipantStatus compensate(URI lraId) {
-            return ParticipantStatus.Compensated;
-        }
-    }
-
-    public static class MixedParticipant {
-        @jakarta.ws.rs.PUT
-        @jakarta.ws.rs.Path("/work/compensate")
-        @org.eclipse.microprofile.lra.annotation.Compensate
-        public ParticipantStatus compensate(URI lraId) {
-            return ParticipantStatus.Compensated;
-        }
-
-        @org.eclipse.microprofile.lra.annotation.Complete
-        public ParticipantStatus complete(URI lraId) {
-            return ParticipantStatus.Completed;
         }
     }
 

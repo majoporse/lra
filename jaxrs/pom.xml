@@ -18,8 +18,9 @@
 
   <dependencies>
     <dependency>
-      <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>lra-connector-http-client</artifactId>
+      <groupId>jakarta.ws.rs</groupId>
+      <artifactId>jakarta.ws.rs-api</artifactId>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.jboss.narayana.lra</groupId>

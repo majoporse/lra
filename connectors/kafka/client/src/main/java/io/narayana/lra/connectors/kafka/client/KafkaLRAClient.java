@@ -3,6 +3,7 @@ package io.narayana.lra.connectors.kafka.client;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
 import io.narayana.lra.connectors.common.client.coordinator.LRAClient;
+import io.narayana.lra.connectors.common.client.coordinator.LRAClientException;
 import io.narayana.lra.connectors.common.client.participant.protocol.CallbackPaths;
 import io.narayana.lra.connectors.common.client.participant.protocol.ParticipantConnector;
 import io.narayana.lra.connectors.common.config.CallbackConfig;
@@ -19,8 +20,6 @@ import io.narayana.lra.connectors.kafka.support.LRAKafkaConstants;
 import io.quarkus.arc.properties.IfBuildProperty;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.core.Response;
 import java.net.URI;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
@@ -72,13 +71,13 @@ public class KafkaLRAClient implements LRAClient {
             reply = kafkaOutbound.request(coordinatorTopic(), request,
                     Duration.ofSeconds(REPLY_TIMEOUT_SECONDS));
         } catch (RuntimeException e) {
-            throw new WebApplicationException("Kafka request failed: " + e.getMessage(),
-                    Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
+            throw new LRAClientException(500, LRAClientException.Kind.OTHER,
+                    "Kafka request failed: " + e.getMessage(), e);
         }
 
         if (reply == null) {
-            throw new WebApplicationException("Kafka request timed out",
-                    Response.Status.SERVICE_UNAVAILABLE.getStatusCode());
+            throw new LRAClientException(503, LRAClientException.Kind.UNAVAILABLE,
+                    "Kafka request timed out");
         }
 
         return reply;
@@ -90,8 +89,7 @@ public class KafkaLRAClient implements LRAClient {
 
     private void checkError(KafkaReply reply) {
         if (reply.getError() != null) {
-            throw new WebApplicationException(reply.getError(),
-                    Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
+            throw new LRAClientException(500, LRAClientException.Kind.OTHER, reply.getError());
         }
     }
 

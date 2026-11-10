@@ -14,6 +14,12 @@ public final class LRAKafkaConstants {
      */
     public static final String LRA_CONTEXT_HEADER = LRA_HTTP_CONTEXT_HEADER;
 
+    /**
+     * The record header carrying the propagated JWT, with the same name and value HTTP uses
+     * ({@code Bearer <token>}).
+     */
+    public static final String AUTHORIZATION_HEADER = "Authorization";
+
     // Kafka topic/channel names
     public static final String TOPIC_REQUEST = "lra-request";
     public static final String TOPIC_REPLY = "lra-reply";

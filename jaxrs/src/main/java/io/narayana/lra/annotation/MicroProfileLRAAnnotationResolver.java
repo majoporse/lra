@@ -3,13 +3,14 @@
    SPDX-License-Identifier: Apache-2.0
  */
 
-package io.narayana.lra.connectors.http.client.lifecycle;
+package io.narayana.lra.annotation;
 
 import io.narayana.lra.AnnotationResolver;
 import io.narayana.lra.PropagateToken;
 import io.narayana.lra.api.Outcome;
 import io.narayana.lra.connectors.common.client.interceptor.LRAAnnotationResolver;
 import io.narayana.lra.connectors.common.client.invocation.LRATransactionMetadata;
+import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Method;
 import java.time.Duration;
@@ -25,10 +26,13 @@ import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
 import org.eclipse.microprofile.lra.annotation.ws.rs.Leave;
 
 /**
- * {@link LRAAnnotationResolver} that reads the MicroProfile LRA annotations. It preserves the exact
- * behaviour that {@link io.narayana.lra.connectors.http.client.lifecycle.ServerLRAProcessor} had before it became
- * annotation-agnostic.
+ * The MicroProfile LRA binding of the neutral {@link LRAAnnotationResolver}.
+ * <p>
+ * The MicroProfile annotations carry JAX-RS types ({@code cancelOn} is expressed as
+ * {@code Response.Status} values), so this translator lives with the annotation artifact rather
+ * than in the transport-neutral engine. It maps them onto the neutral cancel conditions.
  */
+@ApplicationScoped
 public class MicroProfileLRAAnnotationResolver implements LRAAnnotationResolver {
 
     @Override

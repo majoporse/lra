@@ -5,40 +5,22 @@
 
 package io.narayana.lra.connectors.common.client.participant;
 
-import io.narayana.lra.connectors.common.callbacks.CallbackAddress;
-import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
-import java.net.URI;
 
 /**
- * Writes the callback endpoints a participant wants the coordinator to use.
+ * Writes the callback address book a participant wants the coordinator to use.
  * <p>
- * A resolver never sends anything; it only produces data for the join request.
+ * A resolver never sends anything; it only produces data for the join request. It owns every
+ * protocol detail of the address: whether a callback is served by the participant's own endpoint or
+ * by the callback proxy, and the base URI the addresses are built from.
  */
 public interface ParticipantCallbackAddressResolver {
 
     /**
-     * @return the participant protocol id this resolver implements ({@code "http"} or {@code "kafka"})
-     */
-    String protocolId();
-
-    /**
      * Build the callback endpoints for one participant.
      *
-     * @param target the participant id, the callback kinds it declares and its base URI (if the
-     *        wire format needs one)
+     * @param participant the participant whose class and declared callbacks define the addresses
      * @return the address book for the participant
      */
-    ParticipantCallbacks resolve(ParticipantCallbackTarget target);
-
-    /**
-     * Build one address. Legacy participant methods each have their own path, so the resolver is
-     * asked per endpoint instead of for the whole address book.
-     *
-     * @param type the callback kind
-     * @param participantId the participant id
-     * @param uri the endpoint URI the participant declared
-     * @return the connector's address for that endpoint
-     */
-    CallbackAddress address(CallbackType type, String participantId, URI uri);
+    ParticipantCallbacks resolve(Participant participant);
 }

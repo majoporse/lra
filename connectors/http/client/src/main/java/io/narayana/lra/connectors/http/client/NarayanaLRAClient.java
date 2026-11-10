@@ -22,6 +22,7 @@ import io.narayana.lra.LRAData;
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
 import io.narayana.lra.connectors.common.client.coordinator.LRAClient;
+import io.narayana.lra.connectors.common.client.coordinator.LRAClientException;
 import io.narayana.lra.connectors.common.client.participant.protocol.CallbackPaths;
 import io.narayana.lra.connectors.common.client.participant.protocol.ParticipantConnector;
 import io.narayana.lra.connectors.http.address.LegacyHttpAddress;
@@ -39,7 +40,7 @@ import io.smallrye.stork.api.Service;
 import io.smallrye.stork.api.ServiceDefinition;
 import io.smallrye.stork.api.config.ConfigWithType;
 import io.smallrye.stork.servicediscovery.staticlist.StaticConfiguration;
-import jakarta.enterprise.context.RequestScoped;
+import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.ProcessingException;
@@ -62,6 +63,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
@@ -80,7 +82,7 @@ import org.eclipse.microprofile.rest.client.RestClientBuilder;
  * read timeouts, custom hostname verifiers, and provider registration.
  * See {@link RestClientConfig} for details on available configuration options.
  */
-@RequestScoped
+@ApplicationScoped
 @ParticipantConnector(CallbackPaths.HTTP)
 public class NarayanaLRAClient implements LRAClient {
     /**
@@ -304,6 +306,98 @@ public class NarayanaLRAClient implements LRAClient {
         return CallbackPaths.HTTP;
     }
 
+    @Override
+    public URI startLRA(URI parentLRA, String clientID, Long timeout, ChronoUnit unit, boolean verbose) {
+        return neutral(() -> startLRAInternal(parentLRA, clientID, timeout, unit, verbose));
+    }
+
+    @Override
+    public void closeLRA(URI lraId, String compensator, String userData) {
+        neutral(() -> {
+            closeLRAInternal(lraId, compensator, userData);
+            return null;
+        });
+    }
+
+    @Override
+    public void cancelLRA(URI lraId, String compensator, String userData) {
+        neutral(() -> {
+            cancelLRAInternal(lraId, compensator, userData);
+            return null;
+        });
+    }
+
+    @Override
+    public void leaveLRA(URI lraId, String body) {
+        neutral(() -> {
+            leaveLRAInternal(lraId, body);
+            return null;
+        });
+    }
+
+    @Override
+    public LRAStatus getStatus(URI lraId) {
+        return neutral(() -> getStatusInternal(lraId));
+    }
+
+    @Override
+    public URI enlistCompensator(URI lraId, Long timeLimit, ParticipantCallbacks callbacks,
+            StringBuilder previousParticipantData, String participantId) {
+        return neutral(
+                () -> enlistCompensatorInternal(lraId, timeLimit, callbacks, previousParticipantData, participantId));
+    }
+
+    /*
+     * The connector-neutral client contract reports failures as LRAClientException; only these
+     * interface methods translate, so the processor never sees a JAX-RS type while callers of the
+     * HTTP-specific operations keep the coordinator's response.
+     */
+    private static <T> T neutral(Supplier<T> call) {
+        try {
+            return call.get();
+        } catch (WebApplicationException e) {
+            throw neutral(e);
+        } catch (ProcessingException e) {
+            throw new LRAClientException(503, LRAClientException.Kind.UNAVAILABLE, e.getMessage(), e);
+        }
+    }
+
+    private static LRAClientException neutral(WebApplicationException e) {
+        Response response = e.getResponse();
+        int status = response == null ? 500 : response.getStatus();
+        String body = responseBody(response);
+        String message = body != null ? body
+                : e.getMessage() != null ? e.getMessage()
+                        : response == null ? "coordinator call failed" : response.getStatusInfo().getReasonPhrase();
+
+        return new LRAClientException(status, kindOf(status), message, body, e);
+    }
+
+    private static String responseBody(Response response) {
+        if (response == null || !response.hasEntity()) {
+            return null;
+        }
+
+        try {
+            return response.readEntity(String.class);
+        } catch (RuntimeException e) {
+            // the entity stream was already consumed or is not a string
+            return null;
+        }
+    }
+
+    private static LRAClientException.Kind kindOf(int status) {
+        if (status == 404) {
+            return LRAClientException.Kind.NOT_FOUND;
+        }
+
+        if (status == 503) {
+            return LRAClientException.Kind.UNAVAILABLE;
+        }
+
+        return LRAClientException.Kind.OTHER;
+    }
+
     public URI startLRA(String clientID) throws WebApplicationException {
         return startLRA(clientID, 0L);
     }
@@ -351,7 +445,7 @@ public class NarayanaLRAClient implements LRAClient {
      * @return LRA id as URL
      * @throws WebApplicationException thrown when start of the LRA failed
      */
-    public URI startLRA(URI parentLRA, String clientID, Long timeout, ChronoUnit unit, boolean verbose)
+    private URI startLRAInternal(URI parentLRA, String clientID, Long timeout, ChronoUnit unit, boolean verbose)
             throws WebApplicationException {
         if (coordinatorCount > 1 && !lbMethodValid) {
             throw new WebApplicationException(Response.status(SERVICE_UNAVAILABLE)
@@ -477,11 +571,11 @@ public class NarayanaLRAClient implements LRAClient {
         endLRA(lraId, true, null, null);
     }
 
-    public void cancelLRA(URI lraId, String participantId, String userData) throws WebApplicationException {
+    private void cancelLRAInternal(URI lraId, String participantId, String userData) throws WebApplicationException {
         endLRA(lraId, false, participantId, userData);
     }
 
-    public void closeLRA(URI lraId, String participantId, String userData) throws WebApplicationException {
+    private void closeLRAInternal(URI lraId, String participantId, String userData) throws WebApplicationException {
         endLRA(lraId, true, participantId, userData);
     }
 
@@ -541,7 +635,7 @@ public class NarayanaLRAClient implements LRAClient {
         return enlistCompensator(lraId, timeLimit, callbacks, compensatorData, partId);
     }
 
-    public void leaveLRA(URI lraId, String body) throws WebApplicationException {
+    private void leaveLRAInternal(URI lraId, String body) throws WebApplicationException {
         try {
             // Build the CoordinatorClient using the base coordinator URL
             CoordinatorClient client = createCoordinatorClient(coordinatorUrl);
@@ -570,7 +664,7 @@ public class NarayanaLRAClient implements LRAClient {
         }
     }
 
-    public LRAStatus getStatus(URI uri) throws WebApplicationException {
+    private LRAStatus getStatusInternal(URI uri) throws WebApplicationException {
         String lraId = uri == null ? null : uri.toASCIIString();
 
         try {
@@ -815,8 +909,8 @@ public class NarayanaLRAClient implements LRAClient {
         return enlistCompensator(lraUri, timelimit, callbacks, compensatorData, partId);
     }
 
-    public URI enlistCompensator(URI uri, Long timelimit, ParticipantCallbacks links, StringBuilder compensatorData,
-            String partId) {
+    private URI enlistCompensatorInternal(URI uri, Long timelimit, ParticipantCallbacks links,
+            StringBuilder compensatorData, String partId) {
         // register with the coordinator
         String lraId = uri == null ? null : uri.toASCIIString();
         String data = compensatorData == null ? null : compensatorData.toString();

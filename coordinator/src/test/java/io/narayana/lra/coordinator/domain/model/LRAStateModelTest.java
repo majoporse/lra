@@ -11,7 +11,6 @@ import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
 import static io.narayana.lra.LRAConstants.FORGET;
 import static io.narayana.lra.LRAConstants.NESTED_COORDINATOR_PATH_NAME;
 import static io.narayana.lra.LRAConstants.STATUS;
-import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -19,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
+import io.narayana.lra.connectors.common.client.coordinator.LRAClientException;
 import io.narayana.lra.connectors.http.address.LegacyHttpAddress;
 import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
 import io.narayana.lra.connectors.http.client.participant.ParticipantStatusOctetStreamProvider;
@@ -31,10 +31,8 @@ import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.ApplicationPath;
 import jakarta.ws.rs.HeaderParam;
-import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.Entity;
@@ -209,10 +207,8 @@ public class LRAStateModelTest extends LRATestBase {
     private LRAStatus getStatus(URI lra) {
         try {
             return lraClient.getStatus(lra);
-        } catch (NotFoundException ignore) {
-            return null;
-        } catch (WebApplicationException e) {
-            if (e.getResponse().getStatus() == NOT_FOUND.getStatusCode()) {
+        } catch (LRAClientException e) {
+            if (e.getKind() == LRAClientException.Kind.NOT_FOUND) {
                 return null;
             }
             throw e;

@@ -9,7 +9,6 @@ import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
 import io.narayana.lra.connectors.common.contracts.ParticipantReply;
 import io.narayana.lra.connectors.common.contracts.ParticipantRequest;
-import java.net.URI;
 
 /**
  * The participant-side model of one bean: the callbacks it declares, the addresses it registers and
@@ -32,6 +31,12 @@ public interface Participant {
     String participantId();
 
     /**
+     * @return the bean class the participant model was built from; connectors read the callback
+     *         methods from it when they write the callback addresses
+     */
+    Class<?> participantClass();
+
+    /**
      * @return whether the bean declares at least one LRA callback
      */
     boolean hasCallbacks();
@@ -51,15 +56,10 @@ public interface Participant {
     /**
      * Build the addresses the coordinator should use for this participant.
      *
-     * @param resolver the connector's address resolver (nullable when no container is available)
-     * @param uriPrefix the base URI of the invocation, used by participant forms that register
-     *        JAX-RS endpoints (nullable)
-     * @param baseUri the configured callback base URI, used by forms that register generated
-     *        endpoints (nullable)
+     * @param resolver the connector's address resolver, never {@code null}
      * @return the callback address book, never {@code null}
      */
-    ParticipantCallbacks terminationCallbacks(ParticipantCallbackAddressResolver resolver, String uriPrefix,
-            URI baseUri);
+    ParticipantCallbacks terminationCallbacks(ParticipantCallbackAddressResolver resolver);
 
     /**
      * Invoke one callback.

@@ -10,6 +10,7 @@ import io.narayana.lra.connectors.common.client.participant.LRAParticipant;
 import io.narayana.lra.connectors.common.client.participant.Participant;
 import jakarta.enterprise.inject.spi.BeanManager;
 import java.util.Map;
+import java.util.ServiceLoader;
 import org.jboss.jandex.IndexView;
 
 /**
@@ -28,6 +29,18 @@ public final class ParticipantDiscovery {
     public ParticipantDiscovery(IndexView index, MicroProfileParticipantFactory factory) {
         this.support = new ParticipantDiscoverySupport(index);
         this.factory = factory;
+    }
+
+    /**
+     * @return the first MicroProfile participant factory on the classpath, or {@code null} when the
+     *         deployment has no protocol connector that contributes one
+     */
+    public static MicroProfileParticipantFactory serviceLoadedFactory() {
+        for (MicroProfileParticipantFactory factory : ServiceLoader.load(MicroProfileParticipantFactory.class)) {
+            return factory;
+        }
+
+        return null;
     }
 
     /**

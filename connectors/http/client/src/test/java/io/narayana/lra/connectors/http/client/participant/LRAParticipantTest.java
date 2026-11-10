@@ -15,7 +15,6 @@ import io.narayana.lra.connectors.common.contracts.CompleteCallback;
 import io.narayana.lra.connectors.common.contracts.ForgetCallback;
 import io.narayana.lra.connectors.common.contracts.ParticipantReply;
 import io.narayana.lra.connectors.common.contracts.StatusCallback;
-import io.narayana.lra.connectors.http.address.HttpContractAddress;
 import io.narayana.lra.connectors.http.contracts.HttpCompensateCallback;
 import java.net.URI;
 import java.util.Map;
@@ -147,18 +146,6 @@ public class LRAParticipantTest {
 
         ParticipantReply status = participant.invoke(CallbackType.STATUS, statusRequest(participant));
         Assertions.assertEquals(ParticipantStatus.Compensated, status.status);
-    }
-
-    @Test
-    public void buildsCallbacksUnderTheCallbackProxyPrefix() {
-        LRAParticipant participant = new LRAParticipant(SyncParticipant.class);
-
-        var callbacks = participant.terminationCallbacks(new HttpAddressResolver(), "",
-                URI.create("http://service:8080"));
-        HttpContractAddress callback = (HttpContractAddress) callbacks.callback(CallbackType.COMPENSATE);
-
-        Assertions.assertEquals("http://service:8080/lra-callback-proxy/" + SyncParticipant.class.getName()
-                + "/compensate", callback.uri().toASCIIString());
     }
 
     @Test

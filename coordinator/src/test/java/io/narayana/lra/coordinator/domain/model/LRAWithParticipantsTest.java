@@ -10,6 +10,7 @@ import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_PARENT_
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import io.narayana.lra.connectors.common.client.coordinator.LRAClientException;
 import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
 import io.narayana.lra.connectors.http.client.participant.ParticipantStatusOctetStreamProvider;
 import io.narayana.lra.connectors.http.coordinator.api.Coordinator;
@@ -18,7 +19,6 @@ import jakarta.ws.rs.ApplicationPath;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Application;
 import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Method;
@@ -61,9 +61,17 @@ public class LRAWithParticipantsTest extends LRATestBase {
                 lock.notify();
             }
             synchronized (lock) {
+                long deadline = System.currentTimeMillis() + 10_000;
+
                 while (!joinAttempted) {
+                    long remaining = deadline - System.currentTimeMillis();
+
+                    if (remaining <= 0) {
+                        fail("the test did not attempt to join the timed-out LRA");
+                    }
+
                     try {
-                        lock.wait();
+                        lock.wait(remaining);
                     } catch (InterruptedException e) {
                         fail("Could not wait");
                     }
@@ -161,7 +169,7 @@ public class LRAWithParticipantsTest extends LRATestBase {
             // Before compensate call is finished, Service 4 calls PUT
             // /lra-coordinator/{LraId} to attempt to join the Saga.
             // Exception is thrown because a timed-out lra cannot be joined
-            assertThrows(WebApplicationException.class,
+            assertThrows(LRAClientException.class,
                     () -> lraClient.joinLRA(lraId, null, URI.create("http://localhost:8081/service4/test"), null, "service4"));
             joinAttempted = true;
             lock.notify();

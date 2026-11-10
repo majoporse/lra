@@ -31,6 +31,7 @@ public class KafkaLRAProducerInterceptorTest {
     @AfterEach
     public void tearDown() {
         Current.popAll();
+        Current.clearAuthToken();
         System.clearProperty(KafkaLRAProducerInterceptor.PROPAGATION_ACTIVE);
     }
 
@@ -106,6 +107,53 @@ public class KafkaLRAProducerInterceptorTest {
             interceptor.onSend(record);
 
             Assertions.assertNull(record.headers().lastHeader(LRAKafkaConstants.LRA_CONTEXT_HEADER));
+        } finally {
+            Current.removeActiveLRACache(lraId);
+        }
+    }
+
+    @Test
+    public void writesThePropagatedCredential() {
+        Current.setAuthToken("header.payload.signature");
+
+        ProducerRecord<Object, Object> record = new ProducerRecord<>("orders", "payload");
+
+        new KafkaLRAProducerInterceptor(true).onSend(record);
+
+        Assertions.assertEquals("Bearer header.payload.signature",
+                new String(record.headers().lastHeader(LRAKafkaConstants.AUTHORIZATION_HEADER).value(),
+                        StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void leavesAnExplicitCredentialAlone() {
+        Current.setAuthToken("header.payload.signature");
+
+        ProducerRecord<Object, Object> record = new ProducerRecord<>("orders", "payload");
+        record.headers().add(LRAKafkaConstants.AUTHORIZATION_HEADER,
+                "Bearer explicit".getBytes(StandardCharsets.UTF_8));
+
+        new KafkaLRAProducerInterceptor(true).onSend(record);
+
+        Assertions.assertEquals("Bearer explicit",
+                new String(record.headers().lastHeader(LRAKafkaConstants.AUTHORIZATION_HEADER).value(),
+                        StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void writesTheCredentialEvenWhenTheLraHeaderIsExplicit() {
+        activate(lraId);
+        Current.setAuthToken("header.payload.signature");
+
+        try {
+            ProducerRecord<Object, Object> record = new ProducerRecord<>("orders", "payload");
+            record.headers().add(LRAKafkaConstants.LRA_CONTEXT_HEADER,
+                    "explicit".getBytes(StandardCharsets.UTF_8));
+
+            new KafkaLRAProducerInterceptor(true).onSend(record);
+
+            Assertions.assertEquals("explicit", headerValue(record));
+            Assertions.assertNotNull(record.headers().lastHeader(LRAKafkaConstants.AUTHORIZATION_HEADER));
         } finally {
             Current.removeActiveLRACache(lraId);
         }

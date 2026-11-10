@@ -3,7 +3,6 @@ package io.narayana.lra.connectors.common.client.participant;
 import io.narayana.lra.AnnotationResolver;
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
-import io.narayana.lra.connectors.common.client.participant.protocol.CallbackPaths;
 import io.narayana.lra.connectors.common.contracts.AfterLRACallback;
 import io.narayana.lra.connectors.common.contracts.CompensateCallback;
 import io.narayana.lra.connectors.common.contracts.CompleteCallback;
@@ -195,13 +194,8 @@ public class LRAParticipant implements Participant {
         return callbackMethods.containsKey(type);
     }
 
-    public ParticipantCallbacks terminationCallbacks(ParticipantCallbackAddressResolver resolver,
-            String uriPrefix, URI baseUri) {
-        if (baseUri == null && !CallbackPaths.KAFKA.equals(resolver.protocolId())) {
-            return new ParticipantCallbacks();
-        }
-
-        return resolver.resolve(new ParticipantCallbackTarget(participantId, callbackMethods.keySet(), baseUri));
+    public ParticipantCallbacks terminationCallbacks(ParticipantCallbackAddressResolver resolver) {
+        return resolver.resolve(this);
     }
 
     public synchronized ParticipantReply invoke(CallbackType type, ParticipantRequest request) {
@@ -271,7 +265,8 @@ public class LRAParticipant implements Participant {
         this.instance = instance;
     }
 
-    public Class<?> getJavaClass() {
+    @Override
+    public Class<?> participantClass() {
         return javaClass;
     }
 

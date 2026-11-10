@@ -9,9 +9,9 @@ import io.narayana.lra.connectors.common.client.invocation.LRATransactionMetadat
 import java.lang.reflect.Method;
 
 /**
- * Abstracts the source of the LRA annotations so that
- * {@link io.narayana.lra.connectors.http.client.lifecycle.ServerLRAProcessor} can be driven by the MicroProfile LRA
- * annotations (used by {@link io.narayana.lra.filter.interceptor.LRAInterceptor}).
+ * Abstracts the source of the LRA annotations so that the lifecycle processor can be driven by the
+ * MicroProfile LRA annotations. The implementation that reads those annotations lives with the
+ * annotation artifact, because they carry JAX-RS types.
  */
 public interface LRAAnnotationResolver {
 

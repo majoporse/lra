@@ -7,7 +7,6 @@ package io.narayana.lra.coordinator.domain.model;
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
 import static io.narayana.lra.connectors.http.client.NarayanaLRAClient.LB_METHOD_ROUND_ROBIN;
 import static io.narayana.lra.connectors.http.client.NarayanaLRAClient.LB_METHOD_STICKY;
-import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -16,11 +15,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import io.narayana.lra.Current;
+import io.narayana.lra.connectors.common.client.coordinator.LRAClientException;
 import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
 import io.narayana.lra.connectors.http.coordinator.api.Coordinator;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.ApplicationPath;
-import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
@@ -229,7 +228,7 @@ public class LBTest extends LRATestBase {
             URI lra = lraClient.startLRA(clientName);
             lraClient.closeLRA(lra);
             return lra;
-        } catch (WebApplicationException e) {
+        } catch (LRAClientException | WebApplicationException e) {
             if (shouldFail) {
                 fail("Unable to run LRA using lb method " + lb_method + ": " + e.getMessage());
             }
@@ -240,11 +239,8 @@ public class LBTest extends LRATestBase {
     LRAStatus getStatus(URI lra) {
         try {
             return lraClient.getStatus(lra);
-        } catch (NotFoundException ignore) {
-            return null;
-        } catch (WebApplicationException e) {
-            assertNotNull(e);
-            assertEquals(e.getResponse().getStatus(), NOT_FOUND.getStatusCode());
+        } catch (LRAClientException e) {
+            assertEquals(LRAClientException.Kind.NOT_FOUND, e.getKind());
             return null;
         }
     }

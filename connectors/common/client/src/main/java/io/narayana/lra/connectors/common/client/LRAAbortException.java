@@ -6,9 +6,9 @@
 package io.narayana.lra.connectors.common.client;
 
 /**
- * Thrown by {@link LRAInterceptor} when the LRA processing prevented the intercepted method from
- * being invoked (the transport-neutral equivalent of a JAX-RS
- * {@code ContainerRequestContext.abortWith} call).
+ * Thrown by {@link io.narayana.lra.connectors.common.client.interceptor.LRAInterceptor} when the
+ * LRA processing prevented the intercepted method from being invoked (the transport-neutral
+ * equivalent of a JAX-RS {@code ContainerRequestContext.abortWith} call).
  * <p>
  * The status code carries the same value that would have been used for the HTTP response so that a
  * transport adapter can map it to the appropriate error.

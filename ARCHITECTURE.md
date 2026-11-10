@@ -71,7 +71,7 @@ common.client
                  cdi/ (PortableParticipantDiscovery, LraBindingExtension),
                  jandex/ (ClassPathIndexer, DotNames, JandexAnnotationResolver)
   participant/   Participant, LRAParticipant, LRAParticipantRegistry, ParticipantIdProvider,
-                 ParticipantCallbackAddressResolver/Target,
+                 ParticipantCallbackAddressResolver,
                  protocol/ (ParticipantConnector, CallbackPaths, ParticipantProtocolRegistry)
   invocation/    ServerLRAContext, LRATransactionMetadata, LraInvocation, LRAParticipantData
   LRAAbortException
@@ -114,13 +114,16 @@ Rules:
   `lra-connector-common-client`. Discovery is transport-agnostic; it scans the MicroProfile LRA
   annotations only and never looks at `@Path`.
 - The transport-neutral lifecycle runtime (`ServerLRAContext`, `LRAAnnotationResolver`,
-  `LRATransactionMetadata`, `LraInvocation`) lives in `common.client.invocation`; it never imports
-  Jakarta REST. `LRATransportContext` and `LRAAbortException` are neutral SPIs there too. A future
-  Kafka adapter reuses these constructs and supplies its own transport adapter.
-- `narayana-lra` (`jaxrs`) is now the CDI interceptor module only: `LRAInterceptor`.
-  Everything that touches `ContainerRequestContext`/`ContainerResponseContext`, `Response.Status`,
-  JAX-RS client filters or `@Provider` discovery lives in `lra-connector-http-client`
-  (`inbound`/`outbound`).
+  `LRATransactionMetadata`, `LraInvocation`, `LraLifecycleProcessor`, `ServerLRAProcessor`) lives in
+  `common.client.{invocation,lifecycle,interceptor}`; it never imports Jakarta REST.
+  `LRATransportContext` and `LRAAbortException` are neutral SPIs there too. Every transport
+  contributes an adapter and reuses these constructs.
+- `narayana-lra` (`jaxrs`) is the MicroProfile annotation artifact: it holds
+  `MicroProfileLRAAnnotationResolver`, the context providers and the interceptor registration.
+  `LRAInterceptor` itself lives in `lra-connector-common-client`, because it must not depend on a
+  protocol. Everything that touches `ContainerRequestContext`/`ContainerResponseContext`,
+  `Response.Status`, JAX-RS client filters or `@Provider` discovery lives in
+  `lra-connector-http-client`.
 - The participant HTTP client owns the MicroProfile callback-shape **model**
   (`MicroProfileLRAParticipant`), the HTTP request/response filters and the HTTP adapters. It contributes
   that model to the shared discovery loop through a `MicroProfileParticipantFactory` service; the
@@ -137,12 +140,15 @@ Rules:
   live in `lra-connector-common-client`. The interceptor uses them; connector client modules
   implement the client and resolver.
 - `LRAInterceptor` is the only lifecycle driver. It reads `@LRA` (MicroProfile, now a CDI
-  interceptor binding), `@Leave` and `@PropagateToken`, and delegates to `ServerLRAProcessor`.
-  `ServerLRAFilter` no longer exists. `LraRequestContextFilter` captures the request context and
-  `LraResponseFilter` completes the invocation with the final HTTP status, writes the response
-  header and restores the thread-local state; neither reads annotations or owns lifecycle state.
-- JAX-RS resolves `@HeaderParam` before the interceptor chain, so the interceptor also replaces the
-  resolved LRA header arguments (context, parent, recovery) with the effective values.
+  interceptor binding), `@Leave` and `@PropagateToken`, asks `LRATransportContext` for the inbound
+  LRA and credential, and delegates the decisions to `LraLifecycleProcessor` (implemented by
+  `ServerLRAProcessor`). `ServerLRAFilter` no longer exists. `LraRequestContextFilter` captures the
+  request context and `LraResponseFilter` completes the invocation with the final HTTP status, writes
+  the response header and restores the thread-local state; neither reads annotations or owns
+  lifecycle state.
+- JAX-RS resolves `@HeaderParam` before the interceptor chain, so the HTTP transport adapter also
+  replaces the resolved LRA header arguments (context, parent, recovery) with the effective values.
+  That code lives in `HttpLRATransportContext`, not in the interceptor.
 - `ParticipantProtocolRegistry` selects the client and address resolver by
   `quarkus.lra.client.protocol`. It is a normal CDI bean with injected
   `Instance<LRAClient>`/`Instance<ParticipantCallbackAddressResolver>` lookups.
@@ -155,10 +161,12 @@ Rules:
   MicroProfile shape (`URI` arguments, `ParticipantStatus`/`Response`, `@Path` endpoints).
   `CompositeParticipant` selects the strategy per callback method, so one bean may mix both shapes;
   one `LRAParticipantRegistry` holds the result.
-- `ParticipantCallbackAddressResolver` (`lra-connector-common-client`) writes the join addresses.
-  MicroProfile-shaped callbacks that declare `@Path` and an HTTP verb ask it for their own endpoint;
-  every other callback (including all contract-shaped ones) is registered as a callback-proxy
-  address.
+- `ParticipantCallbackAddressResolver` (`lra-connector-common-client`) writes the whole join
+  address book for a participant. The connector decides whether a callback is the participant's own
+  endpoint (`LegacyHttpAddress`) or a callback-proxy address (`HttpContractAddress`), and derives
+  the base URI itself (`narayana.lra.base-uri` wins over the request base). MicroProfile-shaped
+  callbacks that declare `@Path` and an HTTP verb are own endpoints; every other callback
+  (including all contract-shaped ones) is registered as a callback-proxy address.
 - `CallbackReceiver` (`lra-connector-common-client`) is the only callback dispatcher. Inbound
   adapters (`LRACallbackResource`, `KafkaInboundListener`) only translate wire data.
 
@@ -224,7 +232,7 @@ interface CallbackAddress { CallbackType operation(); String participantId(); ..
    nothing in `common` or `service-base` changes.
 2. Add the connector project: `contracts`, `client`, `coordinator` (copy the Kafka/HTTP layout).
 3. Implement `CallbackDelivery<YourAddress>` in the coordinator module and
-   `ParticipantCallbackAddressResolver` (including `address(...)`) + `LRAClient` in the client
+   `ParticipantCallbackAddressResolver` (`resolve(Participant)` only) + `LRAClient` in the client
    module.
 4. Register the delivery in the coordinator adapter (`LRAService.registerDelivery`) or provide it
    as a CDI bean.

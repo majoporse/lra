@@ -26,6 +26,7 @@ import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
+import io.narayana.lra.connectors.common.client.coordinator.LRAClientException;
 import io.narayana.lra.connectors.common.contracts.LRAInfo;
 import io.narayana.lra.connectors.http.address.LegacyHttpAddress;
 import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
@@ -212,9 +213,9 @@ public class LRATest extends LRATestBase {
                             ids[i] = lraClient.startLRA(testName + i);
                             Current.pop(); // disassociate the LRA from the current thread
                             assertNotNull(ids[i]);
-                        } catch (WebApplicationException e) {
+                        } catch (LRAClientException e) {
                             fail(String.format("%s: step %d failed with HTTP status %d (%s)", testName, i,
-                                    e.getResponse().getStatus(), e.getMessage()));
+                                    e.getStatusCode(), e.getMessage()));
                         }
                     });
 
@@ -1056,15 +1057,17 @@ public class LRATest extends LRATestBase {
         try {
             LRAStatus cStatus = lraClient.getStatus(childId);
             assertEquals(LRAStatus.Closed, cStatus, "child did not close: " + cStatus);
-        } catch (NotFoundException ignore) {
+        } catch (LRAClientException e) {
             // must have been cleaned up by the coordinator after it closed
+            assertEquals(LRAClientException.Kind.NOT_FOUND, e.getKind());
         }
 
         try {
             LRAStatus pStatus = lraClient.getStatus(parentId);
             assertEquals(LRAStatus.Closed, pStatus, "parent did not close: " + pStatus);
-        } catch (NotFoundException ignore) {
+        } catch (LRAClientException e) {
             // must have been cleaned up by the coordinator after it closed
+            assertEquals(LRAClientException.Kind.NOT_FOUND, e.getKind());
         }
     }
 
@@ -1129,16 +1132,13 @@ public class LRATest extends LRATestBase {
         try {
             lraClient.startLRA(null, testName, null, ChronoUnit.MILLIS);
             fail("expected ServiceUnavailableException on startLRA");
-        } catch (WebApplicationException e) {
+        } catch (LRAClientException e) {
             // expected since the byteman script fails the attempt to write to the store
             lraClient.clearCurrent(true);
-            Response response = e.getResponse();
-            assertNotNull(response, "missing response object");
-            // the response should be 503
-            assertEquals(503, response.getStatus());
-            assertTrue(response.hasEntity());
-            String message = response.readEntity(String.class);
-            assertTrue(message.contains("LRA025032"), "message expected is LRA025032, but was " + message);
+            assertEquals(503, e.getStatusCode());
+            assertNotNull(e.getResponseBody(), "missing response body");
+            assertTrue(e.getResponseBody().contains("LRA025032"),
+                    "message expected is LRA025032, but was " + e.getResponseBody());
         }
 
         // verify that nothing was written to the store
@@ -1159,11 +1159,23 @@ public class LRATest extends LRATestBase {
             URI lraId = lraClient.startLRA(testName);
             enlist(lraId, "/test");
             fail("should have thrown ServiceUnavailableException while enlisting");
-        } catch (WebApplicationException e) {
+        } catch (LRAClientException | WebApplicationException e) {
             lraClient.clearCurrent(true);
-            assertEquals(Response.Status.SERVICE_UNAVAILABLE.getStatusCode(), e.getResponse().getStatus(),
-                    "Unexpected response code");
-            String reason = e.getResponse().readEntity(String.class);
+
+            int status;
+            String reason;
+
+            if (e instanceof LRAClientException clientFailure) {
+                status = clientFailure.getStatusCode();
+                reason = clientFailure.getResponseBody();
+            } else {
+                Response response = ((WebApplicationException) e).getResponse();
+                status = response.getStatus();
+                reason = response.readEntity(String.class);
+            }
+
+            assertEquals(Response.Status.SERVICE_UNAVAILABLE.getStatusCode(), status, "Unexpected response code");
+            assertNotNull(reason, "missing response body");
             assertTrue(reason.contains("LRA025032"),
                     "response does not contain LRA025032, but was " + reason); // LRA025032 means deactivate failed
         }
@@ -1288,11 +1300,8 @@ public class LRATest extends LRATestBase {
     LRAStatus getStatus(URI lra) {
         try {
             return lraClient.getStatus(lra);
-        } catch (NotFoundException ignore) {
-            return null;
-        } catch (WebApplicationException e) {
-            assertNotNull(e);
-            assertEquals(e.getResponse().getStatus(), NOT_FOUND.getStatusCode());
+        } catch (LRAClientException e) {
+            assertEquals(LRAClientException.Kind.NOT_FOUND, e.getKind());
             return null;
         }
     }

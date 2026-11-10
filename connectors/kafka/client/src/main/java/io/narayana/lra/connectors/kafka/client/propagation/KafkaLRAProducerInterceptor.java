@@ -45,15 +45,22 @@ public class KafkaLRAProducerInterceptor implements ProducerInterceptor<Object, 
 
     @Override
     public ProducerRecord<Object, Object> onSend(ProducerRecord<Object, Object> record) {
-        if (!canPropagate || record.headers().lastHeader(LRAKafkaConstants.LRA_CONTEXT_HEADER) != null) {
+        if (!canPropagate) {
             return record;
         }
 
         URI lraId = Current.peek();
 
-        if (lraId != null) {
+        if (lraId != null && record.headers().lastHeader(LRAKafkaConstants.LRA_CONTEXT_HEADER) == null) {
             record.headers().add(LRAKafkaConstants.LRA_CONTEXT_HEADER,
                     lraId.toASCIIString().getBytes(StandardCharsets.UTF_8));
+        }
+
+        String token = Current.getAuthToken();
+
+        if (token != null && record.headers().lastHeader(LRAKafkaConstants.AUTHORIZATION_HEADER) == null) {
+            record.headers().add(LRAKafkaConstants.AUTHORIZATION_HEADER,
+                    ("Bearer " + token).getBytes(StandardCharsets.UTF_8));
         }
 
         return record;

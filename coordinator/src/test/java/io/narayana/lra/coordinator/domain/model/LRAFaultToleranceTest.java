@@ -6,7 +6,6 @@
 package io.narayana.lra.coordinator.domain.model;
 
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
-import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -17,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 import io.narayana.lra.LRAConstants;
 import io.narayana.lra.connectors.common.callbacks.CallbackType;
 import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
+import io.narayana.lra.connectors.common.client.coordinator.LRAClientException;
 import io.narayana.lra.connectors.http.address.LegacyHttpAddress;
 import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
 import io.narayana.lra.connectors.http.client.participant.ParticipantStatusOctetStreamProvider;
@@ -29,16 +29,13 @@ import io.narayana.lra.coordinator.internal.LRARecoveryModule;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.ApplicationPath;
 import jakarta.ws.rs.HeaderParam;
-import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Application;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.Status;
 import java.lang.reflect.Method;
 import java.net.URI;
 import java.util.HashSet;
@@ -293,10 +290,8 @@ public class LRAFaultToleranceTest extends LRATestBase {
     private LRAStatus getStatus(URI lra) {
         try {
             return lraClient.getStatus(lra);
-        } catch (NotFoundException ignore) {
-            return null;
-        } catch (WebApplicationException e) {
-            if (e.getResponse().getStatus() == NOT_FOUND.getStatusCode()) {
+        } catch (LRAClientException e) {
+            if (e.getKind() == LRAClientException.Kind.NOT_FOUND) {
                 return null;
             }
             throw e;
@@ -955,11 +950,9 @@ public class LRAFaultToleranceTest extends LRATestBase {
         try {
             LRAStatus status = lraClient.getStatus(fakeLra);
             fail("getStatus on non-existent LRA should throw, but returned " + status);
-        } catch (NotFoundException e) {
-            // expected: 404
-        } catch (WebApplicationException e) {
-            assertEquals(Status.NOT_FOUND.getStatusCode(), e.getResponse().getStatus(),
-                    "getStatus on non-existent LRA should return 404, got " + e.getResponse().getStatus());
+        } catch (LRAClientException e) {
+            assertEquals(LRAClientException.Kind.NOT_FOUND, e.getKind(),
+                    "getStatus on non-existent LRA should return 404, got " + e.getStatusCode());
         }
     }
 
