@@ -9,7 +9,6 @@ import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT
 
 import io.narayana.lra.Current;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
-import io.narayana.lra.connectors.common.client.invocation.ServerLRAContext;
 import io.narayana.lra.connectors.common.client.lifecycle.LifecycleDecision;
 import io.narayana.lra.connectors.common.client.lifecycle.LraLifecycleProcessor;
 import io.narayana.lra.logging.LRALogger;
@@ -57,33 +56,31 @@ public class LraResponseFilter implements ContainerResponseFilter {
             return;
         }
 
-        ServerLRAContext context = invocation.getContext();
-
         try {
-            LifecycleDecision decision = processor.processResponse(context,
-                    processor.isCancel(context, responseContext.getStatus()));
+            LifecycleDecision decision = processor.processResponse(invocation,
+                    processor.isCancel(invocation, responseContext.getStatus()));
 
             if (decision.hasFailure()) {
                 responseContext.setEntity(decision.failureMessage());
                 LRALogger.logger.warn(decision.failureMessage());
             }
 
-            updateResponseHeader(context, responseContext);
+            updateResponseHeader(invocation, responseContext);
         } finally {
             // the HTTP request boundary ends every context this request created
             Current.popAll();
-            Current.removeActiveLRACache(context.getCurrentLRA());
+            Current.removeActiveLRACache(invocation.getCurrentLRA());
             Current.clearAuthToken();
             requestContext.removeProperty(LraInvocation.PROPERTY);
         }
     }
 
-    private static void updateResponseHeader(ServerLRAContext context, ContainerResponseContext responseContext) {
+    private static void updateResponseHeader(LraInvocation invocation, ContainerResponseContext responseContext) {
         // a nested/requires-new/not-supported invocation suspended the caller's LRA: the response
         // advertises the LRA the caller is still in, never the one this invocation ended
-        URI lraId = context.isSuspendedLRA() && context.getIncomingLRA() != null
-                ? context.getIncomingLRA()
-                : context.getCurrentLRA();
+        URI lraId = invocation.isSuspendedLRA() && invocation.getIncomingLRA() != null
+                ? invocation.getIncomingLRA()
+                : invocation.getCurrentLRA();
 
         if (lraId != null) {
             responseContext.getHeaders().put(LRA_HTTP_CONTEXT_HEADER, List.of(lraId));

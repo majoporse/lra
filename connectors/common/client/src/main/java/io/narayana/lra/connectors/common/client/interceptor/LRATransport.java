@@ -6,7 +6,6 @@
 package io.narayana.lra.connectors.common.client.interceptor;
 
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
-import io.narayana.lra.connectors.common.client.invocation.ServerLRAContext;
 import jakarta.interceptor.InvocationContext;
 import java.net.URI;
 
@@ -16,9 +15,9 @@ import java.net.URI;
  * <p>
  * Each transport supplies an implementation (HTTP reads headers and patches JAX-RS arguments; a
  * messaging transport reads record headers). When none is present the interceptor falls back to
- * {@link CurrentTransportContext}.
+ * {@link CurrentTransport}.
  */
-public interface LRATransportContext {
+public interface LRATransport {
 
     /**
      * @return the LRA the caller propagated, or {@code null} when there is none
@@ -37,9 +36,9 @@ public interface LRATransportContext {
      * before the interceptor chain ran.
      *
      * @param invocation the interception context
-     * @param context the state associated with this invocation
+     * @param lraInvocation the state associated with this invocation
      */
-    void bind(InvocationContext invocation, ServerLRAContext context);
+    void bind(InvocationContext invocation, LraInvocation lraInvocation);
 
     /**
      * Offer the response phase to the transport. A transport that owns completion (HTTP, whose

@@ -5,14 +5,13 @@
 
 package io.narayana.lra.connectors.common.client.interceptor;
 
-import io.narayana.lra.AnnotationResolver;
 import io.narayana.lra.Current;
 import io.narayana.lra.api.LifecycleException;
 import io.narayana.lra.api.Outcome;
 import io.narayana.lra.api.Result;
 import io.narayana.lra.connectors.common.client.LRAAbortException;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
-import io.narayana.lra.connectors.common.client.invocation.ServerLRAContext;
+import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
 import io.narayana.lra.connectors.common.client.lifecycle.LifecycleDecision;
 import io.narayana.lra.connectors.common.client.lifecycle.LraLifecycleProcessor;
 import io.narayana.lra.logging.LRALogger;
@@ -59,7 +58,7 @@ public class LRAInterceptor {
     LRAAnnotationResolver resolver;
 
     @Inject
-    LRATransportContext transport;
+    LRATransport transport;
 
     @Inject
     LraLifecycleProcessor processor;
@@ -67,8 +66,9 @@ public class LRAInterceptor {
     @AroundInvoke
     public Object intercept(InvocationContext invocationContext) throws Exception {
         Method method = invocationContext.getMethod();
+        LraMethodMetadata metadata = resolver.resolve(method);
 
-        if (resolver.isParticipantCallback(method) || !actsOn(method, resolver)) {
+        if (metadata.isParticipantCallback() || !metadata.isManaged()) {
             return invocationContext.proceed();
         }
 
@@ -78,19 +78,18 @@ public class LRAInterceptor {
         List<Object> contextsOnEntry = Current.getContexts();
         String authTokenOnEntry = Current.getAuthToken();
 
-        if (resolver.propagateToken(method)) {
+        if (metadata.isPropagateToken()) {
             propagateCredential(transport.credential());
         }
 
-        ServerLRAContext context = new ServerLRAContext(method,
-                resolveResourceClass(invocationContext, method));
-        context.setIncomingLRA(transport.incomingLRA());
+        LraInvocation invocation = new LraInvocation(method,
+                resolveResourceClass(invocationContext, method), metadata, contextsOnEntry, authTokenOnEntry);
+        invocation.setIncomingLRA(transport.incomingLRA());
 
-        processor.processRequest(context);
-        transport.bind(invocationContext, context);
+        processor.processRequest(invocation);
+        transport.bind(invocationContext, invocation);
 
-        LraInvocation lraInvocation = new LraInvocation(context, contextsOnEntry, authTokenOnEntry);
-        boolean deferred = transport.deferCompletion(invocationContext, lraInvocation);
+        boolean deferred = transport.deferCompletion(invocationContext, invocation);
 
         if (!deferred && isAsynchronous(method)) {
             throw new IllegalStateException(String.format(
@@ -99,7 +98,7 @@ public class LRAInterceptor {
                     method.toGenericString()));
         }
 
-        boolean aborted = context.isAborted();
+        boolean aborted = invocation.isAborted();
         Object result = null;
         Throwable thrown = null;
         Outcome outcome = aborted ? Outcome.SERVER_ERROR : Outcome.SUCCESS;
@@ -118,7 +117,7 @@ public class LRAInterceptor {
             // the transport completes the lifecycle once its response (and therefore the cancel
             // decision) exists, and restores the thread-local state
             if (aborted) {
-                throw abortException(context, null);
+                throw abortException(invocation, null);
             }
 
             rethrow(thrown);
@@ -128,15 +127,15 @@ public class LRAInterceptor {
         LifecycleDecision decision;
 
         try {
-            decision = processor.processResponse(context,
-                    processor.isCancel(context, outcome, thrown != null || aborted));
+            decision = processor.processResponse(invocation,
+                    processor.isCancel(invocation, outcome, thrown != null || aborted));
         } finally {
-            lraInvocation.restoreCurrent();
+            invocation.restoreCurrent();
         }
 
         if (aborted) {
             // the request processing stopped the invocation before the method could run
-            throw abortException(context, decision.failureMessage());
+            throw abortException(invocation, decision.failureMessage());
         }
 
         /*
@@ -165,18 +164,10 @@ public class LRAInterceptor {
         }
     }
 
-    private LRAAbortException abortException(ServerLRAContext context, String failureMessage) {
-        String message = failureMessage != null ? failureMessage : context.getAbortMessage();
+    private LRAAbortException abortException(LraInvocation invocation, String failureMessage) {
+        String message = failureMessage != null ? failureMessage : invocation.getAbortMessage();
 
-        return new LRAAbortException(context.getAbortStatusCode(), message);
-    }
-
-    // a class-level or method-level @LRA, a @Leave or a @PropagateToken is what the interceptor acts on
-    private static boolean actsOn(Method method, LRAAnnotationResolver resolver) {
-        return AnnotationResolver.isAnnotationPresent(LRA.class, method)
-                || method.getDeclaringClass().getDeclaredAnnotation(LRA.class) != null
-                || resolver.isLeave(method)
-                || resolver.propagateToken(method);
+        return new LRAAbortException(invocation.getAbortStatusCode(), message);
     }
 
     private static boolean isAsynchronous(Method method) {

@@ -12,9 +12,8 @@ import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_RECOVER
 import io.narayana.lra.AnnotationResolver;
 import io.narayana.lra.Current;
 import io.narayana.lra.connectors.common.client.LRAAbortException;
-import io.narayana.lra.connectors.common.client.interceptor.LRATransportContext;
+import io.narayana.lra.connectors.common.client.interceptor.LRATransport;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
-import io.narayana.lra.connectors.common.client.invocation.ServerLRAContext;
 import io.narayana.lra.connectors.http.support.BearerTokenResolver;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.annotation.Priority;
@@ -53,7 +52,7 @@ import java.util.List;
 @ApplicationScoped
 @Alternative
 @Priority(1)
-public class HttpLRATransportContext implements LRATransportContext {
+public class HttpLraTransport implements LRATransport {
 
     private static final Class<? extends Annotation>[] HTTP_VERBS = new Class[] {
             GET.class, POST.class, PUT.class, DELETE.class, HEAD.class, OPTIONS.class
@@ -113,9 +112,9 @@ public class HttpLRATransportContext implements LRATransportContext {
     }
 
     @Override
-    public void bind(InvocationContext invocation, ServerLRAContext context) {
-        updateRequestHeaders(context);
-        patchHeaderParameters(invocation, context);
+    public void bind(InvocationContext invocation, LraInvocation lraInvocation) {
+        updateRequestHeaders(lraInvocation);
+        patchHeaderParameters(invocation, lraInvocation);
     }
 
     @Override
@@ -190,7 +189,7 @@ public class HttpLRATransportContext implements LRATransportContext {
     // JAX-RS resolves @HeaderParam before the interceptor chain runs, so the LRA the processor
     // started or joined would otherwise not be visible to the business method. Replace the resolved
     // LRA header arguments (and only those) with the effective values.
-    private static void patchHeaderParameters(InvocationContext invocationContext, ServerLRAContext context) {
+    private static void patchHeaderParameters(InvocationContext invocationContext, LraInvocation lraInvocation) {
         Object[] parameters = invocationContext.getParameters();
 
         if (parameters == null || parameters.length == 0) {
@@ -211,11 +210,12 @@ public class HttpLRATransportContext implements LRATransportContext {
             Object value;
 
             switch (header.value()) {
-                case LRA_HTTP_CONTEXT_HEADER -> value = context.isClearIncomingLRA()
+                case LRA_HTTP_CONTEXT_HEADER -> value = lraInvocation.isClearIncomingLRA()
                         ? null
-                        : context.getCurrentLRA() != null ? context.getCurrentLRA() : context.getIncomingLRA();
-                case LRA_HTTP_PARENT_CONTEXT_HEADER -> value = context.getParentLRA();
-                case LRA_HTTP_RECOVERY_HEADER -> value = context.getRecoveryUrl();
+                        : lraInvocation.getCurrentLRA() != null ? lraInvocation.getCurrentLRA()
+                                : lraInvocation.getIncomingLRA();
+                case LRA_HTTP_PARENT_CONTEXT_HEADER -> value = lraInvocation.getParentLRA();
+                case LRA_HTTP_RECOVERY_HEADER -> value = lraInvocation.getRecoveryUrl();
                 default -> {
                     continue;
                 }
@@ -241,7 +241,7 @@ public class HttpLRATransportContext implements LRATransportContext {
     // the request is the inbound carrier, so the LRA the processor started or joined must be
     // published on it before the business method runs (for readers of HttpHeaders and of the
     // unannotated-resource propagation rule)
-    private void updateRequestHeaders(ServerLRAContext context) {
+    private void updateRequestHeaders(LraInvocation lraInvocation) {
         ContainerRequestContext requestContext = requestContext();
 
         if (requestContext == null) {
@@ -250,22 +250,22 @@ public class HttpLRATransportContext implements LRATransportContext {
 
         MultivaluedMap<String, String> headers = requestContext.getHeaders();
 
-        if (context.isParentDecided()) {
-            if (context.getParentLRA() != null) {
-                headers.putSingle(LRA_HTTP_PARENT_CONTEXT_HEADER, context.getParentLRA().toASCIIString());
+        if (lraInvocation.isParentDecided()) {
+            if (lraInvocation.getParentLRA() != null) {
+                headers.putSingle(LRA_HTTP_PARENT_CONTEXT_HEADER, lraInvocation.getParentLRA().toASCIIString());
             } else {
                 headers.remove(LRA_HTTP_PARENT_CONTEXT_HEADER);
             }
         }
 
-        if (context.isClearIncomingLRA()) {
+        if (lraInvocation.isClearIncomingLRA()) {
             headers.remove(LRA_HTTP_CONTEXT_HEADER);
-        } else if (context.getCurrentLRA() != null) {
-            headers.putSingle(LRA_HTTP_CONTEXT_HEADER, context.getCurrentLRA().toString());
+        } else if (lraInvocation.getCurrentLRA() != null) {
+            headers.putSingle(LRA_HTTP_CONTEXT_HEADER, lraInvocation.getCurrentLRA().toString());
         }
 
-        if (context.getRecoveryUrl() != null) {
-            headers.putSingle(LRA_HTTP_RECOVERY_HEADER, context.getRecoveryUrl());
+        if (lraInvocation.getRecoveryUrl() != null) {
+            headers.putSingle(LRA_HTTP_RECOVERY_HEADER, lraInvocation.getRecoveryUrl());
         }
     }
 

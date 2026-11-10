@@ -7,10 +7,10 @@ package io.narayana.lra.connectors.http.client.jaxrs;
 
 import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_CONTEXT_HEADER;
 
-import io.narayana.lra.AnnotationResolver;
 import io.narayana.lra.Current;
 import io.narayana.lra.connectors.common.client.interceptor.LRAAnnotationResolver;
-import io.narayana.lra.connectors.common.client.invocation.ServerLRAContext;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
+import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
 import io.narayana.lra.connectors.common.client.lifecycle.LraLifecycleProcessor;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -22,7 +22,6 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.Provider;
 import java.lang.reflect.Method;
 import java.net.URI;
-import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
 
 /**
  * The JAX-RS side of the request: it captures the request context for the interceptor and
@@ -59,12 +58,18 @@ public class LraRequestContextFilter implements ContainerRequestFilter {
 
         Method method = resourceInfo == null ? null : resourceInfo.getResourceMethod();
 
-        if (method != null && isLeaveOnly(method)) {
-            leave(requestContext, method);
+        if (method == null) {
             return;
         }
 
-        if (method == null || isManaged(method)) {
+        LraMethodMetadata metadata = resolver.resolve(method);
+
+        if (metadata.isLeave() && metadata.getPropagation() == null) {
+            leave(requestContext, method, metadata);
+            return;
+        }
+
+        if (metadata.isManaged() || metadata.isParticipantCallback()) {
             return;
         }
 
@@ -79,41 +84,27 @@ public class LraRequestContextFilter implements ContainerRequestFilter {
         requestContext.setProperty(LraResponseFilter.PROPAGATION_PROPERTY, incoming);
     }
 
-    private boolean isManaged(Method method) {
-        // participant callbacks run with the incoming LRA context and must still see the header
-        return resolver.isParticipantCallback(method)
-                || AnnotationResolver.isAnnotationPresent(LRA.class, method)
-                || method.getDeclaringClass().isAnnotationPresent(LRA.class)
-                || resolver.isLeave(method)
-                || resolver.propagateToken(method);
-    }
-
     /**
      * The interceptor is bound through {@code @LRA}, so a {@code @Leave} method on a bean without
      * any {@code @LRA} declaration would never be intercepted. Such methods are handled here,
      * before JAX-RS invokes the business method.
      */
-    private boolean isLeaveOnly(Method method) {
-        return resolver.isLeave(method)
-                && !AnnotationResolver.isAnnotationPresent(LRA.class, method)
-                && !method.getDeclaringClass().isAnnotationPresent(LRA.class);
-    }
-
-    private void leave(ContainerRequestContext requestContext, Method method) {
+    private void leave(ContainerRequestContext requestContext, Method method, LraMethodMetadata metadata) {
         String incoming = requestContext.getHeaderString(LRA_HTTP_CONTEXT_HEADER);
 
         if (incoming == null) {
             return;
         }
 
-        ServerLRAContext context = new ServerLRAContext(method, resourceInfo.getResourceClass());
-        context.setIncomingLRA(URI.create(incoming));
+        LraInvocation invocation = new LraInvocation(method, resourceInfo.getResourceClass(), metadata,
+                Current.getContexts(), Current.getAuthToken());
+        invocation.setIncomingLRA(URI.create(incoming));
 
-        processor.processRequest(context);
+        processor.processRequest(invocation);
 
-        if (context.isAborted()) {
-            requestContext.abortWith(Response.status(context.getAbortStatusCode())
-                    .entity(context.getAbortMessage()).build());
+        if (invocation.isAborted()) {
+            requestContext.abortWith(Response.status(invocation.getAbortStatusCode())
+                    .entity(invocation.getAbortMessage()).build());
             return;
         }
 

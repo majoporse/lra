@@ -9,7 +9,7 @@ import io.narayana.lra.AnnotationResolver;
 import io.narayana.lra.PropagateToken;
 import io.narayana.lra.api.Outcome;
 import io.narayana.lra.connectors.common.client.interceptor.LRAAnnotationResolver;
-import io.narayana.lra.connectors.common.client.invocation.LRATransactionMetadata;
+import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Method;
@@ -36,15 +36,20 @@ import org.eclipse.microprofile.lra.annotation.ws.rs.Leave;
 public class MicroProfileLRAAnnotationResolver implements LRAAnnotationResolver {
 
     @Override
-    public LRATransactionMetadata resolveTransaction(Method method) {
+    public LraMethodMetadata resolve(Method method) {
         LRA transactional = AnnotationResolver.resolveAnnotation(LRA.class, method);
 
         if (transactional == null) {
             transactional = method.getDeclaringClass().getDeclaredAnnotation(LRA.class);
         }
 
+        boolean leave = isLeave(method);
+        boolean participantCallback = isParticipantCallback(method);
+        boolean propagateToken = propagateToken(method);
+
         if (transactional == null) {
-            return null;
+            return new LraMethodMetadata(null, false, null, null, null, leave, participantCallback,
+                    propagateToken);
         }
 
         Long timeLimitMillis = transactional.timeLimit() != 0
@@ -59,8 +64,9 @@ public class MicroProfileLRAAnnotationResolver implements LRAAnnotationResolver 
                         .collect(Collectors.toSet())
                 : null;
 
-        return new LRATransactionMetadata(LRA.Type.valueOf(transactional.value().name()),
-                transactional.end(), timeLimitMillis, cancelOn, cancelOnFamily);
+        return new LraMethodMetadata(LRA.Type.valueOf(transactional.value().name()),
+                transactional.end(), timeLimitMillis, cancelOn, cancelOnFamily, leave,
+                participantCallback, propagateToken);
     }
 
     private static Outcome outcomeOf(Response.Status.Family family) {
@@ -74,13 +80,11 @@ public class MicroProfileLRAAnnotationResolver implements LRAAnnotationResolver 
         };
     }
 
-    @Override
-    public boolean isLeave(Method method) {
+    private static boolean isLeave(Method method) {
         return AnnotationResolver.isAnnotationPresent(Leave.class, method);
     }
 
-    @Override
-    public boolean isParticipantCallback(Method method) {
+    private static boolean isParticipantCallback(Method method) {
         return AnnotationResolver.isAnnotationPresent(Compensate.class, method)
                 || AnnotationResolver.isAnnotationPresent(Complete.class, method)
                 || AnnotationResolver.isAnnotationPresent(Status.class, method)
@@ -88,8 +92,7 @@ public class MicroProfileLRAAnnotationResolver implements LRAAnnotationResolver 
                 || AnnotationResolver.isAnnotationPresent(AfterLRA.class, method);
     }
 
-    @Override
-    public boolean propagateToken(Method method) {
+    private static boolean propagateToken(Method method) {
         return AnnotationResolver.isAnnotationPresent(PropagateToken.class, method)
                 || method.getDeclaringClass().isAnnotationPresent(PropagateToken.class);
     }

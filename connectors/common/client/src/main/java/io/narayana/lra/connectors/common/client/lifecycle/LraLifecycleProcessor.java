@@ -6,7 +6,7 @@
 package io.narayana.lra.connectors.common.client.lifecycle;
 
 import io.narayana.lra.api.Outcome;
-import io.narayana.lra.connectors.common.client.invocation.ServerLRAContext;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
 
 /**
  * The one lifecycle state machine. It turns the resolved transaction metadata into start, join,
@@ -23,7 +23,7 @@ public interface LraLifecycleProcessor {
      *
      * @param context the state associated with this invocation
      */
-    void processRequest(ServerLRAContext context);
+    void processRequest(LraInvocation context);
 
     /**
      * Run the response phase and report what the caller has to be told.
@@ -32,7 +32,7 @@ public interface LraLifecycleProcessor {
      * @param cancel whether the invocation result matches the cancel conditions
      * @return the decision for this invocation
      */
-    LifecycleDecision processResponse(ServerLRAContext context, boolean cancel);
+    LifecycleDecision processResponse(LraInvocation context, boolean cancel);
 
     /**
      * Decide whether a transport-neutral outcome matches the cancel conditions of a plain CDI
@@ -43,7 +43,7 @@ public interface LraLifecycleProcessor {
      * @param failed whether the method failed
      * @return whether the LRA must be cancelled
      */
-    boolean isCancel(ServerLRAContext context, Outcome outcome, boolean failed);
+    boolean isCancel(LraInvocation context, Outcome outcome, boolean failed);
 
     /**
      * Decide whether a status reported by the transport matches the cancel conditions.
@@ -52,5 +52,5 @@ public interface LraLifecycleProcessor {
      * @param statusCode the transport status
      * @return whether the LRA must be cancelled
      */
-    boolean isCancel(ServerLRAContext context, int statusCode);
+    boolean isCancel(LraInvocation context, int statusCode);
 }

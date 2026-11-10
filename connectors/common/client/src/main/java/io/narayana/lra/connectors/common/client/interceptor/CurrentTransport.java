@@ -7,7 +7,6 @@ package io.narayana.lra.connectors.common.client.interceptor;
 
 import io.narayana.lra.Current;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
-import io.narayana.lra.connectors.common.client.invocation.ServerLRAContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.interceptor.InvocationContext;
 import java.net.URI;
@@ -20,7 +19,7 @@ import java.net.URI;
  * the connector is on the classpath.
  */
 @ApplicationScoped
-public class CurrentTransportContext implements LRATransportContext {
+public class CurrentTransport implements LRATransport {
 
     @Override
     public URI incomingLRA() {
@@ -33,7 +32,7 @@ public class CurrentTransportContext implements LRATransportContext {
     }
 
     @Override
-    public void bind(InvocationContext invocation, ServerLRAContext context) {
+    public void bind(InvocationContext invocation, LraInvocation lraInvocation) {
         // nothing is resolved by the transport
     }
 

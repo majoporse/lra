@@ -15,12 +15,11 @@ import io.narayana.lra.connectors.common.client.coordinator.LRAClient;
 import io.narayana.lra.connectors.common.client.coordinator.LRAClientException;
 import io.narayana.lra.connectors.common.client.discovery.MicroProfileParticipantFactory;
 import io.narayana.lra.connectors.common.client.discovery.ParticipantDiscovery;
-import io.narayana.lra.connectors.common.client.interceptor.LRAAnnotationResolver;
 import io.narayana.lra.connectors.common.client.invocation.LRAParticipantData;
-import io.narayana.lra.connectors.common.client.invocation.LRATransactionMetadata;
-import io.narayana.lra.connectors.common.client.invocation.ServerLRAContext;
-import io.narayana.lra.connectors.common.client.invocation.ServerLRAContext.Progress;
-import io.narayana.lra.connectors.common.client.invocation.ServerLRAContext.ProgressStep;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocation.Progress;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocation.ProgressStep;
+import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
 import io.narayana.lra.connectors.common.client.participant.LRAParticipantRegistry;
 import io.narayana.lra.connectors.common.client.participant.Participant;
 import io.narayana.lra.connectors.common.client.participant.ParticipantCallbackAddressResolver;
@@ -45,7 +44,7 @@ import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
 /**
  * The one lifecycle state machine.
  * <p>
- * It is transport-neutral: it only operates on a {@link ServerLRAContext}, never on a request or a
+ * It is transport-neutral: it only operates on a {@link LraInvocation}, never on a request or a
  * message. A transport adapter fills the context and, when it owns completion, calls
  * {@link #processResponse} once its response exists; otherwise the interceptor does.
  */
@@ -62,7 +61,6 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
     private final LRAParticipantRegistry lraParticipantRegistry;
     private final LRAParticipantData data;
     private final int enlistMaxRetries;
-    private final LRAAnnotationResolver resolver;
     private final LRAClient lraClient;
     private final ParticipantCallbackAddressResolver callbackResolver;
     private final MicroProfileParticipantFactory participantFactory;
@@ -70,30 +68,28 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
     @Inject
     public ServerLRAProcessor(LRAParticipantRegistry lraParticipantRegistry, LRAParticipantData data,
             @ConfigProperty(name = "lra.participant.client.max.retry", defaultValue = "3") int enlistMaxRetries,
-            LRAAnnotationResolver resolver, ParticipantProtocolRegistry protocolRegistry) {
+            ParticipantProtocolRegistry protocolRegistry) {
         this.lraParticipantRegistry = lraParticipantRegistry;
         this.data = data;
         this.enlistMaxRetries = enlistMaxRetries;
-        this.resolver = resolver;
         this.lraClient = protocolRegistry.client();
         this.callbackResolver = protocolRegistry.resolver();
         this.participantFactory = ParticipantDiscovery.serviceLoadedFactory();
     }
 
     public ServerLRAProcessor(LRAParticipantRegistry lraParticipantRegistry, LRAParticipantData data,
-            int enlistMaxRetries, LRAAnnotationResolver resolver, LRAClient lraClient,
+            int enlistMaxRetries, LRAClient lraClient,
             ParticipantCallbackAddressResolver callbackResolver) {
-        this(lraParticipantRegistry, data, enlistMaxRetries, resolver, lraClient, callbackResolver,
+        this(lraParticipantRegistry, data, enlistMaxRetries, lraClient, callbackResolver,
                 ParticipantDiscovery.serviceLoadedFactory());
     }
 
     public ServerLRAProcessor(LRAParticipantRegistry lraParticipantRegistry, LRAParticipantData data,
-            int enlistMaxRetries, LRAAnnotationResolver resolver, LRAClient lraClient,
+            int enlistMaxRetries, LRAClient lraClient,
             ParticipantCallbackAddressResolver callbackResolver, MicroProfileParticipantFactory participantFactory) {
         this.lraParticipantRegistry = lraParticipantRegistry;
         this.data = data;
         this.enlistMaxRetries = enlistMaxRetries;
-        this.resolver = resolver;
         this.lraClient = lraClient;
         this.callbackResolver = Objects.requireNonNull(callbackResolver,
                 "An LRA participant needs a callback address resolver");
@@ -107,46 +103,27 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
      * @param context the state associated with this request
      */
     @Override
-    public void processRequest(ServerLRAContext context) {
-        Method method = context.getMethod();
+    public void processRequest(LraInvocation context) {
+        LraMethodMetadata metadata = context.getMetadata();
 
         // leaving is applied first, whenever there is an incoming context (with or without a transaction)
-        if (resolver.isLeave(method) && context.getIncomingLRA() != null) {
+        if (metadata.isLeave() && context.getIncomingLRA() != null) {
             if (handleLeave(context)) {
                 return;
             }
         }
 
-        LRATransactionMetadata transaction = resolver.resolveTransaction(method);
-
-        if (transaction != null) {
-            handleTransaction(context, transaction); // the method starts or joins an LRA
+        if (metadata.getPropagation() != null) {
+            handleTransaction(context); // the method starts or joins an LRA
         } else {
             // participant callbacks and @Leave run with the incoming context but do not enlist;
             // methods with no LRA annotation only propagate any incoming context
-            context.setEndAnnotation(resolver.isParticipantCallback(method) || resolver.isLeave(method));
             handleNoType(context);
         }
     }
 
     // the method starts or joins an LRA
-    private void handleTransaction(ServerLRAContext context, LRATransactionMetadata metadata) {
-        context.setType(metadata.getPropagation());
-
-        if (metadata.getCancelOnFamily() != null) {
-            context.setCancelOnFamily(metadata.getCancelOnFamily());
-        }
-
-        if (metadata.getCancelOn() != null) {
-            context.setCancelOn(metadata.getCancelOn());
-        }
-
-        if (metadata.getTimeLimitMillis() != null) {
-            context.setTimeout(metadata.getTimeLimitMillis());
-        }
-
-        resolveEndAnnotation(context);
-
+    private void handleTransaction(LraInvocation context) {
         if (context.isEndAnnotation() && context.getIncomingLRA() == null) {
             return;
         }
@@ -166,8 +143,6 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
             return;
         }
 
-        context.setEndLRA(metadata.isEnd());
-
         // store state with the current thread
         Current.push(context.getCurrentLRA(), null); // make the current LRA available to the called method
 
@@ -185,7 +160,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
      * @param isCancel whether the response status matched the cancel conditions
      */
     @Override
-    public LifecycleDecision processResponse(ServerLRAContext context, boolean isCancel) {
+    public LifecycleDecision processResponse(LraInvocation context, boolean isCancel) {
         context.setUserData(getUserDefinedData());
         context.setParticipantId(ParticipantIdProvider.getParticipantId(context.getResourceClass()));
 
@@ -199,7 +174,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         if (current != null && isCancel) {
             context.setCurrentLRACancelled(true);
             handleCancellation(context, current);
-        } else if (context.isEndLRA()) {
+        } else if (current != null && context.isEndLRA()) {
             context.setEndLRAClosed(true);
             handleClose(context);
         }
@@ -209,7 +184,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
     }
 
     @Override
-    public boolean isCancel(ServerLRAContext context, Outcome outcome, boolean failed) {
+    public boolean isCancel(LraInvocation context, Outcome outcome, boolean failed) {
         // a method with no @LRA at all (for example @Leave only) cancels on failure only
         if (context.getType() == null) {
             return failed;
@@ -226,7 +201,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
     }
 
     @Override
-    public boolean isCancel(ServerLRAContext context, int statusCode) {
+    public boolean isCancel(LraInvocation context, int statusCode) {
         Set<Outcome> families = context.getCancelOnFamily();
 
         if (families != null && families.contains(outcomeOf(statusCode))) {
@@ -268,7 +243,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
      * @param context the state associated with this request
      * @return a warning message describing the operations performed, or {@code null} if there is nothing to report
      */
-    private String processFailures(ServerLRAContext context) {
+    private String processFailures(LraInvocation context) {
         List<Progress> progress = context.getProgress();
 
         if (progress == null) {
@@ -296,7 +271,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
     }
 
     // @Leave
-    private boolean handleLeave(ServerLRAContext context) {
+    private boolean handleLeave(LraInvocation context) {
         var body = ParticipantIdProvider.getParticipantId(context.getResourceClass());
 
         try {
@@ -312,7 +287,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         return false;
     }
 
-    private void handleParentContext(ServerLRAContext context) {
+    private void handleParentContext(LraInvocation context) {
         // use the full parent LRA protocol URI
         URI firstParent = Current.getFirstParent(context.getIncomingLRA());
 
@@ -320,7 +295,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         context.setParentLRA(firstParent);
     }
 
-    private void handleNoType(ServerLRAContext context) {
+    private void handleNoType(LraInvocation context) {
         if (!context.isEndAnnotation()) {
             Current.popAll();
             context.setClearIncomingLRA(true);
@@ -334,7 +309,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         }
     }
 
-    private void handleLraType(ServerLRAContext context) {
+    private void handleLraType(LraInvocation context) {
         switch (context.getType()) {
             case MANDATORY: // a txn must be present
                 if (isTxInvalid(context, MANDATORY, context.getIncomingLRA(), true)) {
@@ -414,7 +389,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         }
     }
 
-    private void handleNoCurrentLRA(ServerLRAContext context) {
+    private void handleNoCurrentLRA(LraInvocation context) {
         // the method call needs to run without a transaction
         Current.popAll();
         context.setClearIncomingLRA(true);
@@ -436,7 +411,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         return ParticipantDiscovery.select(resourceClass, participantFactory);
     }
 
-    private void handleEnlistment(ServerLRAContext context) {
+    private void handleEnlistment(LraInvocation context) {
         Participant participant = participant(context.getResourceClass());
 
         if (participant == null) {
@@ -487,7 +462,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         }
     }
 
-    private void handleCancellation(ServerLRAContext context, URI current) {
+    private void handleCancellation(LraInvocation context, URI current) {
         try {
             // do not attempt to cancel if the request filter tried but failed to start a new LRA
             if (progressDoesNotContain(context, ProgressStep.StartFailed)) {
@@ -509,7 +484,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         }
     }
 
-    private void handleClose(ServerLRAContext context) {
+    private void handleClose(LraInvocation context) {
         URI toClose = context.getCurrentLRA();
 
         try {
@@ -530,7 +505,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         }
     }
 
-    private boolean isTxInvalid(ServerLRAContext context, LRA.Type type, URI lraId, boolean shouldNotBeNull) {
+    private boolean isTxInvalid(LraInvocation context, LRA.Type type, URI lraId, boolean shouldNotBeNull) {
         if (lraId == null && shouldNotBeNull) {
             abort(context, null, PRECONDITION_FAILED, type.name() + " but no tx");
             return true;
@@ -542,7 +517,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         return false;
     }
 
-    private URI startLRA(ServerLRAContext context, URI parentLRA) {
+    private URI startLRA(LraInvocation context, URI parentLRA) {
         // timeout should already have been converted to milliseconds
         Method method = context.getMethod();
         String clientId = method.getDeclaringClass().getName() + "#" + method.getName();
@@ -562,7 +537,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         return null;
     }
 
-    private URI enlist(ServerLRAContext context, ParticipantCallbacks callbacks, long timeLimit,
+    private URI enlist(LraInvocation context, ParticipantCallbacks callbacks, long timeLimit,
             StringBuilder previousParticipantData) {
         // The coordinator needs to hold a lock to enlist an participant. This lock is only waited on for a small amount of
         // time (potentially even zero time). This means if multiple participants try to enlist at the same time, enlistment
@@ -588,21 +563,13 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         }
     }
 
-    // a method is an "end annotation" method if it is a participant callback or only leaves an LRA.
-    // such methods run with the incoming context but are not themselves enlisted.
-    private void resolveEndAnnotation(ServerLRAContext context) {
-        Method method = context.getMethod();
-
-        context.setEndAnnotation(resolver.isParticipantCallback(method) || resolver.isLeave(method));
-    }
-
-    private boolean progressDoesNotContain(ServerLRAContext context, ProgressStep step) {
+    private boolean progressDoesNotContain(LraInvocation context, ProgressStep step) {
         List<Progress> progress = context.getProgress();
         return progress == null || progress.stream().noneMatch(p -> p.progress == step);
     }
 
     // add another step to the list of steps performed so far
-    private void updateProgress(ServerLRAContext context, ProgressStep step, String reason) {
+    private void updateProgress(LraInvocation context, ProgressStep step, String reason) {
         if (reason == null) {
             LRALogger.logger.debug(step.toString());
         } else {
@@ -611,7 +578,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
     }
 
     // the processing performed by the request phase caused the request to abort (without executing application code)
-    private void abort(ServerLRAContext context, String lraId, int statusCode, String message) {
+    private void abort(LraInvocation context, String lraId, int statusCode, String message) {
         context.setAborted(true);
         context.setAbortStatusCode(statusCode);
         context.setAbortMessage(message);

@@ -65,7 +65,7 @@ See ADR-0012.
 ```text
 common.client
   coordinator/   LRAClient
-  interceptor/   LRAAnnotationResolver, LRATransportContext
+  interceptor/   LRAAnnotationResolver, LRATransport
   callback/      CallbackReceiver, ParticipantCallbackDispatcher
   discovery/     ParticipantScanner/Descriptor/Discovery/Support, MicroProfileParticipantFactory,
                  cdi/ (PortableParticipantDiscovery, LraBindingExtension),
@@ -73,7 +73,7 @@ common.client
   participant/   Participant, LRAParticipant, LRAParticipantRegistry, ParticipantIdProvider,
                  ParticipantCallbackAddressResolver,
                  protocol/ (ParticipantConnector, CallbackPaths, ParticipantProtocolRegistry)
-  invocation/    ServerLRAContext, LRATransactionMetadata, LraInvocation, LRAParticipantData
+  invocation/    LraInvocation, LraMethodMetadata, LRAParticipantData
   LRAAbortException
 ```
 
@@ -113,11 +113,11 @@ Rules:
   one `LRAParticipantRegistry` and all CDI participant discovery live in
   `lra-connector-common-client`. Discovery is transport-agnostic; it scans the MicroProfile LRA
   annotations only and never looks at `@Path`.
-- The transport-neutral lifecycle runtime (`ServerLRAContext`, `LRAAnnotationResolver`,
-  `LRATransactionMetadata`, `LraInvocation`, `LraLifecycleProcessor`, `ServerLRAProcessor`) lives in
+- The transport-neutral lifecycle runtime (`LraInvocation`, `LraMethodMetadata`,
+  `LRAAnnotationResolver`, `LraLifecycleProcessor`, `ServerLRAProcessor`) lives in
   `common.client.{invocation,lifecycle,interceptor}`; it never imports Jakarta REST.
-  `LRATransportContext` and `LRAAbortException` are neutral SPIs there too. Every transport
-  contributes an adapter and reuses these constructs.
+  `LRATransport` and `LRAAbortException` are neutral SPIs there too. Every transport contributes an
+  adapter and reuses these constructs.
 - `narayana-lra` (`jaxrs`) is the MicroProfile annotation artifact: it holds
   `MicroProfileLRAAnnotationResolver`, the context providers and the interceptor registration.
   `LRAInterceptor` itself lives in `lra-connector-common-client`, because it must not depend on a
@@ -139,16 +139,16 @@ Rules:
 - `LRAClient`, `LRAParticipantData`, `ParticipantIdProvider` and `ParticipantProtocolRegistry`
   live in `lra-connector-common-client`. The interceptor uses them; connector client modules
   implement the client and resolver.
-- `LRAInterceptor` is the only lifecycle driver. It reads `@LRA` (MicroProfile, now a CDI
-  interceptor binding), `@Leave` and `@PropagateToken`, asks `LRATransportContext` for the inbound
-  LRA and credential, and delegates the decisions to `LraLifecycleProcessor` (implemented by
-  `ServerLRAProcessor`). `ServerLRAFilter` no longer exists. `LraRequestContextFilter` captures the
-  request context and `LraResponseFilter` completes the invocation with the final HTTP status, writes
-  the response header and restores the thread-local state; neither reads annotations or owns
-  lifecycle state.
+- `LRAInterceptor` is the only lifecycle driver. It resolves `LraMethodMetadata` from `@LRA`
+  (MicroProfile, now a CDI interceptor binding), `@Leave` and `@PropagateToken`, asks `LRATransport`
+  for the inbound LRA and credential, and delegates the decisions to `LraLifecycleProcessor`
+  (implemented by `ServerLRAProcessor`). `ServerLRAFilter` no longer exists.
+  `LraRequestContextFilter` captures the request context and `LraResponseFilter` completes the
+  invocation with the final HTTP status, writes the response header and restores the thread-local
+  state; neither reads annotations or owns lifecycle state.
 - JAX-RS resolves `@HeaderParam` before the interceptor chain, so the HTTP transport adapter also
   replaces the resolved LRA header arguments (context, parent, recovery) with the effective values.
-  That code lives in `HttpLRATransportContext`, not in the interceptor.
+  That code lives in `HttpLraTransport`, not in the interceptor.
 - `ParticipantProtocolRegistry` selects the client and address resolver by
   `quarkus.lra.client.protocol`. It is a normal CDI bean with injected
   `Instance<LRAClient>`/`Instance<ParticipantCallbackAddressResolver>` lookups.

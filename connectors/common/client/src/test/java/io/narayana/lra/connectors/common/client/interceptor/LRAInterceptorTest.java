@@ -11,7 +11,7 @@ import io.narayana.lra.api.LifecycleException;
 import io.narayana.lra.api.Outcome;
 import io.narayana.lra.connectors.common.client.LRAAbortException;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
-import io.narayana.lra.connectors.common.client.invocation.ServerLRAContext;
+import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
 import io.narayana.lra.connectors.common.client.lifecycle.LifecycleDecision;
 import io.narayana.lra.connectors.common.client.lifecycle.LraLifecycleProcessor;
 import jakarta.interceptor.InvocationContext;
@@ -153,28 +153,16 @@ public class LRAInterceptorTest {
     private static final class StubResolver implements LRAAnnotationResolver {
 
         @Override
-        public io.narayana.lra.connectors.common.client.invocation.LRATransactionMetadata resolveTransaction(
-                Method method) {
-            return null;
-        }
+        public LraMethodMetadata resolve(Method method) {
+            LRA.Type propagation = method.isAnnotationPresent(LRA.class) ? LRA.Type.REQUIRED : null;
+            boolean propagateToken = method.isAnnotationPresent(PropagateToken.class);
 
-        @Override
-        public boolean isLeave(Method method) {
-            return false;
-        }
-
-        @Override
-        public boolean isParticipantCallback(Method method) {
-            return false;
-        }
-
-        @Override
-        public boolean propagateToken(Method method) {
-            return method.isAnnotationPresent(PropagateToken.class);
+            return new LraMethodMetadata(propagation, propagation != null, null, null, null, false,
+                    false, propagateToken);
         }
     }
 
-    private static final class StubTransport implements LRATransportContext {
+    private static final class StubTransport implements LRATransport {
 
         boolean bindCalled;
         boolean deferred;
@@ -193,7 +181,7 @@ public class LRAInterceptorTest {
         }
 
         @Override
-        public void bind(InvocationContext invocation, ServerLRAContext context) {
+        public void bind(InvocationContext invocation, LraInvocation lraInvocation) {
             bindCalled = true;
         }
 
@@ -213,29 +201,29 @@ public class LRAInterceptorTest {
 
         boolean requestCalled;
         boolean responseCalled;
-        Consumer<ServerLRAContext> onRequest = context -> {
+        Consumer<LraInvocation> onRequest = lraInvocation -> {
         };
         LifecycleDecision decision = new LifecycleDecision(false, 0, null, null);
 
         @Override
-        public void processRequest(ServerLRAContext context) {
+        public void processRequest(LraInvocation lraInvocation) {
             requestCalled = true;
-            onRequest.accept(context);
+            onRequest.accept(lraInvocation);
         }
 
         @Override
-        public LifecycleDecision processResponse(ServerLRAContext context, boolean cancel) {
+        public LifecycleDecision processResponse(LraInvocation lraInvocation, boolean cancel) {
             responseCalled = true;
             return decision;
         }
 
         @Override
-        public boolean isCancel(ServerLRAContext context, Outcome outcome, boolean failed) {
+        public boolean isCancel(LraInvocation lraInvocation, Outcome outcome, boolean failed) {
             return false;
         }
 
         @Override
-        public boolean isCancel(ServerLRAContext context, int statusCode) {
+        public boolean isCancel(LraInvocation lraInvocation, int statusCode) {
             return false;
         }
     }

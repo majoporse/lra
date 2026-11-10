@@ -5,7 +5,7 @@
 
 package io.narayana.lra.connectors.common.client.interceptor;
 
-import io.narayana.lra.connectors.common.client.invocation.LRATransactionMetadata;
+import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
 import java.lang.reflect.Method;
 
 /**
@@ -16,28 +16,10 @@ import java.lang.reflect.Method;
 public interface LRAAnnotationResolver {
 
     /**
+     * Resolve all method-level LRA declarations once.
+     *
      * @param method the method being processed
-     * @return the transaction attributes declared on the method, or {@code null} if the method does
-     *         not start or join an LRA
+     * @return the declared metadata; never {@code null}
      */
-    LRATransactionMetadata resolveTransaction(Method method);
-
-    /**
-     * @param method the method being processed
-     * @return whether the method requests leaving the incoming LRA
-     */
-    boolean isLeave(Method method);
-
-    /**
-     * @param method the method being processed
-     * @return whether the method is a participant callback (compensate, complete, status, forget or
-     *         after LRA)
-     */
-    boolean isParticipantCallback(Method method);
-
-    /**
-     * @param method the method being processed
-     * @return whether a bearer token should be propagated to the LRA coordinator
-     */
-    boolean propagateToken(Method method);
+    LraMethodMetadata resolve(Method method);
 }
