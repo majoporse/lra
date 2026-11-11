@@ -10,6 +10,7 @@ import io.narayana.lra.PropagateToken;
 import io.narayana.lra.api.LifecycleException;
 import io.narayana.lra.api.Outcome;
 import io.narayana.lra.connectors.common.client.LRAAbortException;
+import io.narayana.lra.connectors.common.client.invocation.AsyncCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
 import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
@@ -20,6 +21,11 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.URI;
 import java.util.Collections;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
 import org.junit.jupiter.api.AfterEach;
@@ -37,6 +43,7 @@ public class LRAInterceptorTest {
     public void clearCurrent() {
         Current.popAll();
         Current.clearAuthToken();
+        Bean.stage = null;
     }
 
     @AfterEach
@@ -80,7 +87,7 @@ public class LRAInterceptorTest {
     }
 
     @Test
-    public void handsTheResponsePhaseToTheTransportWhenItDefers() throws Exception {
+    public void handsTheResponsePhaseToTheTransportWhenItBindsAnAsyncCarrier() throws Exception {
         transport.defer = true;
 
         Object result = interceptor().intercept(invocation("work"));
@@ -89,6 +96,97 @@ public class LRAInterceptorTest {
         Assertions.assertTrue(processor.requestCalled);
         Assertions.assertFalse(processor.responseCalled);
         Assertions.assertNotNull(transport.deferredInvocation);
+        Assertions.assertNotNull(transport.asyncCompletion);
+    }
+
+    @Test
+    public void completesFromTheEventualValueOfAStage() throws Exception {
+        Bean.stage = new CompletableFuture<>();
+
+        Object result = interceptor().intercept(invocation("asyncWork"));
+
+        Assertions.assertNotSame(Bean.stage, result, "the returned stage must not complete before the LRA decision");
+        Assertions.assertFalse(processor.responseCalled, "the lifecycle must not complete before the stage");
+
+        Bean.stage.complete("done");
+
+        Assertions.assertTrue(processor.responseCalled);
+        Assertions.assertEquals("done", transport.completedValue);
+        Assertions.assertNull(transport.completedThrown);
+    }
+
+    @Test
+    public void completesFromANullStageValue() throws Exception {
+        Bean.stage = CompletableFuture.completedFuture(null);
+
+        interceptor().intercept(invocation("asyncWork"));
+
+        Assertions.assertTrue(processor.responseCalled);
+        Assertions.assertNull(transport.completedValue);
+        Assertions.assertNull(transport.completedThrown);
+    }
+
+    @Test
+    public void unwrapsTheFailureOfAStage() throws Exception {
+        Bean.stage = new CompletableFuture<>();
+        Bean.stage.completeExceptionally(new CompletionException(new IllegalStateException("boom")));
+
+        interceptor().intercept(invocation("asyncWork"));
+
+        Assertions.assertInstanceOf(IllegalStateException.class, transport.completedThrown,
+                "the transport must see the exception the method completed with");
+        Assertions.assertEquals("boom", transport.completedThrown.getMessage());
+    }
+
+    @Test
+    public void unwrapsExecutionExceptionsToo() throws Exception {
+        Bean.stage = new CompletableFuture<>();
+        Bean.stage.completeExceptionally(new ExecutionException(new IllegalArgumentException("bad")));
+
+        interceptor().intercept(invocation("asyncWork"));
+
+        Assertions.assertInstanceOf(IllegalArgumentException.class, transport.completedThrown);
+        Assertions.assertEquals("bad", transport.completedThrown.getMessage());
+    }
+
+    @Test
+    public void doesNotCompleteWhenTheTransportAlreadyClaimedIt() throws Exception {
+        transport.claimOnBind = true;
+        Bean.stage = CompletableFuture.completedFuture("done");
+
+        interceptor().intercept(invocation("asyncWork"));
+
+        Assertions.assertFalse(processor.responseCalled,
+                "the transport's response phase already completed the invocation");
+    }
+
+    @Test
+    public void restoresCurrentWhenAPlainBeanReturnsAStage() throws Exception {
+        processor.onRequest = context -> {
+            URI lra = URI.create("http://localhost:8080/lra-coordinator/" + UUID.randomUUID());
+            context.setCurrentLRA(lra);
+            Current.push(lra, null);
+            Current.addActiveLRACache(lra);
+        };
+        Bean.stage = new CompletableFuture<>();
+
+        interceptor().intercept(invocation("asyncWork"));
+
+        Assertions.assertNull(Current.peek(), "the request thread must not keep the LRA of a returned stage");
+    }
+
+    @Test
+    public void completesAnAsynchronousInvocationExactlyOnce() throws Exception {
+        CompletableFuture<Object> stage = new CompletableFuture<>();
+        Bean.stage = stage;
+
+        interceptor().intercept(invocation("asyncWork"));
+
+        stage.complete("done");
+        stage.complete("again");
+        transport.asyncCompletion.completed("late", null);
+
+        Assertions.assertEquals(1, processor.responseCalls);
     }
 
     @Test
@@ -147,11 +245,18 @@ public class LRAInterceptorTest {
 
     public static class Bean {
 
+        static CompletableFuture<Object> stage;
+
         boolean invoked;
 
         @LRA
         public String work() {
             return "ok";
+        }
+
+        @LRA
+        public CompletionStage<Object> asyncWork() {
+            return stage;
         }
 
         @PropagateToken
@@ -181,10 +286,14 @@ public class LRAInterceptorTest {
         boolean bindCalled;
         boolean deferred;
         boolean defer;
+        boolean claimOnBind;
         boolean responsePhase;
         String credential;
         LraInvocation boundInvocation;
         LraInvocation deferredInvocation;
+        AsyncCompletion asyncCompletion;
+        Object completedValue;
+        Throwable completedThrown;
 
         @Override
         public URI incomingLRA() {
@@ -209,15 +318,24 @@ public class LRAInterceptorTest {
 
         @Override
         public LraCompletion completionOf(LraInvocation lraInvocation, Object result, Throwable thrown) {
+            completedValue = result;
+            completedThrown = thrown;
+
             return thrown != null ? LraCompletion.failure(thrown.getMessage()) : LraCompletion.success();
         }
 
         @Override
-        public boolean deferCompletion(InvocationContext invocation, LraInvocation lraInvocation) {
+        public boolean bindAsyncCompletion(InvocationContext invocation, LraInvocation lraInvocation,
+                AsyncCompletion completion) {
             deferred = defer;
+            asyncCompletion = completion;
 
             if (defer) {
                 deferredInvocation = lraInvocation;
+            }
+
+            if (claimOnBind) {
+                lraInvocation.tryMarkCompleted();
             }
 
             return defer;
@@ -228,6 +346,7 @@ public class LRAInterceptorTest {
 
         boolean requestCalled;
         boolean responseCalled;
+        int responseCalls;
         Consumer<LraInvocation> onRequest = lraInvocation -> {
         };
         LifecycleDecision decision = new LifecycleDecision(false, 0, null, null);
@@ -241,6 +360,8 @@ public class LRAInterceptorTest {
         @Override
         public LifecycleDecision processResponse(LraInvocation lraInvocation, boolean cancel) {
             responseCalled = true;
+            responseCalls++;
+
             return decision;
         }
 

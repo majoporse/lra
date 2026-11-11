@@ -10,6 +10,7 @@ import io.narayana.lra.api.LifecycleException;
 import io.narayana.lra.api.Outcome;
 import io.narayana.lra.api.Result;
 import io.narayana.lra.connectors.common.client.LRAAbortException;
+import io.narayana.lra.connectors.common.client.invocation.AsyncCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
 import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
@@ -24,8 +25,9 @@ import jakarta.interceptor.InvocationContext;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.List;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
-import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
+import java.util.concurrent.ExecutionException;
 
 /**
  * CDI interceptor that manages the LRA lifecycle of an annotated method. It is the only driver of
@@ -33,10 +35,17 @@ import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
  * transport for the inbound data, delegates the decisions to the lifecycle processor, and hands the
  * response phase back to the transport when the transport owns it.
  * <p>
+ * It is bound through {@link LraManaged}, which the portable extension and the Quarkus build step add
+ * to every method carrying {@code @LRA}, {@code @Leave} or a method-level {@code @PropagateToken};
+ * {@code @LRA} itself is no longer the binding, so one interceptor can cover all three.
+ * <p>
  * For a method whose result only exists after a transport response (a JAX-RS resource method, whose
  * cancel rules are status codes) the transport stores the invocation and completes it from the
  * response. For a plain CDI bean the interceptor completes the lifecycle itself, using the
  * {@link Outcome} carried by a returned {@link Result} (or the exception the method threw).
+ * Asynchronous results are completed from the eventual result value: a returned
+ * {@link CompletionStage} is completed by this interceptor, and a transport carrier (a JAX-RS
+ * {@code @Suspended} response) is completed by the transport through {@link AsyncCompletion}.
  * <p>
  * The thread-local state found on entry is kept intact: the interceptor only undoes the changes made
  * by its own request phase, so a bean invoked from within another LRA participates in the enclosing
@@ -51,7 +60,7 @@ import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
  * callbacks the coordinator invokes.
  */
 @Interceptor
-@LRA
+@LraManaged
 @Priority(Interceptor.Priority.PLATFORM_BEFORE + 200)
 public class LRAInterceptor {
 
@@ -90,14 +99,16 @@ public class LRAInterceptor {
         processor.processRequest(invocation);
         transport.bind(invocationContext, invocation);
 
-        boolean deferred = transport.deferCompletion(invocationContext, invocation);
+        /*
+         * The one completion routine for asynchronous results. A transport may call it from its own
+         * carrier, the interceptor calls it from the returned stage. It runs on whichever thread
+         * completes the invocation, so it reads only the invocation state and never the calling
+         * thread's Current.
+         */
+        AsyncCompletion asyncCompletion = (value, failure) -> completeAsync(invocationContext, invocation, value,
+                failure);
 
-        if (!deferred && isAsynchronous(method)) {
-            throw new IllegalStateException(String.format(
-                    "%s: an @LRA method returning CompletionStage is only supported when the transport "
-                            + "completes the lifecycle after the method returns",
-                    method.toGenericString()));
-        }
+        boolean transportOwnsCompletion = transport.bindAsyncCompletion(invocationContext, invocation, asyncCompletion);
 
         boolean aborted = invocation.isAborted();
         Object result = null;
@@ -111,9 +122,9 @@ public class LRAInterceptor {
             }
         }
 
-        if (deferred) {
-            // the transport completes the lifecycle once its response (and therefore the cancel
-            // decision) exists, and restores the thread-local state
+        if (transportOwnsCompletion) {
+            // the transport completes the lifecycle from its own carrier (a resumed @Suspended
+            // AsyncResponse, for example)
             if (aborted) {
                 throw abortException(invocation, null);
             }
@@ -122,15 +133,41 @@ public class LRAInterceptor {
             return result;
         }
 
+        if (thrown == null && result instanceof CompletionStage<?> stage) {
+            /*
+             * Return the stage the completion handler produces. The container subscribes to it, so
+             * it cannot observe completion before the lifecycle decision is made (a dependent of
+             * the same stage could otherwise run first and let the response phase supply the
+             * completion). A completion failure fails that stage, which is how a synchronous
+             * invocation reports it.
+             */
+            try {
+                return stage.whenComplete(asyncCompletion::completed);
+            } finally {
+                // a transport without a response phase has no later request boundary, so the
+                // thread that ran the request phase must not keep its LRA
+                if (!transport.hasResponsePhase(invocationContext)) {
+                    invocation.restoreCurrent();
+                }
+            }
+        }
+
+        return complete(invocationContext, invocation, aborted, result, thrown);
+    }
+
+    private Object complete(InvocationContext invocationContext, LraInvocation invocation, boolean aborted,
+            Object result, Throwable thrown) throws Exception {
         LraCompletion completion = transport.completionOf(invocation, result, thrown);
+
+        // the synchronous path owns the completion: claim it before the processor runs so that a
+        // response-phase adapter cannot complete it as well
+        invocation.tryMarkCompleted();
 
         LifecycleDecision decision;
 
         try {
             decision = processor.complete(invocation, completion);
         } finally {
-            invocation.markCompleted();
-
             if (!transport.hasResponsePhase(invocationContext)) {
                 // a response-phase transport owns the request-boundary cleanup
                 invocation.restoreCurrent();
@@ -167,6 +204,29 @@ public class LRAInterceptor {
         return result;
     }
 
+    private void completeAsync(InvocationContext invocationContext, LraInvocation invocation, Object value,
+            Throwable thrown) {
+        Throwable failure = unwrap(thrown);
+
+        if (!invocation.tryMarkCompleted()) {
+            // the transport's response phase (or another completion) already owns it
+            return;
+        }
+
+        LraCompletion completion = transport.completionOf(invocation, failure == null ? value : null, failure);
+        LifecycleDecision decision = processor.complete(invocation, completion);
+
+        if (decision.hasFailure()) {
+            if (transport.hasResponsePhase(invocationContext)) {
+                // the response filter renders the failure into the response
+                invocation.setLifecycleFailure(decision.failureMessage());
+            } else {
+                // there is no response to report it in, and the caller already holds the result
+                LRALogger.logger.error(decision.failureMessage());
+            }
+        }
+    }
+
     private void propagateCredential(String token) {
         if (token != null) {
             Current.setAuthToken(token);
@@ -179,8 +239,18 @@ public class LRAInterceptor {
         return new LRAAbortException(invocation.getAbortStatusCode(), message);
     }
 
-    private static boolean isAsynchronous(Method method) {
-        return method.getReturnType().equals(CompletionStage.class);
+    private static Throwable unwrap(Throwable thrown) {
+        Throwable failure = thrown;
+
+        // a stage may wrap the failure of the value it completed with: map the same exception the
+        // synchronous path would have seen
+        while (failure != null
+                && (failure instanceof CompletionException || failure instanceof ExecutionException)
+                && failure.getCause() != null) {
+            failure = failure.getCause();
+        }
+
+        return failure;
     }
 
     private Class<?> resolveResourceClass(InvocationContext invocationContext, Method method) {

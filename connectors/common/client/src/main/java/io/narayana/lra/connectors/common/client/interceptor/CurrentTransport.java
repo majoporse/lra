@@ -56,9 +56,4 @@ public class CurrentTransport implements LRATransport {
 
         return LraCompletion.success();
     }
-
-    @Override
-    public boolean deferCompletion(InvocationContext invocation, LraInvocation lraInvocation) {
-        return false;
-    }
 }

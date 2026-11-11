@@ -64,7 +64,11 @@ public class PortableParticipantDiscovery implements Extension {
             Map<DotName, List<AnnotationInstance>> annotations = JandexAnnotationResolver
                     .getAllAnnotationsFromClassInfoHierarchy(classInfo.name(), index);
 
-            if (!annotations.containsKey(DotNames.LRA) || annotations.containsKey(DotNames.INTERCEPTOR)) {
+            boolean managed = annotations.containsKey(DotNames.LRA)
+                    || annotations.containsKey(DotNames.LEAVE)
+                    || annotations.containsKey(DotNames.PROPAGATE_TOKEN);
+
+            if (!managed || annotations.containsKey(DotNames.INTERCEPTOR)) {
                 continue;
             }
 

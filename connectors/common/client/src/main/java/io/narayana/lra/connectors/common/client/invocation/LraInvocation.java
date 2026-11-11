@@ -13,6 +13,7 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
 
 /**
@@ -23,8 +24,10 @@ import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
  * it from its own response.
  * <p>
  * The same object is the handoff to the transport response adapter: the interceptor stores it on
- * the request, and the adapter completes the lifecycle once the response exists. It keeps the
- * thread-local state in effect before the invocation so that completion restores it.
+ * the request, and the adapter completes the lifecycle once the response exists. An asynchronous
+ * invocation may be completed from another thread, so completion reads only this object and never
+ * the calling thread's {@code Current}. It keeps the thread-local state in effect before the
+ * invocation so that completion restores it.
  */
 public final class LraInvocation {
 
@@ -62,7 +65,7 @@ public final class LraInvocation {
 
     private boolean currentLRACancelled;
     private boolean endLRAClosed;
-    private boolean completed;
+    private final AtomicBoolean completed = new AtomicBoolean();
     private String lifecycleFailure;
 
     public LraInvocation(Method method, Class<?> resourceClass, LraMethodMetadata metadata,
@@ -257,11 +260,20 @@ public final class LraInvocation {
      * @return whether the lifecycle was already completed for this invocation
      */
     public boolean isCompleted() {
-        return completed;
+        return completed.get();
     }
 
-    public void markCompleted() {
-        this.completed = true;
+    /**
+     * Claim the right to complete the lifecycle exactly once.
+     * <p>
+     * An asynchronous invocation can be completed by more than one party (the completion handler
+     * and the transport's response phase), so the claim is atomic: only the caller that receives
+     * {@code true} may complete it.
+     *
+     * @return whether this caller claimed the completion
+     */
+    public boolean tryMarkCompleted() {
+        return completed.compareAndSet(false, true);
     }
 
     public String getLifecycleFailure() {

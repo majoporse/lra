@@ -186,9 +186,10 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
 
     @Override
     public boolean isCancel(LraInvocation context, Outcome outcome, boolean failed) {
-        // a method with no @LRA at all (for example @Leave only) cancels on failure only
+        // cancel conditions only exist on @LRA; a method without it (for example @Leave only) does
+        // not own the incoming LRA and must never cancel it
         if (context.getType() == null) {
-            return failed;
+            return false;
         }
 
         if (context.getCancelOn() != null && !context.getCancelOn().isEmpty()) {
@@ -203,6 +204,10 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
 
     @Override
     public boolean isCancel(LraInvocation context, int statusCode) {
+        if (context.getType() == null) {
+            return false;
+        }
+
         Set<Outcome> families = context.getCancelOnFamily();
 
         if (families != null && families.contains(LraCompletion.outcomeOf(statusCode))) {
@@ -253,7 +258,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
 
         try {
             getLRAClient().leaveLRA(context.getIncomingLRA(), body);
-            context.addProgress(ProgressStep.Left, null); // leave succeeded
+            updateProgress(context, ProgressStep.Left, null); // leave succeeded
         } catch (LRAClientException e) {
             context.addProgress(ProgressStep.LeaveFailed, e.getMessage()); // leave may have failed
             abort(context, context.getIncomingLRA().toASCIIString(), e.getStatusCode(), e.getMessage());

@@ -139,18 +139,26 @@ Rules:
 - `LRAClient`, `LRAParticipantData`, `ParticipantIdProvider` and `ParticipantProtocolRegistry`
   live in `lra-connector-common-client`. The interceptor uses them; connector client modules
   implement the client and resolver.
-- `LRAInterceptor` is the only lifecycle driver. It resolves `LraMethodMetadata` from `@LRA`
-  (MicroProfile, now a CDI interceptor binding), `@Leave` and `@PropagateToken`, asks `LRATransport`
-  for the inbound LRA and credential, and delegates the decisions to `LraLifecycleProcessor`
-  (implemented by `ServerLRAProcessor`). `ServerLRAFilter` no longer exists.
+- `LRAInterceptor` is the only lifecycle driver. It resolves `LraMethodMetadata` from `@LRA`,
+  `@Leave` and `@PropagateToken`, asks `LRATransport` for the inbound LRA and credential, and
+  delegates the decisions to `LraLifecycleProcessor` (implemented by `ServerLRAProcessor`). It is
+  bound through `LraManaged`, a marker that the portable extension and the Quarkus build step add to
+  every method carrying those annotations; neither `@Leave` nor `@PropagateToken` is an interceptor
+  binding. `ServerLRAFilter` no longer exists and the request filter no longer drives a `@Leave`.
   The interceptor maps the method result or exception through the transport into a neutral
-  `LraCompletion` and completes the invocation through `LraLifecycleProcessor.complete`. A
-  synchronous HTTP method completes there; an asynchronous HTTP method defers to
-  `LraResponseFilter`, which feeds it the final status. The response filter also writes the
-  response header, reports lifecycle failures in the response and restores the thread-local state;
-  neither filter reads annotations or owns lifecycle state. A response-phase transport owns the
-  request-boundary cleanup, so the interceptor restores `Current` only when there is no response
-  phase. The unannotated-resource propagation rule registers and removes its active-LRA cache entry
+  `LraCompletion` and completes the invocation through `LraLifecycleProcessor.complete`.
+  Async results use the same mapping: a returned `CompletionStage` is completed by the interceptor
+  from its eventual value (it returns the stage the completion handler produces), and a JAX-RS
+  `@Suspended` response is completed by the transport through
+  `LRATransport.bindAsyncCompletion` and a delegating proxy that observes `resume`/`cancel` before
+  delegating; the proxy installs a default timeout handler equivalent to the container's own, so a
+  timeout is completed too. Completion is thread-agnostic: it reads `LraInvocation`, never the
+  calling thread's `Current`. `LraResponseFilter` never completes a lifecycle: it writes the
+  response header, renders a lifecycle failure recorded by the completion and restores the
+  thread-local state; neither filter reads annotations or owns lifecycle state. A response-phase
+  transport owns the request-boundary cleanup, so the interceptor restores `Current` only when
+  there is no response phase (including a plain CDI bean returning a `CompletionStage`). The
+  unannotated-resource propagation rule registers and removes its active-LRA cache entry
   in the request/response filters.
 - JAX-RS resolves `@HeaderParam` before the interceptor chain, so the HTTP transport adapter also
   replaces the resolved LRA header arguments (context, parent, recovery) with the effective values.

@@ -15,6 +15,7 @@ import io.narayana.lra.api.Outcome;
 import io.narayana.lra.api.Result;
 import io.narayana.lra.connectors.common.client.LRAAbortException;
 import io.narayana.lra.connectors.common.client.interceptor.LRATransport;
+import io.narayana.lra.connectors.common.client.invocation.AsyncCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
 import io.narayana.lra.connectors.http.support.BearerTokenResolver;
@@ -35,6 +36,7 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.container.AsyncResponse;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.Suspended;
 import jakarta.ws.rs.core.HttpHeaders;
@@ -42,12 +44,10 @@ import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
-import java.lang.reflect.Parameter;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CompletionStage;
 
 /**
  * The JAX-RS half of an intercepted invocation.
@@ -55,7 +55,8 @@ import java.util.concurrent.CompletionStage;
  * It reads the inbound LRA and credential from the request (falling back to the effective LRA on the
  * calling thread), publishes the effective LRA back onto the request and into any
  * {@code @HeaderParam} arguments JAX-RS already resolved, and maps a synchronous result to a neutral
- * completion. Asynchronous resource methods still defer to the response phase.
+ * completion. An {@code @Suspended} response is replaced by a proxy that reports the resumed value
+ * through the completion sink, so an asynchronous resource method gets the same mapping.
  */
 @ApplicationScoped
 @Alternative
@@ -167,8 +168,31 @@ public class HttpLraTransport implements LRATransport {
     }
 
     @Override
-    public boolean deferCompletion(InvocationContext invocation, LraInvocation lraInvocation) {
-        return isHttpResource(invocation) && isAsynchronous(invocation.getMethod());
+    public boolean bindAsyncCompletion(InvocationContext invocation, LraInvocation lraInvocation,
+            AsyncCompletion completion) {
+        Method method = invocation.getMethod();
+        int index = suspendedParameterIndex(method);
+
+        if (index < 0 || !isHttpResource(invocation)) {
+            return false;
+        }
+
+        Object[] parameters = invocation.getParameters();
+        Class<?> carrierType = method.getParameterTypes()[index];
+
+        if (parameters == null || index >= parameters.length
+                || !carrierType.isInterface()
+                || !AsyncResponse.class.isAssignableFrom(carrierType)
+                || !(parameters[index] instanceof AsyncResponse asyncResponse)) {
+            // a carrier the proxy cannot replace is not observable, so leave the completion to the
+            // interceptor rather than leaving the invocation without one
+            return false;
+        }
+
+        parameters[index] = SuspendedResponseProxy.create(asyncResponse, carrierType, completion);
+        invocation.setParameters(parameters);
+
+        return true;
     }
 
     private LraInvocationState state() {
@@ -221,20 +245,6 @@ public class HttpLraTransport implements LRATransport {
 
         return Arrays.stream(HTTP_VERBS)
                 .anyMatch(annotationType -> AnnotationResolver.isAnnotationPresent(annotationType, method));
-    }
-
-    private static boolean isAsynchronous(Method method) {
-        if (CompletionStage.class.equals(method.getReturnType())) {
-            return true;
-        }
-
-        for (Parameter parameter : method.getParameters()) {
-            if (parameter.isAnnotationPresent(Suspended.class)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static String message(Throwable throwable) {
@@ -337,21 +347,35 @@ public class HttpLraTransport implements LRATransport {
     // JAX-RS parameter annotations may live on the interface or superclass method that the class
     // overrides, so look them up in the hierarchy as well
     private static HeaderParam headerParam(Method method, int index) {
-        HeaderParam header = findHeaderParam(method.getParameterAnnotations()[index]);
+        return parameterAnnotation(method, index, HeaderParam.class);
+    }
 
-        if (header != null) {
-            return header;
+    private static int suspendedParameterIndex(Method method) {
+        for (int i = 0; i < method.getParameterCount(); i++) {
+            if (parameterAnnotation(method, i, Suspended.class) != null) {
+                return i;
+            }
         }
 
-        for (Class<?> type : hierarchy(method.getDeclaringClass())) {
+        return -1;
+    }
+
+    private static <A extends Annotation> A parameterAnnotation(Method method, int index, Class<A> type) {
+        A annotation = findAnnotation(method.getParameterAnnotations()[index], type);
+
+        if (annotation != null) {
+            return annotation;
+        }
+
+        for (Class<?> declaringType : hierarchy(method.getDeclaringClass())) {
             try {
-                Method candidate = type.getMethod(method.getName(), method.getParameterTypes());
+                Method candidate = declaringType.getMethod(method.getName(), method.getParameterTypes());
 
                 if (index < candidate.getParameterCount()) {
-                    header = findHeaderParam(candidate.getParameterAnnotations()[index]);
+                    annotation = findAnnotation(candidate.getParameterAnnotations()[index], type);
 
-                    if (header != null) {
-                        return header;
+                    if (annotation != null) {
+                        return annotation;
                     }
                 }
             } catch (NoSuchMethodException ignored) {
@@ -362,10 +386,10 @@ public class HttpLraTransport implements LRATransport {
         return null;
     }
 
-    private static HeaderParam findHeaderParam(Annotation[] annotations) {
+    private static <A extends Annotation> A findAnnotation(Annotation[] annotations, Class<A> type) {
         for (Annotation annotation : annotations) {
-            if (annotation instanceof HeaderParam header) {
-                return header;
+            if (type.isInstance(annotation)) {
+                return type.cast(annotation);
             }
         }
 

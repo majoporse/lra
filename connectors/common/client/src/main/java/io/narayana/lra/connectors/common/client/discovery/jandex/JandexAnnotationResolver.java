@@ -13,6 +13,7 @@ import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.IndexView;
+import org.jboss.jandex.MethodInfo;
 
 /**
  * Collects the annotations of a class, its superclasses and its interfaces (transitively), because
@@ -47,6 +48,49 @@ public class JandexAnnotationResolver {
         }
 
         collect(classInfo.superName(), index, annotations);
+    }
+
+    /**
+     * Whether the method, or the same method in a superclass or interface, carries the annotation.
+     * This mirrors {@code AnnotationResolver}'s rule so the build-time binding decision and the
+     * runtime metadata agree.
+     */
+    public static boolean isAnnotationPresent(DotName annotation, MethodInfo method, IndexView index) {
+        return isAnnotationPresent(annotation, method, index.getClassByName(method.declaringClass().name()), index);
+    }
+
+    private static boolean isAnnotationPresent(DotName annotation, MethodInfo method, ClassInfo classInfo,
+            IndexView index) {
+        if (classInfo == null) {
+            return false;
+        }
+
+        MethodInfo candidate = findMethod(classInfo, method);
+
+        if (candidate != null && candidate.hasAnnotation(annotation)) {
+            return true;
+        }
+
+        for (DotName interfaceName : classInfo.interfaceNames()) {
+            if (isAnnotationPresent(annotation, method, index.getClassByName(interfaceName), index)) {
+                return true;
+            }
+        }
+
+        DotName superName = classInfo.superName();
+
+        return superName != null && isAnnotationPresent(annotation, method, index.getClassByName(superName), index);
+    }
+
+    private static MethodInfo findMethod(ClassInfo classInfo, MethodInfo method) {
+        for (MethodInfo candidate : classInfo.methods()) {
+            if (candidate.name().equals(method.name())
+                    && candidate.parameterTypes().equals(method.parameterTypes())) {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     private static void merge(Map<DotName, List<AnnotationInstance>> target,

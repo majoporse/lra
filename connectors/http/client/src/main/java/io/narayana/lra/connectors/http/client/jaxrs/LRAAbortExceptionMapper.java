@@ -23,6 +23,6 @@ public class LRAAbortExceptionMapper implements ExceptionMapper<LRAAbortExceptio
 
     @Override
     public Response toResponse(LRAAbortException exception) {
-        return Response.status(exception.getStatusCode(), exception.getMessage()).build();
+        return Response.status(exception.getStatusCode()).entity(exception.getMessage()).build();
     }
 }

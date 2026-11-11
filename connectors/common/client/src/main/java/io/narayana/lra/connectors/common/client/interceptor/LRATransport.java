@@ -5,6 +5,7 @@
 
 package io.narayana.lra.connectors.common.client.interceptor;
 
+import io.narayana.lra.connectors.common.client.invocation.AsyncCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
 import jakarta.interceptor.InvocationContext;
@@ -64,13 +65,22 @@ public interface LRATransport {
     }
 
     /**
-     * Offer the response phase to the transport. A transport that owns completion after a response
-     * (HTTP asynchronous responses) stores the invocation and completes it once the response
-     * exists.
+     * Offer the asynchronous completion of this invocation to the transport.
+     * <p>
+     * A transport whose carrier is an asynchronous response (a JAX-RS {@code @Suspended}
+     * {@code AsyncResponse}) replaces or observes that carrier and calls
+     * {@link AsyncCompletion#completed(Object, Throwable)} with the value the application resumed,
+     * before the container renders the response. A transport without such a carrier returns
+     * {@code false}; the interceptor then completes the invocation from the method result, which
+     * may itself be an asynchronous value.
      *
      * @param invocation the interception context
      * @param lraInvocation the invocation state to complete later
-     * @return whether the transport will complete the lifecycle itself
+     * @param completion the sink the transport calls once the transport result exists
+     * @return whether the transport took ownership of the completion
      */
-    boolean deferCompletion(InvocationContext invocation, LraInvocation lraInvocation);
+    default boolean bindAsyncCompletion(InvocationContext invocation, LraInvocation lraInvocation,
+            AsyncCompletion completion) {
+        return false;
+    }
 }

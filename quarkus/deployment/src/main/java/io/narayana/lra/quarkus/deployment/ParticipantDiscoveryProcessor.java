@@ -24,6 +24,7 @@ import io.quarkus.arc.deployment.AnnotationsTransformerBuildItem;
 import io.quarkus.arc.deployment.SyntheticBeanBuildItem;
 import io.quarkus.arc.deployment.UnremovableBeanBuildItem;
 import io.quarkus.arc.processor.AnnotationsTransformer;
+import io.quarkus.arc.processor.AnnotationsTransformer.TransformationContext;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
@@ -44,9 +45,11 @@ import org.eclipse.microprofile.lra.annotation.Forget;
 import org.eclipse.microprofile.lra.annotation.LRAStatus;
 import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
 import org.eclipse.microprofile.lra.annotation.Status;
+import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.IndexView;
+import org.jboss.jandex.MethodInfo;
 
 public class ParticipantDiscoveryProcessor {
 
@@ -65,32 +68,62 @@ public class ParticipantDiscoveryProcessor {
     /**
      * CDI does not inherit method-level interceptor bindings from an interface or from an overridden
      * superclass method, while the MicroProfile specification requires {@code @LRA} to be honoured
-     * there. Add a class-level binding (all members are nonbinding) to every participant that
-     * declares {@code @LRA} in its hierarchy; the interceptor reads the real annotation and values.
+     * there. Bind the interceptor through {@code @LraManaged}, which is added for every method that
+     * declares {@code @LRA}, {@code @Leave} or a method-level {@code @PropagateToken}, and copy a
+     * class-level {@code @LRA} declared in the hierarchy onto the implementation.
      */
     @BuildStep
     AnnotationsTransformerBuildItem bindLraOnImplementations(CombinedIndexBuildItem index) {
+        IndexView indexView = index.getIndex();
+
         return new AnnotationsTransformerBuildItem(new AnnotationsTransformer() {
             @Override
-            public boolean appliesTo(org.jboss.jandex.AnnotationTarget.Kind kind) {
-                return kind == org.jboss.jandex.AnnotationTarget.Kind.CLASS;
+            public boolean appliesTo(AnnotationTarget.Kind kind) {
+                return kind == AnnotationTarget.Kind.CLASS || kind == AnnotationTarget.Kind.METHOD;
             }
 
             @Override
-            public void transform(AnnotationsTransformer.TransformationContext context) {
-                ClassInfo classInfo = context.getTarget().asClass();
-
-                if (Modifier.isInterface(classInfo.flags()) || Modifier.isAbstract(classInfo.flags())
-                        || hasClassLevelLra(classInfo)) {
-                    return;
-                }
-
-                if (JandexAnnotationResolver.getAllAnnotationsFromClassInfoHierarchy(classInfo.name(), index.getIndex())
-                        .containsKey(DotNames.LRA)) {
-                    context.transform().add(DotNames.LRA).done();
+            public void transform(TransformationContext context) {
+                if (context.getTarget().kind() == AnnotationTarget.Kind.METHOD) {
+                    transformMethod(context, indexView);
+                } else {
+                    transformClass(context, indexView);
                 }
             }
         });
+    }
+
+    private static void transformMethod(TransformationContext context, IndexView index) {
+        if (isManaged(context.getTarget().asMethod(), index)) {
+            context.transform().add(DotNames.LRA_MANAGED).done();
+        }
+    }
+
+    private static void transformClass(TransformationContext context, IndexView index) {
+        ClassInfo classInfo = context.getTarget().asClass();
+
+        if (Modifier.isInterface(classInfo.flags()) || Modifier.isAbstract(classInfo.flags())) {
+            return;
+        }
+
+        if (hasClassLevelLra(classInfo)) {
+            context.transform().add(DotNames.LRA_MANAGED).done();
+            return;
+        }
+
+        if (JandexAnnotationResolver.getAllAnnotationsFromClassInfoHierarchy(classInfo.name(), index)
+                .containsKey(DotNames.LRA)) {
+            context.transform().add(DotNames.LRA).add(DotNames.LRA_MANAGED).done();
+        }
+    }
+
+    /**
+     * Mirrors {@code LraMethodMetadata.isManaged()} for the annotations that decide the binding.
+     */
+    static boolean isManaged(MethodInfo method, IndexView index) {
+        return JandexAnnotationResolver.isAnnotationPresent(DotNames.LRA, method, index)
+                || JandexAnnotationResolver.isAnnotationPresent(DotNames.LEAVE, method, index)
+                || JandexAnnotationResolver.isAnnotationPresent(DotNames.PROPAGATE_TOKEN, method, index);
     }
 
     @BuildStep
