@@ -9,7 +9,7 @@ import io.narayana.lra.api.Outcome;
 import io.narayana.lra.api.Result;
 import io.narayana.lra.connectors.common.client.invocation.AsyncCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
-import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocationState;
 import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
 import jakarta.interceptor.InvocationContext;
 import jakarta.ws.rs.Path;
@@ -96,7 +96,7 @@ public class HttpLraTransportTest {
 
     @Test
     public void mapsAnAbortedInvocationToItsStatus() {
-        LraInvocation invocation = invocation("response");
+        LraInvocationState invocation = invocation("response");
         invocation.setAborted(true);
         invocation.setAbortStatusCode(412);
         invocation.setAbortMessage("MANDATORY but no tx");
@@ -275,7 +275,7 @@ public class HttpLraTransportTest {
                 });
     }
 
-    private LraInvocation invocation(String methodName) {
+    private LraInvocationState invocation(String methodName) {
         try {
             return invocation(Resource.class.getDeclaredMethod(methodName));
         } catch (NoSuchMethodException e) {
@@ -283,8 +283,8 @@ public class HttpLraTransportTest {
         }
     }
 
-    private LraInvocation invocation(Method method) {
-        return new LraInvocation(method, Resource.class, metadata, Collections.emptyList(), null);
+    private LraInvocationState invocation(Method method) {
+        return new LraInvocationState(method, Resource.class, metadata, Collections.emptyList(), null);
     }
 
     private record Completion(Object value, Throwable thrown) {

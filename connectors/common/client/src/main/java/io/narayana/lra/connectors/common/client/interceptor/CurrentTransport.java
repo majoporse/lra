@@ -9,7 +9,7 @@ import io.narayana.lra.Current;
 import io.narayana.lra.api.Outcome;
 import io.narayana.lra.api.Result;
 import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
-import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocationState;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.interceptor.InvocationContext;
 import java.net.URI;
@@ -35,14 +35,14 @@ public class CurrentTransport implements LRATransport {
     }
 
     @Override
-    public void bind(InvocationContext invocation, LraInvocation lraInvocation) {
+    public void bind(InvocationContext invocation, LraInvocationState state) {
         // nothing is resolved by the transport
     }
 
     @Override
-    public LraCompletion completionOf(LraInvocation lraInvocation, Object result, Throwable thrown) {
-        if (lraInvocation.isAborted()) {
-            return LraCompletion.failure(lraInvocation.getAbortMessage());
+    public LraCompletion completionOf(LraInvocationState state, Object result, Throwable thrown) {
+        if (state.isAborted()) {
+            return LraCompletion.failure(state.getAbortMessage());
         }
 
         if (thrown != null) {

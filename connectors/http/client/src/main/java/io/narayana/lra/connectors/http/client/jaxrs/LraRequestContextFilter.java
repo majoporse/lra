@@ -34,7 +34,7 @@ import java.net.URI;
 public class LraRequestContextFilter implements ContainerRequestFilter {
 
     @Inject
-    LraInvocationState invocationState;
+    JaxrsRequestHolder requestHolder;
 
     @Inject
     LRAAnnotationResolver resolver;
@@ -44,7 +44,7 @@ public class LraRequestContextFilter implements ContainerRequestFilter {
 
     @Override
     public void filter(ContainerRequestContext requestContext) {
-        invocationState.setRequestContext(requestContext);
+        requestHolder.setRequestContext(requestContext);
 
         Method method = resourceInfo == null ? null : resourceInfo.getResourceMethod();
 

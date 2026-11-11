@@ -29,12 +29,12 @@ import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
  * the calling thread's {@code Current}. It keeps the thread-local state in effect before the
  * invocation so that completion restores it.
  */
-public final class LraInvocation {
+public final class LraInvocationState {
 
     /**
      * Request property under which the interceptor stores the invocation state.
      */
-    public static final String PROPERTY = LraInvocation.class.getName();
+    public static final String PROPERTY = LraInvocationState.class.getName();
 
     private final Method method;
     private final Class<?> resourceClass;
@@ -68,7 +68,7 @@ public final class LraInvocation {
     private final AtomicBoolean completed = new AtomicBoolean();
     private String lifecycleFailure;
 
-    public LraInvocation(Method method, Class<?> resourceClass, LraMethodMetadata metadata,
+    public LraInvocationState(Method method, Class<?> resourceClass, LraMethodMetadata metadata,
             List<Object> contextsOnEntry, String authTokenOnEntry) {
         this.method = method;
         this.resourceClass = resourceClass;

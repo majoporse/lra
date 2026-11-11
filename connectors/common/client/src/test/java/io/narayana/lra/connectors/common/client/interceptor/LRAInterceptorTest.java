@@ -12,7 +12,7 @@ import io.narayana.lra.api.Outcome;
 import io.narayana.lra.connectors.common.client.LRAAbortException;
 import io.narayana.lra.connectors.common.client.invocation.AsyncCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
-import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocationState;
 import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
 import io.narayana.lra.connectors.common.client.lifecycle.LifecycleDecision;
 import io.narayana.lra.connectors.common.client.lifecycle.LraLifecycleProcessor;
@@ -289,8 +289,8 @@ public class LRAInterceptorTest {
         boolean claimOnBind;
         boolean responsePhase;
         String credential;
-        LraInvocation boundInvocation;
-        LraInvocation deferredInvocation;
+        LraInvocationState boundInvocation;
+        LraInvocationState deferredInvocation;
         AsyncCompletion asyncCompletion;
         Object completedValue;
         Throwable completedThrown;
@@ -306,9 +306,9 @@ public class LRAInterceptorTest {
         }
 
         @Override
-        public void bind(InvocationContext invocation, LraInvocation lraInvocation) {
+        public void bind(InvocationContext invocation, LraInvocationState state) {
             bindCalled = true;
-            boundInvocation = lraInvocation;
+            boundInvocation = state;
         }
 
         @Override
@@ -317,7 +317,7 @@ public class LRAInterceptorTest {
         }
 
         @Override
-        public LraCompletion completionOf(LraInvocation lraInvocation, Object result, Throwable thrown) {
+        public LraCompletion completionOf(LraInvocationState state, Object result, Throwable thrown) {
             completedValue = result;
             completedThrown = thrown;
 
@@ -325,17 +325,17 @@ public class LRAInterceptorTest {
         }
 
         @Override
-        public boolean bindAsyncCompletion(InvocationContext invocation, LraInvocation lraInvocation,
+        public boolean bindAsyncCompletion(InvocationContext invocation, LraInvocationState state,
                 AsyncCompletion completion) {
             deferred = defer;
             asyncCompletion = completion;
 
             if (defer) {
-                deferredInvocation = lraInvocation;
+                deferredInvocation = state;
             }
 
             if (claimOnBind) {
-                lraInvocation.tryMarkCompleted();
+                state.tryMarkCompleted();
             }
 
             return defer;
@@ -347,18 +347,18 @@ public class LRAInterceptorTest {
         boolean requestCalled;
         boolean responseCalled;
         int responseCalls;
-        Consumer<LraInvocation> onRequest = lraInvocation -> {
+        Consumer<LraInvocationState> onRequest = state -> {
         };
         LifecycleDecision decision = new LifecycleDecision(false, 0, null, null);
 
         @Override
-        public void processRequest(LraInvocation lraInvocation) {
+        public void processRequest(LraInvocationState state) {
             requestCalled = true;
-            onRequest.accept(lraInvocation);
+            onRequest.accept(state);
         }
 
         @Override
-        public LifecycleDecision processResponse(LraInvocation lraInvocation, boolean cancel) {
+        public LifecycleDecision processResponse(LraInvocationState state, boolean cancel) {
             responseCalled = true;
             responseCalls++;
 
@@ -366,12 +366,12 @@ public class LRAInterceptorTest {
         }
 
         @Override
-        public boolean isCancel(LraInvocation lraInvocation, Outcome outcome, boolean failed) {
+        public boolean isCancel(LraInvocationState state, Outcome outcome, boolean failed) {
             return false;
         }
 
         @Override
-        public boolean isCancel(LraInvocation lraInvocation, int statusCode) {
+        public boolean isCancel(LraInvocationState state, int statusCode) {
             return false;
         }
     }

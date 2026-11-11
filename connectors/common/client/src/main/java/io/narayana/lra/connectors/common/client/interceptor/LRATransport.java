@@ -7,7 +7,7 @@ package io.narayana.lra.connectors.common.client.interceptor;
 
 import io.narayana.lra.connectors.common.client.invocation.AsyncCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
-import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocationState;
 import jakarta.interceptor.InvocationContext;
 import java.net.URI;
 
@@ -38,9 +38,9 @@ public interface LRATransport {
      * before the interceptor chain ran.
      *
      * @param invocation the interception context
-     * @param lraInvocation the state associated with this invocation
+     * @param state the state associated with this invocation
      */
-    void bind(InvocationContext invocation, LraInvocation lraInvocation);
+    void bind(InvocationContext invocation, LraInvocationState state);
 
     /**
      * Interpret the method result (or exception) for the LRA.
@@ -49,12 +49,12 @@ public interface LRATransport {
      * mapping: a JAX-RS adapter translates its {@code Response} and exceptions here, and a
      * messaging adapter translates its reply.
      *
-     * @param lraInvocation the invocation state
+     * @param state the invocation state
      * @param result the value returned by the business method, or {@code null}
      * @param thrown the exception thrown by the business method, or {@code null}
      * @return the neutral completion
      */
-    LraCompletion completionOf(LraInvocation lraInvocation, Object result, Throwable thrown);
+    LraCompletion completionOf(LraInvocationState state, Object result, Throwable thrown);
 
     /**
      * @param invocation the interception context
@@ -75,11 +75,11 @@ public interface LRATransport {
      * may itself be an asynchronous value.
      *
      * @param invocation the interception context
-     * @param lraInvocation the invocation state to complete later
+     * @param state the invocation state to complete later
      * @param completion the sink the transport calls once the transport result exists
      * @return whether the transport took ownership of the completion
      */
-    default boolean bindAsyncCompletion(InvocationContext invocation, LraInvocation lraInvocation,
+    default boolean bindAsyncCompletion(InvocationContext invocation, LraInvocationState state,
             AsyncCompletion completion) {
         return false;
     }

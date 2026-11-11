@@ -17,9 +17,9 @@ import io.narayana.lra.connectors.common.client.discovery.MicroProfileParticipan
 import io.narayana.lra.connectors.common.client.discovery.ParticipantDiscovery;
 import io.narayana.lra.connectors.common.client.invocation.LRAParticipantData;
 import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
-import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
-import io.narayana.lra.connectors.common.client.invocation.LraInvocation.Progress;
-import io.narayana.lra.connectors.common.client.invocation.LraInvocation.ProgressStep;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocationState;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocationState.Progress;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocationState.ProgressStep;
 import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
 import io.narayana.lra.connectors.common.client.participant.LRAParticipantRegistry;
 import io.narayana.lra.connectors.common.client.participant.Participant;
@@ -45,7 +45,7 @@ import org.eclipse.microprofile.lra.annotation.ws.rs.LRA;
 /**
  * The one lifecycle state machine.
  * <p>
- * It is transport-neutral: it only operates on a {@link LraInvocation}, never on a request or a
+ * It is transport-neutral: it only operates on a {@link LraInvocationState}, never on a request or a
  * message. A transport adapter fills the context and, when it owns completion, calls
  * {@link #processResponse} once its response exists; otherwise the interceptor does.
  */
@@ -101,120 +101,120 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
      * Process the request filter phase. This method is only a dispatcher: the behaviour of each LRA
      * annotation is implemented in its own handler method.
      *
-     * @param context the state associated with this request
+     * @param invocation the state associated with this request
      */
     @Override
-    public void processRequest(LraInvocation context) {
-        LraMethodMetadata metadata = context.getMetadata();
+    public void processRequest(LraInvocationState invocation) {
+        LraMethodMetadata metadata = invocation.getMetadata();
 
         // leaving is applied first, whenever there is an incoming context (with or without a transaction)
-        if (metadata.isLeave() && context.getIncomingLRA() != null) {
-            if (handleLeave(context)) {
+        if (metadata.isLeave() && invocation.getIncomingLRA() != null) {
+            if (handleLeave(invocation)) {
                 return;
             }
         }
 
         if (metadata.getPropagation() != null) {
-            handleTransaction(context); // the method starts or joins an LRA
+            handleTransaction(invocation); // the method starts or joins an LRA
         } else {
             // participant callbacks and @Leave run with the incoming context but do not enlist;
             // methods with no LRA annotation only propagate any incoming context
-            handleNoType(context);
+            handleNoType(invocation);
         }
     }
 
     // the method starts or joins an LRA
-    private void handleTransaction(LraInvocation context) {
-        if (context.isEndAnnotation() && context.getIncomingLRA() == null) {
+    private void handleTransaction(LraInvocationState invocation) {
+        if (invocation.isEndAnnotation() && invocation.getIncomingLRA() == null) {
             return;
         }
 
-        if (context.getIncomingLRA() != null) {
-            handleParentContext(context);
+        if (invocation.getIncomingLRA() != null) {
+            handleParentContext(invocation);
         }
 
-        handleLraType(context);
+        handleLraType(invocation);
 
-        if (context.isAborted()) {
+        if (invocation.isAborted()) {
             return;
         }
 
-        if (context.getCurrentLRA() == null) {
-            handleNoCurrentLRA(context);
+        if (invocation.getCurrentLRA() == null) {
+            handleNoCurrentLRA(invocation);
             return;
         }
 
         // store state with the current thread
-        Current.push(context.getCurrentLRA(), null); // make the current LRA available to the called method
+        Current.push(invocation.getCurrentLRA(), null); // make the current LRA available to the called method
 
-        if (!context.isEndAnnotation()) { // don't enlist for methods marked with Compensate, Complete or Leave
-            handleEnlistment(context);
+        if (!invocation.isEndAnnotation()) { // don't enlist for methods marked with Compensate, Complete or Leave
+            handleEnlistment(invocation);
         }
 
-        Current.addActiveLRACache(context.getCurrentLRA());
+        Current.addActiveLRACache(invocation.getCurrentLRA());
     }
 
     /**
      * Process the response filter phase: close or cancel the LRA as required and report any failures.
      *
-     * @param context the state associated with this request
+     * @param invocation the state associated with this request
      * @param isCancel whether the response status matched the cancel conditions
      */
     @Override
-    public LifecycleDecision processResponse(LraInvocation context, boolean isCancel) {
-        context.setUserData(getUserDefinedData());
-        context.setParticipantId(ParticipantIdProvider.getParticipantId(context.getResourceClass()));
+    public LifecycleDecision processResponse(LraInvocationState invocation, boolean isCancel) {
+        invocation.setUserData(getUserDefinedData());
+        invocation.setParticipantId(ParticipantIdProvider.getParticipantId(invocation.getResourceClass()));
 
         // only failures recorded before the request filter aborted (plus any found below) are reported
-        if (!context.isAborted()) {
-            context.setProgress(null);
+        if (!invocation.isAborted()) {
+            invocation.setProgress(null);
         }
 
-        URI current = context.getCurrentLRA();
+        URI current = invocation.getCurrentLRA();
 
         if (current != null && isCancel) {
-            context.setCurrentLRACancelled(true);
-            handleCancellation(context, current);
-        } else if (current != null && context.isEndLRA()) {
-            context.setEndLRAClosed(true);
-            handleClose(context);
+            invocation.setCurrentLRACancelled(true);
+            handleCancellation(invocation, current);
+        } else if (current != null && invocation.isEndLRA()) {
+            invocation.setEndLRAClosed(true);
+            handleClose(invocation);
         }
 
-        return new LifecycleDecision(context.isAborted(), context.getAbortStatusCode(),
-                context.getAbortMessage(), processFailures(context));
+        return new LifecycleDecision(invocation.isAborted(), invocation.getAbortStatusCode(),
+                invocation.getAbortMessage(), processFailures(invocation));
     }
 
     @Override
-    public boolean isCancel(LraInvocation context, Outcome outcome, boolean failed) {
+    public boolean isCancel(LraInvocationState invocation, Outcome outcome, boolean failed) {
         // cancel conditions only exist on @LRA; a method without it (for example @Leave only) does
         // not own the incoming LRA and must never cancel it
-        if (context.getType() == null) {
+        if (invocation.getType() == null) {
             return false;
         }
 
-        if (context.getCancelOn() != null && !context.getCancelOn().isEmpty()) {
+        if (invocation.getCancelOn() != null && !invocation.getCancelOn().isEmpty()) {
             throw new IllegalStateException("cancelOn is not supported on a plain CDI bean method because there "
                     + "is no transport status; use cancelOnFamily and return io.narayana.lra.api.Result instead");
         }
 
-        Set<Outcome> families = context.getCancelOnFamily();
+        Set<Outcome> families = invocation.getCancelOnFamily();
 
         return families != null && families.contains(outcome);
     }
 
     @Override
-    public boolean isCancel(LraInvocation context, int statusCode) {
-        if (context.getType() == null) {
+    public boolean isCancel(LraInvocationState invocation, int statusCode) {
+        if (invocation.getType() == null) {
             return false;
         }
 
-        Set<Outcome> families = context.getCancelOnFamily();
+        Set<Outcome> families = invocation.getCancelOnFamily();
 
         if (families != null && families.contains(LraCompletion.outcomeOf(statusCode))) {
             return true;
         }
 
-        Set<Integer> codes = context.getCancelOn();
+        Set<Integer> codes = invocation.getCancelOn();
 
         return codes != null && codes.contains(statusCode);
     }
@@ -222,11 +222,11 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
     /**
      * Report any failed steps (ie if progress contains any failures) to the caller.
      *
-     * @param context the state associated with this request
+     * @param invocation the state associated with this request
      * @return a warning message describing the operations performed, or {@code null} if there is nothing to report
      */
-    private String processFailures(LraInvocation context) {
-        List<Progress> progress = context.getProgress();
+    private String processFailures(LraInvocationState invocation) {
+        List<Progress> progress = invocation.getProgress();
 
         if (progress == null) {
             return null;
@@ -253,15 +253,15 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
     }
 
     // @Leave
-    private boolean handleLeave(LraInvocation context) {
-        var body = ParticipantIdProvider.getParticipantId(context.getResourceClass());
+    private boolean handleLeave(LraInvocationState invocation) {
+        var body = ParticipantIdProvider.getParticipantId(invocation.getResourceClass());
 
         try {
-            getLRAClient().leaveLRA(context.getIncomingLRA(), body);
-            updateProgress(context, ProgressStep.Left, null); // leave succeeded
+            getLRAClient().leaveLRA(invocation.getIncomingLRA(), body);
+            updateProgress(invocation, ProgressStep.Left, null); // leave succeeded
         } catch (LRAClientException e) {
-            context.addProgress(ProgressStep.LeaveFailed, e.getMessage()); // leave may have failed
-            abort(context, context.getIncomingLRA().toASCIIString(), e.getStatusCode(), e.getMessage());
+            invocation.addProgress(ProgressStep.LeaveFailed, e.getMessage()); // leave may have failed
+            abort(invocation, invocation.getIncomingLRA().toASCIIString(), e.getStatusCode(), e.getMessage());
             return true; // the error will be handled or reported via the response filter
         }
 
@@ -269,112 +269,112 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         return false;
     }
 
-    private void handleParentContext(LraInvocation context) {
+    private void handleParentContext(LraInvocationState invocation) {
         // use the full parent LRA protocol URI
-        URI firstParent = Current.getFirstParent(context.getIncomingLRA());
+        URI firstParent = Current.getFirstParent(invocation.getIncomingLRA());
 
-        context.setParentDecided(true);
-        context.setParentLRA(firstParent);
+        invocation.setParentDecided(true);
+        invocation.setParentLRA(firstParent);
     }
 
-    private void handleNoType(LraInvocation context) {
-        if (!context.isEndAnnotation()) {
+    private void handleNoType(LraInvocationState invocation) {
+        if (!invocation.isEndAnnotation()) {
             Current.popAll();
-            context.setClearIncomingLRA(true);
+            invocation.setClearIncomingLRA(true);
         }
 
-        if (context.getIncomingLRA() != null) {
-            context.setSuspendedLRA(true);
-            context.setCurrentLRA(context.getIncomingLRA());
-            Current.push(context.getIncomingLRA(), null);
-            Current.addActiveLRACache(context.getIncomingLRA());
+        if (invocation.getIncomingLRA() != null) {
+            invocation.setSuspendedLRA(true);
+            invocation.setCurrentLRA(invocation.getIncomingLRA());
+            Current.push(invocation.getIncomingLRA(), null);
+            Current.addActiveLRACache(invocation.getIncomingLRA());
         }
     }
 
-    private void handleLraType(LraInvocation context) {
-        switch (context.getType()) {
+    private void handleLraType(LraInvocationState invocation) {
+        switch (invocation.getType()) {
             case MANDATORY: // a txn must be present
-                if (isTxInvalid(context, MANDATORY, context.getIncomingLRA(), true)) {
+                if (isTxInvalid(invocation, MANDATORY, invocation.getIncomingLRA(), true)) {
                     // isTxInvalid will have marked the context as aborted
                     return;
                 }
 
-                context.setCurrentLRA(context.getIncomingLRA());
-                context.setRequiresActiveLRA(true);
+                invocation.setCurrentLRA(invocation.getIncomingLRA());
+                invocation.setRequiresActiveLRA(true);
 
                 break;
             case NEVER: // a txn must not be present
-                if (isTxInvalid(context, LRA.Type.NEVER, context.getIncomingLRA(), false)) {
+                if (isTxInvalid(invocation, LRA.Type.NEVER, invocation.getIncomingLRA(), false)) {
                     return;
                 }
 
-                context.setCurrentLRA(null); // must not run with any context
+                invocation.setCurrentLRA(null); // must not run with any context
 
                 break;
             case NOT_SUPPORTED:
-                context.setSuspendedLRA(context.getIncomingLRA() != null);
-                context.setCurrentLRA(null); // must not run with any context
+                invocation.setSuspendedLRA(invocation.getIncomingLRA() != null);
+                invocation.setCurrentLRA(null); // must not run with any context
 
                 break;
             case NESTED:
                 // FALLTHROUGH
             case REQUIRED:
-                if (context.getIncomingLRA() != null) {
-                    if (context.getType() == NESTED) {
-                        context.setParentDecided(true);
-                        context.setParentLRA(context.getIncomingLRA());
+                if (invocation.getIncomingLRA() != null) {
+                    if (invocation.getType() == NESTED) {
+                        invocation.setParentDecided(true);
+                        invocation.setParentLRA(invocation.getIncomingLRA());
 
                         // if there is an LRA present nest a new LRA under it
-                        URI newLRA = startLRA(context, context.getIncomingLRA());
+                        URI newLRA = startLRA(invocation, invocation.getIncomingLRA());
 
                         if (newLRA == null) {
                             return;
                         }
 
-                        context.setCurrentLRA(newLRA);
-                        context.setSuspendedLRA(true);
+                        invocation.setCurrentLRA(newLRA);
+                        invocation.setSuspendedLRA(true);
                     } else {
-                        context.setCurrentLRA(context.getIncomingLRA());
+                        invocation.setCurrentLRA(invocation.getIncomingLRA());
                         // incomingLRA will be resumed
-                        context.setRequiresActiveLRA(true);
+                        invocation.setRequiresActiveLRA(true);
                     }
                 } else {
-                    URI newLRA = startLRA(context, null);
+                    URI newLRA = startLRA(invocation, null);
 
                     if (newLRA == null) {
                         return;
                     }
 
-                    context.setCurrentLRA(newLRA);
+                    invocation.setCurrentLRA(newLRA);
                 }
 
                 break;
             case REQUIRES_NEW:
-                URI newLRA = startLRA(context, null);
+                URI newLRA = startLRA(invocation, null);
 
                 if (newLRA == null) {
                     return;
                 }
 
-                context.setCurrentLRA(newLRA);
-                context.setSuspendedLRA(true);
+                invocation.setCurrentLRA(newLRA);
+                invocation.setSuspendedLRA(true);
 
                 break;
             case SUPPORTS:
-                context.setCurrentLRA(context.getIncomingLRA());
+                invocation.setCurrentLRA(invocation.getIncomingLRA());
 
                 // incomingLRA will be resumed if not null
 
                 break;
             default:
-                context.setCurrentLRA(context.getIncomingLRA());
+                invocation.setCurrentLRA(invocation.getIncomingLRA());
         }
     }
 
-    private void handleNoCurrentLRA(LraInvocation context) {
+    private void handleNoCurrentLRA(LraInvocationState invocation) {
         // the method call needs to run without a transaction
         Current.popAll();
-        context.setClearIncomingLRA(true);
+        invocation.setClearIncomingLRA(true);
     }
 
     private Participant participant(Class<?> resourceClass) {
@@ -393,8 +393,8 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         return ParticipantDiscovery.select(resourceClass, participantFactory);
     }
 
-    private void handleEnlistment(LraInvocation context) {
-        Participant participant = participant(context.getResourceClass());
+    private void handleEnlistment(LraInvocationState invocation) {
+        Participant participant = participant(invocation.getResourceClass());
 
         if (participant == null) {
             return;
@@ -402,136 +402,136 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
 
         ParticipantCallbacks callbacks = participant.terminationCallbacks(callbackResolver);
 
-        long timeLimit = context.getTimeout() != null && callbacks.hasCompensateOrComplete()
-                ? context.getTimeout()
+        long timeLimit = invocation.getTimeout() != null && callbacks.hasCompensateOrComplete()
+                ? invocation.getTimeout()
                 : DEFAULT_TIMEOUT_MILLIS;
 
         if (callbacks.hasAnyCallback()) {
-            context.setCallbacks(callbacks);
+            invocation.setCallbacks(callbacks);
 
             try {
                 StringBuilder previousParticipantData = new StringBuilder();
 
-                URI recoveryUrl = enlist(context, callbacks, timeLimit, previousParticipantData);
+                URI recoveryUrl = enlist(invocation, callbacks, timeLimit, previousParticipantData);
 
                 if (previousParticipantData.length() != 0) {
                     // this participant has previously updated the LRAParticipantData bean so make it available
                     setUserDefinedData(previousParticipantData.toString());
                 }
 
-                updateProgress(context, ProgressStep.Joined, null);
-                context.setRecoveryUrl(START_END_QUOTES_PATTERN.matcher(recoveryUrl.toASCIIString()).replaceAll(""));
+                updateProgress(invocation, ProgressStep.Joined, null);
+                invocation.setRecoveryUrl(START_END_QUOTES_PATTERN.matcher(recoveryUrl.toASCIIString()).replaceAll(""));
             } catch (LRAClientException e) {
                 String reason = e.getMessage();
 
-                updateProgress(context, ProgressStep.JoinFailed, reason);
-                abort(context, context.getCurrentLRA().toASCIIString(), e.getStatusCode(),
+                updateProgress(invocation, ProgressStep.JoinFailed, reason);
+                abort(invocation, invocation.getCurrentLRA().toASCIIString(), e.getStatusCode(),
                         String.format("%s: %s", e.getClass().getSimpleName(), reason));
                 // the failure plus any previous actions will be reported via the response filter
             }
-        } else if (context.isRequiresActiveLRA()
-                && getLRAClient().getStatus(context.getCurrentLRA()) != LRAStatus.Active) {
+        } else if (invocation.isRequiresActiveLRA()
+                && getLRAClient().getStatus(invocation.getCurrentLRA()) != LRAStatus.Active) {
             Current.popAll();
-            context.setClearIncomingLRA(true);
-            Current.pop(context.getCurrentLRA());
-            context.setSuspendedLRA(false);
+            invocation.setClearIncomingLRA(true);
+            Current.pop(invocation.getCurrentLRA());
+            invocation.setSuspendedLRA(false);
 
-            if (context.getType() == MANDATORY) {
-                abort(context, context.getCurrentLRA().toASCIIString(), PRECONDITION_FAILED,
+            if (invocation.getType() == MANDATORY) {
+                abort(invocation, invocation.getCurrentLRA().toASCIIString(), PRECONDITION_FAILED,
                         "LRA should have been active: ");
                 // any previous actions will be reported via the response filter
             }
         }
     }
 
-    private void handleCancellation(LraInvocation context, URI current) {
+    private void handleCancellation(LraInvocationState invocation, URI current) {
         try {
             // do not attempt to cancel if the request filter tried but failed to start a new LRA
-            if (progressDoesNotContain(context, ProgressStep.StartFailed)) {
+            if (progressDoesNotContain(invocation, ProgressStep.StartFailed)) {
                 getLRAClient().cancelLRA(current, null, null);
-                updateProgress(context, ProgressStep.Ended, null);
+                updateProgress(invocation, ProgressStep.Ended, null);
             }
         } catch (LRAClientException e) {
             if (e.getKind() == LRAClientException.Kind.NOT_FOUND) {
                 // must already be cancelled (if the intercepted method caused it to cancel)
                 // or completed (if the intercepted method caused it to complete)
-                updateProgress(context, ProgressStep.Ended, null);
+                updateProgress(invocation, ProgressStep.Ended, null);
             } else {
-                Method method = context.getMethod();
+                Method method = invocation.getMethod();
                 LRALogger.i18nLogger.warn_lraFilterContainerRequest("LRAClientException: " + e.getMessage(),
                         method.getDeclaringClass().getName() + "#" + method.getName(), current.toASCIIString());
 
-                updateProgress(context, ProgressStep.CancelFailed, e.getMessage());
+                updateProgress(invocation, ProgressStep.CancelFailed, e.getMessage());
             }
         }
     }
 
-    private void handleClose(LraInvocation context) {
-        URI toClose = context.getCurrentLRA();
+    private void handleClose(LraInvocationState invocation) {
+        URI toClose = invocation.getCurrentLRA();
 
         try {
             // do not attempt to close if the request filter tried but failed to start a new LRA
-            if (progressDoesNotContain(context, ProgressStep.StartFailed)) {
-                getLRAClient().closeLRA(toClose, context.getParticipantId(), context.getUserData());
+            if (progressDoesNotContain(invocation, ProgressStep.StartFailed)) {
+                getLRAClient().closeLRA(toClose, invocation.getParticipantId(), invocation.getUserData());
 
-                updateProgress(context, ProgressStep.Ended, null);
+                updateProgress(invocation, ProgressStep.Ended, null);
             }
         } catch (LRAClientException e) {
             if (e.getKind() == LRAClientException.Kind.NOT_FOUND) {
                 // must already be cancelled (if the intercepted method caused it to cancel)
                 // or completed (if the intercepted method caused it to complete)
-                updateProgress(context, ProgressStep.Ended, null);
+                updateProgress(invocation, ProgressStep.Ended, null);
             } else {
-                updateProgress(context, ProgressStep.CloseFailed, e.getMessage());
+                updateProgress(invocation, ProgressStep.CloseFailed, e.getMessage());
             }
         }
     }
 
-    private boolean isTxInvalid(LraInvocation context, LRA.Type type, URI lraId, boolean shouldNotBeNull) {
+    private boolean isTxInvalid(LraInvocationState invocation, LRA.Type type, URI lraId, boolean shouldNotBeNull) {
         if (lraId == null && shouldNotBeNull) {
-            abort(context, null, PRECONDITION_FAILED, type.name() + " but no tx");
+            abort(invocation, null, PRECONDITION_FAILED, type.name() + " but no tx");
             return true;
         } else if (lraId != null && !shouldNotBeNull) {
-            abort(context, lraId.toASCIIString(), PRECONDITION_FAILED, type.name() + " but found tx");
+            abort(invocation, lraId.toASCIIString(), PRECONDITION_FAILED, type.name() + " but found tx");
             return true;
         }
 
         return false;
     }
 
-    private URI startLRA(LraInvocation context, URI parentLRA) {
+    private URI startLRA(LraInvocationState invocation, URI parentLRA) {
         // timeout should already have been converted to milliseconds
-        Method method = context.getMethod();
+        Method method = invocation.getMethod();
         String clientId = method.getDeclaringClass().getName() + "#" + method.getName();
 
         try {
-            URI lra = getLRAClient().startLRA(parentLRA, clientId, context.getTimeout(), ChronoUnit.MILLIS, false);
-            updateProgress(context, ProgressStep.Started, null);
+            URI lra = getLRAClient().startLRA(parentLRA, clientId, invocation.getTimeout(), ChronoUnit.MILLIS, false);
+            updateProgress(invocation, ProgressStep.Started, null);
             return lra;
         } catch (LRAClientException e) {
             String msg = e.getMessage();
 
-            updateProgress(context, ProgressStep.StartFailed, msg);
+            updateProgress(invocation, ProgressStep.StartFailed, msg);
 
-            abort(context, null, e.getStatusCode(), msg);
+            abort(invocation, null, e.getStatusCode(), msg);
         }
 
         return null;
     }
 
-    private URI enlist(LraInvocation context, ParticipantCallbacks callbacks, long timeLimit,
+    private URI enlist(LraInvocationState invocation, ParticipantCallbacks callbacks, long timeLimit,
             StringBuilder previousParticipantData) {
         // The coordinator needs to hold a lock to enlist an participant. This lock is only waited on for a small amount of
         // time (potentially even zero time). This means if multiple participants try to enlist at the same time, enlistment
         // may fail. We therefore re-try a configurable amount of times.
         for (int i = 0;; i++) {
             try {
-                return getLRAClient().enlistCompensator(context.getCurrentLRA(), timeLimit, callbacks,
+                return getLRAClient().enlistCompensator(invocation.getCurrentLRA(), timeLimit, callbacks,
                         previousParticipantData,
-                        ParticipantIdProvider.getParticipantId(context.getResourceClass()));
+                        ParticipantIdProvider.getParticipantId(invocation.getResourceClass()));
             } catch (LRAClientException e) {
                 String logMessage = "The coordinator service is unavailable; failing in enlisting the compensator for "
-                        + context.getCurrentLRA()
+                        + invocation.getCurrentLRA()
                         + ", ENLIST_PARTICIPANT_CLIENT_MAX_RETRY (via MP config property \"lra.participant.client.max.retry\") set to "
                         + enlistMaxRetries + ". ";
 
@@ -545,27 +545,27 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         }
     }
 
-    private boolean progressDoesNotContain(LraInvocation context, ProgressStep step) {
-        List<Progress> progress = context.getProgress();
+    private boolean progressDoesNotContain(LraInvocationState invocation, ProgressStep step) {
+        List<Progress> progress = invocation.getProgress();
         return progress == null || progress.stream().noneMatch(p -> p.progress == step);
     }
 
     // add another step to the list of steps performed so far
-    private void updateProgress(LraInvocation context, ProgressStep step, String reason) {
+    private void updateProgress(LraInvocationState invocation, ProgressStep step, String reason) {
         if (reason == null) {
             LRALogger.logger.debug(step.toString());
         } else {
-            context.addProgress(step, reason);
+            invocation.addProgress(step, reason);
         }
     }
 
     // the processing performed by the request phase caused the request to abort (without executing application code)
-    private void abort(LraInvocation context, String lraId, int statusCode, String message) {
-        context.setAborted(true);
-        context.setAbortStatusCode(statusCode);
-        context.setAbortMessage(message);
+    private void abort(LraInvocationState invocation, String lraId, int statusCode, String message) {
+        invocation.setAborted(true);
+        invocation.setAbortStatusCode(statusCode);
+        invocation.setAbortMessage(message);
 
-        Method method = context.getMethod();
+        Method method = invocation.getMethod();
         LRALogger.i18nLogger.warn_lraFilterContainerRequest(message,
                 method.getDeclaringClass().getName() + "#" + method.getName(),
                 lraId == null ? "context" : lraId);
@@ -579,7 +579,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
         try {
             return data != null ? data.getData() : null;
         } catch (ContextNotActiveException e) {
-            LRALogger.i18nLogger.warn_missingContexts("LRAParticipantData is not usable in this (probably async) context.");
+            LRALogger.i18nLogger.warn_missingContexts("LRAParticipantData is not usable in this (probably async) invocation.");
         }
 
         return null;
@@ -591,7 +591,7 @@ public class ServerLRAProcessor implements LraLifecycleProcessor {
                 data.setData(userDefinedData);
             }
         } catch (ContextNotActiveException e) {
-            LRALogger.i18nLogger.warn_missingContexts("LRAParticipantData is not usable in this (probably async) context.");
+            LRALogger.i18nLogger.warn_missingContexts("LRAParticipantData is not usable in this (probably async) invocation.");
         }
     }
 }

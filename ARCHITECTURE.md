@@ -73,7 +73,7 @@ common.client
   participant/   Participant, LRAParticipant, LRAParticipantRegistry, ParticipantIdProvider,
                  ParticipantCallbackAddressResolver,
                  protocol/ (ParticipantConnector, CallbackPaths, ParticipantProtocolRegistry)
-  invocation/    LraInvocation, LraMethodMetadata, LraCompletion, LRAParticipantData
+  invocation/    LraInvocationState, LraMethodMetadata, LraCompletion, LRAParticipantData
   LRAAbortException
 ```
 
@@ -113,7 +113,7 @@ Rules:
   one `LRAParticipantRegistry` and all CDI participant discovery live in
   `lra-connector-common-client`. Discovery is transport-agnostic; it scans the MicroProfile LRA
   annotations only and never looks at `@Path`.
-- The transport-neutral lifecycle runtime (`LraInvocation`, `LraMethodMetadata`,
+- The transport-neutral lifecycle runtime (`LraInvocationState`, `LraMethodMetadata`,
   `LRAAnnotationResolver`, `LraLifecycleProcessor`, `ServerLRAProcessor`) lives in
   `common.client.{invocation,lifecycle,interceptor}`; it never imports Jakarta REST.
   `LRATransport` and `LRAAbortException` are neutral SPIs there too. Every transport contributes an
@@ -152,7 +152,7 @@ Rules:
   `@Suspended` response is completed by the transport through
   `LRATransport.bindAsyncCompletion` and a delegating proxy that observes `resume`/`cancel` before
   delegating; the proxy installs a default timeout handler equivalent to the container's own, so a
-  timeout is completed too. Completion is thread-agnostic: it reads `LraInvocation`, never the
+  timeout is completed too. Completion is thread-agnostic: it reads `LraInvocationState`, never the
   calling thread's `Current`. `LraResponseFilter` never completes a lifecycle: it writes the
   response header, renders a lifecycle failure recorded by the completion and restores the
   thread-local state; neither filter reads annotations or owns lifecycle state. A response-phase

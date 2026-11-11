@@ -12,7 +12,7 @@ import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
 import io.narayana.lra.connectors.common.client.coordinator.LRAClient;
 import io.narayana.lra.connectors.common.client.coordinator.LRAClientException;
 import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
-import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocationState;
 import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
 import java.lang.reflect.Method;
 import java.net.URI;
@@ -46,7 +46,7 @@ public class ServerLRAProcessorTest {
 
     @Test
     public void successfulLeaveIsNotReportedAsFailure() throws Exception {
-        LraInvocation invocation = leaveOnly();
+        LraInvocationState invocation = leaveOnly();
         invocation.setIncomingLRA(lra());
 
         processor.processRequest(invocation);
@@ -63,7 +63,7 @@ public class ServerLRAProcessorTest {
     @Test
     public void failedLeaveAbortsWithTheCoordinatorStatus() throws Exception {
         client.failure = new LRAClientException(412, LRAClientException.Kind.OTHER, "leave failed");
-        LraInvocation invocation = leaveOnly();
+        LraInvocationState invocation = leaveOnly();
         invocation.setIncomingLRA(lra());
 
         processor.processRequest(invocation);
@@ -79,7 +79,7 @@ public class ServerLRAProcessorTest {
 
     @Test
     public void invocationWithoutLraNeverCancels() throws Exception {
-        LraInvocation invocation = leaveOnly();
+        LraInvocationState invocation = leaveOnly();
 
         Assertions.assertFalse(processor.isCancel(invocation, Outcome.SERVER_ERROR, true));
         Assertions.assertFalse(processor.isCancel(invocation, 500));
@@ -87,7 +87,7 @@ public class ServerLRAProcessorTest {
 
     @Test
     public void invocationWithLraCancelsOnMatchingFamily() throws Exception {
-        LraInvocation invocation = invocation(LRA.Type.REQUIRED, Set.of(), Set.of(Outcome.SERVER_ERROR));
+        LraInvocationState invocation = invocation(LRA.Type.REQUIRED, Set.of(), Set.of(Outcome.SERVER_ERROR));
 
         Assertions.assertTrue(processor.isCancel(invocation, Outcome.SERVER_ERROR, false));
         Assertions.assertFalse(processor.isCancel(invocation, Outcome.SUCCESS, false));
@@ -95,20 +95,20 @@ public class ServerLRAProcessorTest {
         Assertions.assertFalse(processor.isCancel(invocation, 200));
     }
 
-    private static LraInvocation leaveOnly() throws NoSuchMethodException {
+    private static LraInvocationState leaveOnly() throws NoSuchMethodException {
         Method method = Resource.class.getDeclaredMethod("leave");
         LraMethodMetadata metadata = new LraMethodMetadata(null, false, null, null, null, true, false, false);
 
-        return new LraInvocation(method, Resource.class, metadata, List.of(), null);
+        return new LraInvocationState(method, Resource.class, metadata, List.of(), null);
     }
 
-    private static LraInvocation invocation(LRA.Type type, Set<Integer> cancelOn, Set<Outcome> cancelOnFamily)
+    private static LraInvocationState invocation(LRA.Type type, Set<Integer> cancelOn, Set<Outcome> cancelOnFamily)
             throws NoSuchMethodException {
         Method method = Resource.class.getDeclaredMethod("leave");
         LraMethodMetadata metadata = new LraMethodMetadata(type, false, null, cancelOn, cancelOnFamily, false,
                 false, false);
 
-        return new LraInvocation(method, Resource.class, metadata, List.of(), null);
+        return new LraInvocationState(method, Resource.class, metadata, List.of(), null);
     }
 
     private static URI lra() {

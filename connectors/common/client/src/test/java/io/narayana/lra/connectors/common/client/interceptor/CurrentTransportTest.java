@@ -8,7 +8,7 @@ package io.narayana.lra.connectors.common.client.interceptor;
 import io.narayana.lra.api.Outcome;
 import io.narayana.lra.api.Result;
 import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
-import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocationState;
 import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
 import java.lang.reflect.Method;
 import java.util.Collections;
@@ -48,10 +48,10 @@ public class CurrentTransportTest {
         Assertions.assertFalse(completion.failed());
     }
 
-    private LraInvocation invocation() {
+    private LraInvocationState invocation() {
         try {
             Method method = Bean.class.getDeclaredMethod("work");
-            return new LraInvocation(method, Bean.class, metadata, Collections.emptyList(), null);
+            return new LraInvocationState(method, Bean.class, metadata, Collections.emptyList(), null);
         } catch (NoSuchMethodException e) {
             throw new AssertionError(e);
         }

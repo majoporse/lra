@@ -12,7 +12,7 @@ import io.narayana.lra.api.Result;
 import io.narayana.lra.connectors.common.client.LRAAbortException;
 import io.narayana.lra.connectors.common.client.invocation.AsyncCompletion;
 import io.narayana.lra.connectors.common.client.invocation.LraCompletion;
-import io.narayana.lra.connectors.common.client.invocation.LraInvocation;
+import io.narayana.lra.connectors.common.client.invocation.LraInvocationState;
 import io.narayana.lra.connectors.common.client.invocation.LraMethodMetadata;
 import io.narayana.lra.connectors.common.client.lifecycle.LifecycleDecision;
 import io.narayana.lra.connectors.common.client.lifecycle.LraLifecycleProcessor;
@@ -92,7 +92,7 @@ public class LRAInterceptor {
             propagateCredential(transport.credential());
         }
 
-        LraInvocation invocation = new LraInvocation(method,
+        LraInvocationState invocation = new LraInvocationState(method,
                 resolveResourceClass(invocationContext, method), metadata, contextsOnEntry, authTokenOnEntry);
         invocation.setIncomingLRA(transport.incomingLRA());
 
@@ -155,7 +155,7 @@ public class LRAInterceptor {
         return complete(invocationContext, invocation, aborted, result, thrown);
     }
 
-    private Object complete(InvocationContext invocationContext, LraInvocation invocation, boolean aborted,
+    private Object complete(InvocationContext invocationContext, LraInvocationState invocation, boolean aborted,
             Object result, Throwable thrown) throws Exception {
         LraCompletion completion = transport.completionOf(invocation, result, thrown);
 
@@ -204,7 +204,7 @@ public class LRAInterceptor {
         return result;
     }
 
-    private void completeAsync(InvocationContext invocationContext, LraInvocation invocation, Object value,
+    private void completeAsync(InvocationContext invocationContext, LraInvocationState invocation, Object value,
             Throwable thrown) {
         Throwable failure = unwrap(thrown);
 
@@ -233,7 +233,7 @@ public class LRAInterceptor {
         }
     }
 
-    private LRAAbortException abortException(LraInvocation invocation, String failureMessage) {
+    private LRAAbortException abortException(LraInvocationState invocation, String failureMessage) {
         String message = failureMessage != null ? failureMessage : invocation.getAbortMessage();
 
         return new LRAAbortException(invocation.getAbortStatusCode(), message);

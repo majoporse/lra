@@ -13,12 +13,12 @@ import jakarta.ws.rs.container.ContainerRequestContext;
  * <p>
  * An interceptor cannot inject {@link ContainerRequestContext} portably, but it runs on the
  * request thread, so a thin request filter can capture the context here and the transport can
- * store its {@link io.narayana.lra.connectors.common.client.invocation.LraInvocation} on it. The
+ * store its {@link io.narayana.lra.connectors.common.client.invocation.LraInvocationState} on it. The
  * request context (and its properties) survives into the response phase, including asynchronous
  * responses resumed on another thread.
  */
 @RequestScoped
-public class LraInvocationState {
+public class JaxrsRequestHolder {
 
     private ContainerRequestContext requestContext;
 
