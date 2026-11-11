@@ -39,11 +39,13 @@
 
   <modules>
     <module>service-base</module>
-    <module>client</module>
+    <module>connectors</module>
+    <module>coordinator-core</module>
     <module>coordinator</module>
     <module>coordinator-war</module>
     <module>proxy</module>
     <module>jaxrs</module>
+    <module>quarkus</module>
     <module>arquillian-extension</module>
   </modules>
 
@@ -122,9 +124,11 @@
     <version.httpcomponents>4.5.14</version.httpcomponents>
     <version.io.narayana.checkstyle-config>1.0.1.Final</version.io.narayana.checkstyle-config>
     <version.io.netty>4.2.16.Final</version.io.netty>
+    <version.io.smallrye.jandex>3.6.0</version.io.smallrye.jandex>
 
     <version.io.smallrye.smallrye-config>3.18.1</version.io.smallrye.smallrye-config>
     <version.io.smallrye.smallrye-stork>3.0.0</version.io.smallrye.smallrye-stork>
+    <version.jakarta.annotation-api>2.1.1</version.jakarta.annotation-api>
     <version.jakarta.concurrent>3.1.1</version.jakarta.concurrent>
     <version.jakarta.enterprise>4.1.0</version.jakarta.enterprise>
     <version.jakarta.inject.jakarta.inject-api>2.0.1</version.jakarta.inject.jakarta.inject-api>
@@ -146,7 +150,7 @@
     <version.microprofile.jwt>2.2</version.microprofile.jwt>
 
     <!-- Needed for WildflyLRACoordinatorDeployment class -->
-    <version.microprofile.lra>2.0.2</version.microprofile.lra>
+    <version.microprofile.lra>2.1-SNAPSHOT</version.microprofile.lra>
     <version.microprofile.rest-client-api>4.0</version.microprofile.rest-client-api>
     <version.nimbus-jose-jwt>10.9.1</version.nimbus-jose-jwt>
     <version.org.apache.activemq>2.55.0</version.org.apache.activemq>
@@ -280,6 +284,11 @@
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-annotations</artifactId>
+        <version>${version.fasterxml.jackson.core}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-core</artifactId>
         <version>${version.fasterxml.jackson.core}</version>
       </dependency>
@@ -306,14 +315,19 @@
       <!-- end undertow with RestEasy -->
 
       <dependency>
+        <groupId>jakarta.annotation</groupId>
+        <artifactId>jakarta.annotation-api</artifactId>
+        <version>${version.jakarta.annotation-api}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.smallrye</groupId>
+        <artifactId>jandex</artifactId>
+        <version>${version.io.smallrye.jandex}</version>
+      </dependency>
+      <dependency>
         <groupId>jakarta.ws.rs</groupId>
         <artifactId>jakarta.ws.rs-api</artifactId>
         <version>${version.jakarta.ws.rs.jakarta-ws-rs-api}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.jboss.narayana.lra</groupId>
-        <artifactId>lra-client</artifactId>
-        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>org.jboss.narayana.lra</groupId>
@@ -322,12 +336,67 @@
       </dependency>
       <dependency>
         <groupId>org.jboss.narayana.lra</groupId>
-        <artifactId>lra-proxy-api</artifactId>
+        <artifactId>lra-connector-common-contracts</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-common-client</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-common-coordinator</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-http-contracts</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-http-client</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-http-coordinator</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-kafka-contracts</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-kafka-client</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-kafka-coordinator</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-coordinator-core</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>org.jboss.narayana.lra</groupId>
         <artifactId>narayana-lra</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-quarkus</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-quarkus-deployment</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

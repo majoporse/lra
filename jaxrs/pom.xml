@@ -18,12 +18,17 @@
 
   <dependencies>
     <dependency>
-      <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>lra-client</artifactId>
+      <groupId>jakarta.ws.rs</groupId>
+      <artifactId>jakarta.ws.rs-api</artifactId>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>lra-proxy-api</artifactId>
+      <artifactId>lra-connector-common-client</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss.narayana.lra</groupId>
+      <artifactId>lra-connector-common-contracts</artifactId>
     </dependency>
     <dependency>
       <groupId>org.eclipse.microprofile.lra</groupId>

@@ -35,7 +35,7 @@ public class ClientLRAContextProviderMP implements ThreadContextProvider {
                 LRALogger.logger.debugf("Pushing %s from thread %d to %d", lraId, originThreadId, executionThreadId);
 
                 // Executed in new Thread
-                Current.push(lraId);
+                Current.push(lraId, null);
             }
 
             return () -> {

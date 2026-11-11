@@ -1,2 +1,2 @@
-io.narayana.lra.filter.ClientLRAResponseFilter
-io.narayana.lra.filter.ClientLRARequestFilter
+io.narayana.lra.connectors.http.client.propagation.ClientLRAResponseFilter
+io.narayana.lra.connectors.http.client.propagation.ClientLRARequestFilter

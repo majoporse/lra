@@ -5,7 +5,7 @@
 
 package io.narayana.lra.proxy.test.model;
 
-import io.narayana.lra.client.internal.proxy.LRAProxyParticipant;
+import io.narayana.lra.proxy.test.manual.LRAProxyParticipant;
 import jakarta.ws.rs.NotFoundException;
 import java.io.Serializable;
 import java.net.URI;

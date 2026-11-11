@@ -36,12 +36,12 @@
     </dependency>
     <dependency>
       <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>lra-client</artifactId>
+      <artifactId>lra-connector-http-client</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
       <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>lra-proxy-api</artifactId>
+      <artifactId>lra-connector-common-client</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
@@ -136,7 +136,7 @@
               <arguments>
                 <argument>-Dquarkus.http.host=${lra.initiator.host}</argument>
                 <argument>-Dquarkus.http.port=${lra.initiator.port}</argument>
-                <argument>-Dquarkus.lra.coordinator-url=${lra.coordinator.url}</argument>
+                <argument>-Dlra.coordinator.url=${lra.coordinator.url}</argument>
                 <argument>-jar</argument>
                 <argument>${quarkus.jar}</argument>
               </arguments>

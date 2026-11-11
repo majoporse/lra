@@ -15,11 +15,7 @@
   <artifactId>lra-proxy-parent</artifactId>
   <packaging>pom</packaging>
   <name>LRA Proxy Parent</name>
-  <description>LRA Proxy Parent</description>
-
-  <modules>
-    <module>api</module>
-  </modules>
+  <description>LRA Proxy Parent: the sample participant application</description>
 
   <profiles>
     <profile>

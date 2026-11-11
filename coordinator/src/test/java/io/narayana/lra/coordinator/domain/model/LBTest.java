@@ -5,9 +5,8 @@
 package io.narayana.lra.coordinator.domain.model;
 
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
-import static io.narayana.lra.client.NarayanaLRAClient.LB_METHOD_ROUND_ROBIN;
-import static io.narayana.lra.client.NarayanaLRAClient.LB_METHOD_STICKY;
-import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
+import static io.narayana.lra.connectors.http.client.NarayanaLRAClient.LB_METHOD_ROUND_ROBIN;
+import static io.narayana.lra.connectors.http.client.NarayanaLRAClient.LB_METHOD_STICKY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -16,11 +15,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import io.narayana.lra.Current;
-import io.narayana.lra.client.NarayanaLRAClient;
-import io.narayana.lra.coordinator.api.Coordinator;
+import io.narayana.lra.connectors.common.client.coordinator.LRAClientException;
+import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
+import io.narayana.lra.connectors.http.coordinator.api.Coordinator;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.ApplicationPath;
-import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
@@ -35,6 +34,7 @@ import org.eclipse.microprofile.lra.annotation.LRAStatus;
 import org.jboss.resteasy.plugins.server.undertow.UndertowJaxrsServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -133,6 +133,10 @@ public class LBTest extends LRATestBase {
     }
 
     // run a test multiple times parameterised by the algorithms defined by an @LBAlgorithms annotation
+    // Disabled: LRA ids use the LRA protocol scheme (lra://{uid}) and no longer carry the
+    // coordinator location, so per-LRA coordinator instance routing is not supported.
+    // Coordinator selection is config-based (single coordinator), see NarayanaLRAClient.
+    @Disabled("multi-coordinator routing is not supported with config-based LRA id resolution")
     @ParameterizedTest(name = "#{index}, lb_method: {0}")
     @MethodSource("parameters")
     public void testMultipleCoordinators(String lb_method) {
@@ -176,6 +180,10 @@ public class LBTest extends LRATestBase {
     }
 
     // test failover of coordinators (ie if one is unavailable then the next one in the list is tried)
+    // Disabled: LRA ids use the LRA protocol scheme (lra://{uid}) and no longer carry the
+    // coordinator location, so per-LRA coordinator instance routing is not supported.
+    // Coordinator selection is config-based (single coordinator), see NarayanaLRAClient.
+    @Disabled("multi-coordinator routing is not supported with config-based LRA id resolution")
     @ParameterizedTest(name = "#{index}, lb_method: {0}")
     @ValueSource(strings = { NarayanaLRAClient.LB_METHOD_ROUND_ROBIN, NarayanaLRAClient.LB_METHOD_STICKY })
     public void testCoordinatorFailover(String lb_method) {
@@ -220,7 +228,7 @@ public class LBTest extends LRATestBase {
             URI lra = lraClient.startLRA(clientName);
             lraClient.closeLRA(lra);
             return lra;
-        } catch (WebApplicationException e) {
+        } catch (LRAClientException | WebApplicationException e) {
             if (shouldFail) {
                 fail("Unable to run LRA using lb method " + lb_method + ": " + e.getMessage());
             }
@@ -231,11 +239,8 @@ public class LBTest extends LRATestBase {
     LRAStatus getStatus(URI lra) {
         try {
             return lraClient.getStatus(lra);
-        } catch (NotFoundException ignore) {
-            return null;
-        } catch (WebApplicationException e) {
-            assertNotNull(e);
-            assertEquals(e.getResponse().getStatus(), NOT_FOUND.getStatusCode());
+        } catch (LRAClientException e) {
+            assertEquals(LRAClientException.Kind.NOT_FOUND, e.getKind());
             return null;
         }
     }

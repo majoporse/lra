@@ -8,11 +8,10 @@ package io.narayana.lra.coordinator.domain.model.objectstore;
 import static io.narayana.lra.LRAConstants.COORDINATOR_PATH_NAME;
 
 import io.narayana.lra.LRAData;
-import io.narayana.lra.client.NarayanaLRAClient;
-import io.narayana.lra.coordinator.api.Coordinator;
-import io.narayana.lra.filter.ServerLRAFilter;
+import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
+import io.narayana.lra.connectors.http.client.participant.ParticipantStatusOctetStreamProvider;
+import io.narayana.lra.connectors.http.coordinator.api.Coordinator;
 import io.narayana.lra.logging.LRALogger;
-import io.narayana.lra.provider.ParticipantStatusOctetStreamProvider;
 import jakarta.ws.rs.ApplicationPath;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.WebApplicationException;
@@ -48,7 +47,6 @@ public class TestBase {
         public Set<Class<?>> getClasses() {
             HashSet<Class<?>> classes = new HashSet<>();
             classes.add(Coordinator.class);
-            classes.add(ServerLRAFilter.class);
             classes.add(ParticipantStatusOctetStreamProvider.class);
             return classes;
         }

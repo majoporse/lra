@@ -10,16 +10,15 @@ import static org.eclipse.microprofile.lra.annotation.ws.rs.LRA.LRA_HTTP_PARENT_
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import io.narayana.lra.client.NarayanaLRAClient;
-import io.narayana.lra.coordinator.api.Coordinator;
-import io.narayana.lra.filter.ServerLRAFilter;
+import io.narayana.lra.connectors.common.client.coordinator.LRAClientException;
+import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
+import io.narayana.lra.connectors.http.client.participant.ParticipantStatusOctetStreamProvider;
+import io.narayana.lra.connectors.http.coordinator.api.Coordinator;
 import io.narayana.lra.logging.LRALogger;
-import io.narayana.lra.provider.ParticipantStatusOctetStreamProvider;
 import jakarta.ws.rs.ApplicationPath;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Application;
 import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Method;
@@ -62,9 +61,17 @@ public class LRAWithParticipantsTest extends LRATestBase {
                 lock.notify();
             }
             synchronized (lock) {
+                long deadline = System.currentTimeMillis() + 10_000;
+
                 while (!joinAttempted) {
+                    long remaining = deadline - System.currentTimeMillis();
+
+                    if (remaining <= 0) {
+                        fail("the test did not attempt to join the timed-out LRA");
+                    }
+
                     try {
-                        lock.wait();
+                        lock.wait(remaining);
                     } catch (InterruptedException e) {
                         fail("Could not wait");
                     }
@@ -81,7 +88,6 @@ public class LRAWithParticipantsTest extends LRATestBase {
         public Set<Class<?>> getClasses() {
             HashSet<Class<?>> classes = new HashSet<>();
             classes.add(ParticipantExtended.class);
-            classes.add(ServerLRAFilter.class);
             classes.add(ParticipantStatusOctetStreamProvider.class);
             return classes;
         }
@@ -139,9 +145,9 @@ public class LRAWithParticipantsTest extends LRATestBase {
         // this simulates the service 1 from the JBTM-3908
         URI lraId = lraClient.startLRA(null, "testTimeLimit", 1000L, ChronoUnit.MILLIS);
         // Service 2 calls PUT /lra-coordinator/{LraId} to join the Saga.
-        lraClient.joinLRA(lraId, null, URI.create("http://localhost:8081/service2/test"), null);
+        lraClient.joinLRA(lraId, null, URI.create("http://localhost:8081/service2/test"), null, "service2");
         // Service 3 calls PUT /lra-coordinator/{LraId} to join the same Saga.
-        lraClient.joinLRA(lraId, null, URI.create("http://localhost:8081/service3/test"), null);
+        lraClient.joinLRA(lraId, null, URI.create("http://localhost:8081/service3/test"), null, "service3");
         // A timeout exception occurs in Service 1, leading it to call PUT
         // /lra-coordinator/{LraId}/cancel to cancel the Saga.
         // The LRA Coordinator calls the compensation API /saga/compensate registered
@@ -163,8 +169,8 @@ public class LRAWithParticipantsTest extends LRATestBase {
             // Before compensate call is finished, Service 4 calls PUT
             // /lra-coordinator/{LraId} to attempt to join the Saga.
             // Exception is thrown because a timed-out lra cannot be joined
-            assertThrows(WebApplicationException.class,
-                    () -> lraClient.joinLRA(lraId, null, URI.create("http://localhost:8081/service4/test"), null));
+            assertThrows(LRAClientException.class,
+                    () -> lraClient.joinLRA(lraId, null, URI.create("http://localhost:8081/service4/test"), null, "service4"));
             joinAttempted = true;
             lock.notify();
         }

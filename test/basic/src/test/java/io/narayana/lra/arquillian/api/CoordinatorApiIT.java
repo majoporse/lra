@@ -21,6 +21,9 @@ import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
 import io.narayana.lra.arquillian.Deployer;
 import io.narayana.lra.arquillian.TestBase;
+import io.narayana.lra.connectors.common.callbacks.CallbackStatus;
+import io.narayana.lra.connectors.common.contracts.LRAInfo;
+import io.narayana.lra.connectors.http.coordinator.api.Coordinator;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.HttpHeaders;
@@ -56,7 +59,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * <p>
  * REST API tests for Narayana LRA Coordinator.<br/>
- * Each test case corresponds by name with the method in the {@link io.narayana.lra.coordinator.api.Coordinator}.
+ * Each test case corresponds by name with the method in the {@link Coordinator}.
  * The test case verifies the expected API responses.
  * It verifies the status code, the return data, data format, headers etc.
  * </p>
@@ -128,7 +131,7 @@ public class CoordinatorApiIT extends TestBase {
         URI lraId2 = lraClient.startLRA(lraId1, clientId2, 0L, null);
         lrasToAfterFinish.add(lraId1); // lraId2 is nested and will be closed in regard to lraId1
         try {
-            List<LRAData> data;
+            List<LRAInfo> data;
             try (Response response = client.target(coordinatorUrl)
                     .request().header(LRA_API_VERSION_HEADER_NAME, version).get()) {
                 Assertions.assertEquals(Status.OK.getStatusCode(), response.getStatus(),
@@ -139,18 +142,18 @@ public class CoordinatorApiIT extends TestBase {
                 });
             }
 
-            Optional<LRAData> lraTopOptional = data.stream().filter(record -> record.getLraId().equals(lraId1)).findFirst();
+            Optional<LRAInfo> lraTopOptional = data.stream().filter(record -> record.getLraId().equals(lraId1)).findFirst();
             Assertions.assertTrue(lraTopOptional.isPresent(),
                     "Expected to find the top-level LRA id " + lraId1 + " from REST get all call");
-            LRAData lraTop = lraTopOptional.get();
-            Optional<LRAData> lraNestedOptional = data.stream().filter(record -> record.getLraId().equals(lraId2)).findFirst();
+            LRAInfo lraTop = lraTopOptional.get();
+            Optional<LRAInfo> lraNestedOptional = data.stream().filter(record -> record.getLraId().equals(lraId2)).findFirst();
             Assertions.assertTrue(lraNestedOptional.isPresent(),
                     "Expected to find the nested LRA id " + lraId2 + " from REST get all call");
-            LRAData lraNested = lraNestedOptional.get();
+            LRAInfo lraNested = lraNestedOptional.get();
 
             Assertions.assertEquals(LRAStatus.Active, lraTop.getStatus(),
                     "Expected top-level LRA '" + lraTop + "'  being active");
-            Assertions.assertEquals(Status.NO_CONTENT.getStatusCode(), lraTop.getHttpStatus(),
+            Assertions.assertEquals(CallbackStatus.ACCEPTED, lraTop.getCallbackResult(),
                     "Expected top-level LRA '" + lraTop + "'  being active, HTTP status 204.");
             Assertions.assertFalse(lraTop.isRecovering(), "Expected top-level LRA '" + lraTop + "' not being recovering");
             Assertions.assertTrue(lraTop.isTopLevel(), "Expected top-level LRA '" + lraTop + "' to be top level");
@@ -159,7 +162,7 @@ public class CoordinatorApiIT extends TestBase {
 
             Assertions.assertEquals(LRAStatus.Active, lraNested.getStatus(),
                     "Expected nested LRA '" + lraNested + "'  being active");
-            Assertions.assertEquals(Status.NO_CONTENT.getStatusCode(), lraNested.getHttpStatus(),
+            Assertions.assertEquals(CallbackStatus.ACCEPTED, lraNested.getCallbackResult(),
                     "Expected nested LRA '" + lraNested + "'  being active, HTTP status 204.");
             Assertions.assertFalse(lraNested.isRecovering(), "Expected nested LRA '" + lraNested + "' not being recovering");
             Assertions.assertFalse(lraNested.isTopLevel(), "Expected nested LRA '" + lraNested + "' to be nested");
@@ -190,11 +193,11 @@ public class CoordinatorApiIT extends TestBase {
                     .header(LRA_API_VERSION_HEADER_NAME, version).get()) {
                 Assertions.assertEquals(Status.OK.getStatusCode(), response.getStatus(),
                         "Expected that the call succeeds, GET/200.");
-                List<LRAData> data = response.readEntity(new GenericType<>() {
+                List<LRAInfo> data = response.readEntity(new GenericType<>() {
                 });
                 Assertions.assertEquals(version, response.getHeaderString(LRA_API_VERSION_HEADER_NAME),
                         "Expected API header to be returned with the version provided in request");
-                Collection<URI> returnedLraIds = data.stream().map(LRAData::getLraId).collect(Collectors.toList());
+                Collection<URI> returnedLraIds = data.stream().map(LRAInfo::getLraId).collect(Collectors.toList());
                 assertThat("Expected the coordinator returns the first started and second closed LRA",
                         returnedLraIds, hasItems(lraId1, lraId2));
             }
@@ -202,9 +205,9 @@ public class CoordinatorApiIT extends TestBase {
                     .queryParam(STATUS_PARAM_NAME, "Active").request().get()) {
                 Assertions.assertEquals(Status.OK.getStatusCode(), response.getStatus(),
                         "Expected that the call succeeds, GET/200.");
-                List<LRAData> data = response.readEntity(new GenericType<>() {
+                List<LRAInfo> data = response.readEntity(new GenericType<>() {
                 });
-                Collection<URI> returnedLraIds = data.stream().map(LRAData::getLraId).collect(Collectors.toList());
+                Collection<URI> returnedLraIds = data.stream().map(LRAInfo::getLraId).collect(Collectors.toList());
                 assertThat("Expected the coordinator returns the first started top-level LRA",
                         returnedLraIds, hasItem(lraId1));
                 assertThat("Expected the coordinator filtered out the non-active nested LRA",
@@ -311,13 +314,13 @@ public class CoordinatorApiIT extends TestBase {
                         "Expected that the get status call succeeds, GET/200.");
                 Assertions.assertEquals(version, response.getHeaderString(LRA_API_VERSION_HEADER_NAME),
                         "Expected API header to be returned with the version provided in request");
-                LRAData data = response.readEntity(new GenericType<>() {
+                LRAInfo data = response.readEntity(new GenericType<>() {
                 });
                 Assertions.assertEquals(lraId, data.getLraId(),
                         "Expected the returned LRA to be the one that was started by test");
                 Assertions.assertEquals(LRAStatus.Active, data.getStatus(), "Expected the returned LRA being Active");
                 Assertions.assertTrue(data.isTopLevel(), "Expected the returned LRA is top-level");
-                Assertions.assertEquals(Status.NO_CONTENT.getStatusCode(), data.getHttpStatus(),
+                Assertions.assertEquals(CallbackStatus.ACCEPTED, data.getCallbackResult(),
                         "Expected the returned LRA get HTTP status as active, HTTP status 204.");
             }
         } finally {
@@ -966,7 +969,8 @@ public class CoordinatorApiIT extends TestBase {
         URI lraId = lraClient.startLRA(testName);
         lrasToAfterFinish.add(lraId);
         try {
-            URI recoveryUri = lraClient.joinLRA(lraId, 0L, URI.create("http://localhost:8080"), new StringBuilder());
+            URI recoveryUri = lraClient.joinLRA(lraId, 0L, URI.create("http://localhost:8080"), new StringBuilder(),
+                    "CoordinatorApiT");
 
             String encodedLRAId = URLEncoder.encode(lraId.toString(), StandardCharsets.UTF_8);
             try (Response response = client.target(coordinatorUrl)

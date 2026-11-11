@@ -5,9 +5,15 @@
 
 package io.narayana.lra.arquillian.appender;
 
+import com.fasterxml.jackson.databind.Module;
 import io.narayana.lra.arquillian.spi.NarayanaLRARecovery;
+import io.narayana.lra.connectors.common.client.discovery.MicroProfileParticipantFactory;
+import io.narayana.lra.connectors.common.client.discovery.cdi.LraBindingExtension;
+import io.narayana.lra.connectors.common.client.discovery.cdi.PortableParticipantDiscovery;
 import java.util.Map;
 import java.util.Optional;
+import java.util.ServiceLoader;
+import java.util.stream.Collectors;
 import org.jboss.arquillian.config.descriptor.api.ArquillianDescriptor;
 import org.jboss.arquillian.config.descriptor.api.ExtensionDef;
 import org.jboss.arquillian.container.test.spi.client.deployment.AuxiliaryArchiveAppender;
@@ -62,20 +68,28 @@ public class MpLraTckAuxiliaryArchiveAppender implements AuxiliaryArchiveAppende
         JavaArchive archive = ShrinkWrap.create(JavaArchive.class)
                 // Loads dependencies
                 .addPackages(false,
-                        "io.narayana.lra",
                         "io.narayana.lra.logging",
-                        "io.narayana.lra.filter",
-                        "io.narayana.lra.provider",
-                        "io.narayana.lra.client",
-                        "io.narayana.lra.client.internal",
                         "org.eclipse.microprofile.lra")
                 .addPackages(true,
-                        "io.narayana.lra.client.internal.proxy",
+                        "io.narayana.lra",
+                        "io.narayana.lra.filter",
+                        "io.narayana.lra.connectors.common.client.discovery",
+                        "io.narayana.lra.connectors.common.client.participant",
+                        "io.narayana.lra.connectors",
                         "org.eclipse.microprofile.lra.annotation",
                         "io.smallrye.stork",
                         "io.smallrye.mutiny.helpers")
-                // registration of LRACDIExtension as Weld extension to be booted-up
-                .addAsResource("META-INF/services/jakarta.enterprise.inject.spi.Extension")
+                // registration of the LRA CDI extension as a Weld extension to be booted-up: WildFly
+                // does not expose a module's services to the deployment, so list it explicitly
+                .addAsResource(new StringAsset(PortableParticipantDiscovery.class.getName() + "\n"
+                        + LraBindingExtension.class.getName() + "\n"),
+                        "META-INF/services/jakarta.enterprise.inject.spi.Extension")
+                // the callback-address Jackson modules are services too, and WildFly does not expose
+                // a module's services to the deployment: list them on this classpath explicitly
+                .addAsResource(new StringAsset(callbackAddressModules()),
+                        "META-INF/services/com.fasterxml.jackson.databind.Module")
+                .addAsResource(new StringAsset(legacyParticipantFactories()),
+                        "META-INF/services/io.narayana.lra.connectors.common.client.discovery.MicroProfileParticipantFactory")
 
                 // explicitly define to work with annotated beans
                 .addAsManifestResource(new StringAsset("<beans version=\"1.1\" bean-discovery-mode=\"annotated\"></beans>"),
@@ -85,7 +99,7 @@ public class MpLraTckAuxiliaryArchiveAppender implements AuxiliaryArchiveAppende
                 .addAsManifestResource(new StringAsset(ManifestMF), "MANIFEST.MF");
 
         archive.addPackages(true,
-                io.narayana.lra.filter.ClientLRARequestFilter.class.getPackage(),
+                io.narayana.lra.connectors.http.client.propagation.ClientLRARequestFilter.class.getPackage(),
                 io.narayana.lra.context.ClientLRAContextProviderEE.class.getPackage())
                 .addAsResource(new StringAsset("org.jboss.resteasy.client.jaxrs.ResteasyClientBuilder"),
                         "META-INF/services/jakarta.ws.rs.client.ClientBuilder")
@@ -98,6 +112,19 @@ public class MpLraTckAuxiliaryArchiveAppender implements AuxiliaryArchiveAppende
                 "META-INF/services/org.eclipse.microprofile.lra.tck.service.spi.LRARecoveryService");
 
         return archive;
+    }
+
+    private static String callbackAddressModules() {
+        return ServiceLoader.load(Module.class).stream()
+                .map(provider -> provider.type().getName())
+                .filter(name -> name.startsWith("io.narayana.lra."))
+                .collect(Collectors.joining("\n")) + "\n";
+    }
+
+    private static String legacyParticipantFactories() {
+        return ServiceLoader.load(MicroProfileParticipantFactory.class).stream()
+                .map(provider -> provider.type().getName())
+                .collect(Collectors.joining("\n")) + "\n";
     }
 
 }

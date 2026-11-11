@@ -11,11 +11,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import io.narayana.lra.client.NarayanaLRAClient;
-import io.narayana.lra.coordinator.api.Coordinator;
+import io.narayana.lra.connectors.common.client.coordinator.LRAClientException;
+import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
+import io.narayana.lra.connectors.http.coordinator.api.Coordinator;
 import io.narayana.lra.logging.LRALogger;
 import jakarta.ws.rs.ApplicationPath;
-import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.core.Application;
@@ -132,9 +132,9 @@ public class InvalidLBTest extends LRATestBase {
         try {
             lraClient.startLRA("testInvalidLBAlgorithm");
             fail("testInvalidLBAlgorithm: should not be able to start an LRA with an invalid load balancer");
-        } catch (WebApplicationException e) {
+        } catch (LRAClientException e) {
             // the documentation says that starting a new LRA with an invalid load balancer should fail with a 503
-            assertEquals(SERVICE_UNAVAILABLE.getStatusCode(), e.getResponse().getStatus());
+            assertEquals(SERVICE_UNAVAILABLE.getStatusCode(), e.getStatusCode());
         }
     }
 }

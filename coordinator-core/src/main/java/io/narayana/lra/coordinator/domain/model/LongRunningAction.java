@@ -1,0 +1,1324 @@
+/*
+   Copyright The Narayana Authors
+   SPDX-License-Identifier: Apache-2.0
+ */
+
+package io.narayana.lra.coordinator.domain.model;
+
+import static io.narayana.lra.LRAConstants.ENLIST_PARTICIPANT_LOCK_TIMEOUT;
+
+import com.arjuna.ats.arjuna.common.Uid;
+import com.arjuna.ats.arjuna.coordinator.AbstractRecord;
+import com.arjuna.ats.arjuna.coordinator.ActionStatus;
+import com.arjuna.ats.arjuna.coordinator.AddOutcome;
+import com.arjuna.ats.arjuna.coordinator.BasicAction;
+import com.arjuna.ats.arjuna.coordinator.RecordList;
+import com.arjuna.ats.arjuna.coordinator.RecordListIterator;
+import com.arjuna.ats.arjuna.coordinator.RecordType;
+import com.arjuna.ats.arjuna.state.InputObjectState;
+import com.arjuna.ats.arjuna.state.OutputObjectState;
+import io.narayana.lra.LRAData;
+import io.narayana.lra.connectors.common.callbacks.CallbackAddress;
+import io.narayana.lra.connectors.common.callbacks.CallbackResult;
+import io.narayana.lra.connectors.common.callbacks.CallbackStatus;
+import io.narayana.lra.connectors.common.callbacks.ParticipantCallbacks;
+import io.narayana.lra.coordinator.domain.CoordinatorException;
+import io.narayana.lra.coordinator.domain.service.LRAService;
+import io.narayana.lra.logging.LRALogger;
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
+import org.eclipse.microprofile.config.ConfigProvider;
+import org.eclipse.microprofile.lra.annotation.LRAStatus;
+import org.eclipse.microprofile.lra.annotation.ParticipantStatus;
+
+public class LongRunningAction extends BasicAction {
+    private static final String LRA_TYPE = "/StateManager/BasicAction/LongRunningAction";
+    private static final ScheduledExecutorService scheduler = new ScheduledThreadPoolExecutor(10);
+    public static final String DEACTIVATE_REASON = "deactivate failed";
+    private static final long participantEnlistTimeout = initParticipantEnlistTimeout();
+
+    private UUID id;
+    private UUID parentId;
+    private String coordinatorUrl;
+    private String clientId;
+    private List<LRAParticipantRecord> pending;
+    private LRAStatus status;
+    private LocalDateTime startTime;
+    private LocalDateTime finishTime;
+    private ScheduledFuture<?> scheduledAbort;
+    private final LRAService lraService;
+
+    private static long initParticipantEnlistTimeout() {
+        try {
+            return ConfigProvider.getConfig().getValue(ENLIST_PARTICIPANT_LOCK_TIMEOUT, Long.class);
+        } catch (Exception e) {
+            return 500; // the property is unset or there is no config provider so use the default value
+        }
+    }
+
+    public LongRunningAction(LRAService lraService, String baseUrl, LongRunningAction parent, String clientId)
+            throws URISyntaxException {
+        super(new Uid());
+
+        if (lraService == null) {
+            // all callers of this constructor pass in a non-null value
+            // but the call was instigated by a client so report it as an internal problem
+            throw new CoordinatorException(CoordinatorException.Reason.INTERNAL,
+                    LRALogger.i18nLogger.error_invalidArgument("null LRAService"));
+
+        }
+
+        this.lraService = lraService;
+        this.coordinatorUrl = baseUrl;
+
+        if (parent != null) {
+            this.parentId = parent.getId();
+        }
+
+        this.id = UUID.randomUUID();
+
+        this.clientId = clientId;
+        this.finishTime = null;
+        this.status = LRAStatus.Active;
+
+        if (LRALogger.logger.isTraceEnabled()) {
+            trace_progress("created");
+        }
+    }
+
+    public LongRunningAction(LRAService lraService, Uid rcvUid) {
+        super(rcvUid);
+
+        if (lraService == null) {
+            // all callers of this constructor pass in a non-null value
+            // but the call was instigated by a client so report it as an internal problem
+            throw new CoordinatorException(CoordinatorException.Reason.INTERNAL,
+                    LRALogger.i18nLogger.error_invalidArgument("null LRAService"));
+        }
+
+        this.lraService = lraService;
+        this.id = null;
+        this.parentId = null;
+        this.clientId = null;
+        this.coordinatorUrl = null;
+        this.finishTime = null;
+        this.status = LRAStatus.Active;
+
+        if (LRALogger.logger.isTraceEnabled()) {
+            trace_progress("created");
+        }
+    }
+
+    // used for MBean LRA listing, see com.arjuna.ats.arjuna.tools.osb.mbean.ObjStoreBrowser
+    public LongRunningAction(Uid rcvUid) {
+        this(new LRAService(), rcvUid);
+    }
+
+    /**
+     * Creating {@link LRAData} from the current {@link LongRunningAction} state.
+     * The data are immutable and represents the current state of the LRA transaction.
+     *
+     * @return immutable {@link LRAData} representing the current state of the LRA transaction
+     */
+    public LRAData getLRAData() {
+        // URI is constructed in service layer from config
+        return new LRAData(null, clientId, status, isTopLevel(), isRecovering(),
+                startTime.toInstant(ZoneOffset.UTC).toEpochMilli(),
+                finishTime == null ? 0L : finishTime.toInstant(ZoneOffset.UTC).toEpochMilli());
+    }
+
+    @Override
+    public boolean save_state(OutputObjectState os, int ot) {
+        if (!super.save_state(os, ot)
+                || !save_list(os, ot, pendingList)) { // other lists are maintained in BasicAction
+            return false;
+        }
+
+        try {
+            os.packString(id == null ? null : id.toString());
+            os.packString(parentId == null ? null : parentId.toString());
+            os.packString(clientId);
+            os.packString(coordinatorUrl);
+
+            if (startTime == null) {
+                os.packBoolean(false);
+            } else {
+                os.packBoolean(true);
+                os.packLong(startTime.toInstant(ZoneOffset.UTC).toEpochMilli());
+            }
+
+            if (finishTime == null) {
+                os.packBoolean(false);
+            } else {
+                os.packBoolean(true);
+                os.packLong(finishTime.toInstant(ZoneOffset.UTC).toEpochMilli());
+            }
+
+            os.packString(status.name());
+        } catch (IOException e) {
+            LRALogger.logger.warn(LRALogger.i18nLogger.warn_saveState(e.getMessage()));
+            return false;
+        } finally {
+            if (LRALogger.logger.isTraceEnabled()) {
+                trace_progress("saved");
+            }
+        }
+
+        return true;
+    }
+
+    private boolean save_list(OutputObjectState os, int ot, RecordList list) {
+        if (list != null && list.size() > 0) {
+            AbstractRecord first, temp;
+
+            first = temp = list.getFront();
+
+            while (temp != null) {
+                list.putRear(temp);
+
+                if (!temp.doSave()) {
+                    return false;
+                }
+
+                try {
+                    os.packInt(temp.typeIs());
+
+                    if (!temp.save_state(os, ot)) {
+                        return false;
+                    }
+                } catch (IOException e) {
+                    return false;
+                }
+
+                temp = list.getFront();
+
+                if (temp == first) {
+                    list.putFront(temp);
+                    temp = null;
+                }
+            }
+        }
+
+        try {
+            os.packInt(RecordType.NONE_RECORD);
+        } catch (IOException e) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private boolean restore_list(InputObjectState os, int ot, RecordList list) {
+
+        int record_type = RecordType.NONE_RECORD;
+
+        try {
+            while ((record_type = os.unpackInt()) != RecordType.NONE_RECORD) {
+                AbstractRecord record = AbstractRecord.create(record_type);
+
+                if (record == null || !record.restore_state(os, ot) || !list.insert(record)) {
+                    return false;
+                }
+
+                if (record instanceof LRAParticipantRecord) {
+                    LRAParticipantRecord lraRecord = (LRAParticipantRecord) record;
+                    lraRecord.setLRAService(lraService);
+                    lraRecord.setLRA(this);
+                }
+
+            }
+        } catch (IOException | NullPointerException e1) {
+            LRALogger.i18nLogger.warn_coordinatorNorecordfound(Integer.toString(record_type), e1);
+
+            return false;
+        }
+
+        return true;
+    }
+
+    @Override
+    public boolean restore_state(InputObjectState os, int ot) {
+
+        if (!super.restore_state(os, ot)
+                || !restore_list(os, ot, pendingList)) { // other lists are maintained in BasicAction
+            return false;
+        }
+
+        // restore_state may have put failed records onto the prepared list so move them back again:
+        for (AbstractRecord rec = preparedList.peekFront(); rec != null; rec = preparedList.peekNext(rec)) {
+            if (rec instanceof LRAParticipantRecord) {
+                LRAParticipantRecord p = (LRAParticipantRecord) rec;
+
+                if (p.isFailed()) {
+                    AbstractRecord r;
+
+                    preparedList.remove(p);
+
+                    // put it back on the failedList if it isn't already on it
+                    for (r = failedList.peekFront(); r != null; r = failedList.peekNext(r)) {
+                        if (p.equals(r)) {
+                            break;
+                        }
+                    }
+
+                    if (r == null) {
+                        failedList.putFront(p);
+                    }
+                }
+            }
+        }
+
+        try {
+            String s = os.unpackString();
+            id = s == null ? null : UUID.fromString(s);
+            s = os.unpackString();
+            parentId = s == null ? null : UUID.fromString(s);
+            clientId = os.unpackString();
+            coordinatorUrl = os.unpackString();
+            startTime = os.unpackBoolean() ? LocalDateTime.ofInstant(Instant.ofEpochMilli(os.unpackLong()), ZoneOffset.UTC)
+                    : null;
+            finishTime = os.unpackBoolean() ? LocalDateTime.ofInstant(Instant.ofEpochMilli(os.unpackLong()), ZoneOffset.UTC)
+                    : null;
+            status = LRAStatus.valueOf(os.unpackString());
+
+            /*
+             * If the time limit has already been reached then the difference between now and the scheduled
+             * abort time will be negative. Since scheduling a task with a negative time will run it immediately
+             * we must ensure that the setTimeLimit call is placed after the state has been fully re-hydrated.
+             */
+            if (finishTime != null) {
+                long ttl = ChronoUnit.MILLIS.between(LocalDateTime.now(ZoneOffset.UTC), finishTime);
+
+                if (ttl <= 0) {
+                    if (LRALogger.logger.isDebugEnabled()) {
+                        LRALogger.logger.debugf("Timer for LRA '%s' has expired since last reload", id);
+                    }
+
+                    if (status == LRAStatus.Active) {
+                        status = LRAStatus.Cancelling;
+                        scheduler.schedule(this::abortLRA, 1, TimeUnit.MILLISECONDS);
+                    }
+                } else {
+                    if (LRALogger.logger.isDebugEnabled()) {
+                        LRALogger.logger.debugf("Restarting time for LRA '%s'", id);
+                    }
+
+                    // remark setTimeLimit can call deactivate (under failure conditions)
+                    // and since we are in the middle of a restore we don't want call save
+                    setTimeLimit(ttl, false);
+                }
+            }
+
+            return true;
+        } catch (IOException | IllegalArgumentException e) {
+            if (LRALogger.logger.isDebugEnabled()) {
+                LRALogger.logger.debugf(e, "Cannot restore state of object type '%s'", ot);
+            }
+
+            LRALogger.i18nLogger.warn_restoreState(e.getMessage());
+
+            return false;
+        } finally {
+            if (LRALogger.logger.isTraceEnabled()) {
+                trace_progress("restored");
+            }
+        }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+
+        if (!(o instanceof LongRunningAction)) {
+            return false;
+        }
+
+        if (!super.equals(o)) {
+            return false;
+        }
+
+        LongRunningAction that = (LongRunningAction) o;
+
+        return getId().equals(that.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        int result = super.hashCode();
+        result = 31 * result + getId().hashCode();
+        return result;
+    }
+
+    public static String getType() {
+        return LRA_TYPE;
+    }
+
+    @Override
+    public String type() {
+        return getType();
+    }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public String getClientId() {
+        return clientId;
+    }
+
+    public String getCoordinatorUrl() {
+        return coordinatorUrl;
+    }
+
+    protected LRAService getLraService() {
+        return lraService;
+    }
+
+    /**
+     * Return the current status of the LRA.
+     *
+     * @return current LRA status; never returns <code>null</code>
+     */
+    public LRAStatus getLRAStatus() {
+        return status;
+    }
+
+    // a recovering LRA is one that is in state Cancelling or Closing or has pending listener notifications
+    // which are maintained on the heuristic list
+    public boolean isRecovering() {
+        return status.equals(LRAStatus.Cancelling) || status.equals(LRAStatus.Closing) || getSize(heuristicList) != 0;
+    }
+
+    public boolean isFailed() {
+        return status.equals(LRAStatus.FailedToCancel) || status.equals(LRAStatus.FailedToClose);
+    }
+
+    public boolean isCancel() {
+        switch (status) {
+            case Cancelling: /* FALLTHROUGH */
+            case Cancelled: /* FALLTHROUGH */
+            case FailedToCancel:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    boolean isFinished() {
+        switch (status) {
+            case Active:
+                return false; // this is not covered by the default arm of the switch if there are no participants
+            case Closed:
+                /* FALLTHROUGH */
+            case Cancelled:
+                /* FALLTHROUGH */
+            case FailedToClose:
+                /* FALLTHROUGH */
+            case FailedToCancel:
+                return true;
+            default: // if the participant lists are empty then assume finished (nb lists are processed by removal)
+                return getSize(pendingList) == 0 && getSize(preparedList) == 0 && getSize(heuristicList) == 0;
+        }
+    }
+
+    protected ReentrantLock tryTimedLockTransaction(long timeout) {
+        return lraService.tryTimedLockTransaction(getId(), timeout);
+    }
+
+    protected ReentrantLock tryLockTransaction() {
+        return lraService.tryLockTransaction(getId());
+    }
+
+    public int finishLRA(boolean cancel) {
+        return finishLRA(cancel, null, null);
+    }
+
+    public int finishLRA(boolean cancel, String participantId, String userData) {
+        ReentrantLock lock = null;
+
+        // check whether the transaction should cancel due to a timeout:
+        if (finishTime != null && !cancel && ChronoUnit.MILLIS.between(LocalDateTime.now(ZoneOffset.UTC), finishTime) <= 0) {
+            cancel = true;
+            if (LRALogger.logger.isTraceEnabled()) {
+                trace_progress("finishing with cancel");
+            }
+        } else {
+            if (LRALogger.logger.isTraceEnabled()) {
+                trace_progress("finishing");
+            }
+        }
+
+        try {
+            lock = lraService.tryLockTransaction(getId());
+
+            if (lock == null) {
+                if (LRALogger.logger.isInfoEnabled()) {
+                    LRALogger.logger.debugf("LongRunningAction.endLRA Some other thread is finishing LRA %s",
+                            getId().toString());
+                }
+
+                return status();
+            }
+
+            if (userData != null && !userData.isEmpty() && participantId != null && !participantId.isEmpty()) {
+                updateCompensatorUserData(participantId, userData);
+            }
+
+            if (status == LRAStatus.Cancelling) {
+                return doEnd(true);
+            }
+
+            return doEnd(cancel);
+        } finally {
+            if (lock != null) {
+                lock.unlock();
+            }
+        }
+    }
+
+    // in this version close need to run as blocking code {@link Vertx().executeBlocking}
+    private int doEnd(boolean cancel) {
+        int res = status();
+        boolean nested = !isTopLevel();
+
+        if (status == LRAStatus.Active) {
+            updateState(cancel ? LRAStatus.Cancelling : LRAStatus.Closing); // can throw ServiceUnavailableException
+        } else if (cancel && nested && status == LRAStatus.Closed) {
+            // a completed nested LRA can be compensated if the parent cancels (spec: Completed -> Compensating)
+            updateState(LRAStatus.Cancelling);
+        } else if (isFinished()) {
+            if (LRALogger.logger.isTraceEnabled()) {
+                trace_progress("finished");
+            }
+            return res;
+        }
+
+        if (scheduledAbort != null) {
+            scheduledAbort.cancel(false);
+            scheduledAbort = null;
+        }
+
+        // nested compensators need to be remembered in case the enclosing LRA decides to cancel
+        // also save the list so that we can retrieve any response data after committing compensators
+        // if (nested)
+        savePendingList();
+
+        if ((res != ActionStatus.RUNNING) && (res != ActionStatus.ABORT_ONLY)) {
+            if (nested) {
+                if (cancel) {
+                    /*
+                     * Note that we do not hook into ActionType.NESTED because that would mean that after a
+                     * nested txn is committed its participants are merged
+                     * with the parent, and they can then only be aborted if the parent aborts whereas in
+                     * the LRA model nested LRAs can be cancelled whilst the enclosing LRA is closed
+                     */
+
+                    if (pendingList == null) {
+                        pendingList = new RecordList();
+                    }
+                    if (preparedList == null) {
+                        preparedList = new RecordList();
+                    }
+                    if (failedList == null) {
+                        failedList = new RecordList();
+                    }
+
+                    moveTo(pendingList, preparedList, true);
+                    moveTo(heuristicList, preparedList, true);
+
+                    updateState(LRAStatus.Cancelling); // can throw ServiceUnavailableException
+
+                    // call commit since the abort route does not save the failed list
+                    if (LRALogger.logger.isTraceEnabled()) {
+                        trace_progress("phase2Commit for nested cancel");
+                    }
+                    super.phase2Commit(true);
+
+                    res = status();
+
+                    updateState(toLRAStatus(status())); // can throw ServiceUnavailableException
+                } else {
+                    // forget calls for nested participants
+                    if (forgetAllParticipants()) {
+                        updateState(LRAStatus.Closed); // can throw ServiceUnavailableException
+                    } else {
+                        // some forget calls have not been received, we need to repeat them at the next recovery pass
+                        if (LRALogger.logger.isTraceEnabled()) {
+                            trace_progress("H_HAZARD forget failed");
+                        }
+                        return ActionStatus.H_HAZARD;
+                    }
+                }
+            }
+        } else {
+            if (cancel || status() == ActionStatus.ABORT_ONLY) {
+                preparedList = new RecordList();
+                failedList = new RecordList();
+                // move items from the pending and heuristic lists onto the prepared list
+                moveTo(pendingList, preparedList, true);
+                moveTo(heuristicList, preparedList, true);
+
+                // tell each participant that the LRA canceled
+                updateState(LRAStatus.Cancelling); // can throw ServiceUnavailableException
+
+                // since the phase2Abort route skips prepare we need to make sure the heuristic list exists
+                if (heuristicList == null) {
+                    heuristicList = new RecordList();
+                }
+
+                // call commit since the abort route does not save the failed list
+                if (LRALogger.logger.isTraceEnabled()) {
+                    trace_progress("doEnd with cancel");
+                }
+                super.phase2Commit(true);
+                res = super.status();
+            } else {
+                // participants should be called in the opposite order from which they joined
+                pendingList = invert(pendingList);
+                // tell each participant that the LRA closed ok
+                updateState(LRAStatus.Closing); // can throw ServiceUnavailableException
+                if (LRALogger.logger.isTraceEnabled()) {
+                    trace_progress("doEnd with close");
+                }
+                res = super.End(true);
+            }
+        }
+
+        // note that we can either run the post actions now or wait for a recovery pass
+        // doing it here will provide more timely notifications
+        runPostLRAActions();
+
+        if (pending != null && !pending.isEmpty()) {
+            if (!nested) {
+                pending.clear();
+            }
+        }
+
+        if (getSize(heuristicList) != 0) {
+            if (!endStateCheck() && !isFinished()) {
+                // since endStateCheck() returned false we need to call updateState
+                updateState(cancel ? LRAStatus.Cancelling : LRAStatus.Closing); // can throw ServiceUnavailableException
+            }
+        } else if (getSize(failedList) != 0) {
+            updateState(cancel ? LRAStatus.FailedToCancel : LRAStatus.FailedToClose);
+        } else if (getSize(pendingList) != 0 || getSize(preparedList) != 0) {
+            updateState(LRAStatus.Closing);
+        } // otherwise status is (cancel ? LRAStatus.Cancelled : LRAStatus.Closed)
+
+        if (isTopLevel()) {
+            // note that we don't update the finish time for nested LRAs since their final state depends on the parent
+            // also the time spent invoking AfterLRA callbacks should probably not be included
+            finishTime = LocalDateTime.now(ZoneOffset.UTC);
+        }
+
+        if (LRALogger.logger.isTraceEnabled()) {
+            trace_progress("doEnd update finishTime");
+        }
+
+        updateState(); // ensure the record is removed if it finished otherwise persisted the state
+
+        if (!isRecovering()) {
+            lraService.finished(this, nested && cancel);
+        }
+
+        if (LRALogger.logger.isTraceEnabled()) {
+            trace_progress("doEnd finished");
+        }
+
+        return res;
+    }
+
+    protected void runPostLRAActions() {
+        // if there are no more heuristic outcomes then update the status of the LRA
+        endStateCheck();
+
+        if (isFinished() && heuristicList != null && heuristicList.size() != 0) {
+            if (preparedList == null) {
+                preparedList = new RecordList();
+            }
+            moveTo(heuristicList, preparedList, false);
+            checkParticipant(preparedList);
+
+            if (LRALogger.logger.isTraceEnabled()) {
+                trace_progress("runPostLRAActions");
+            }
+            super.phase2Commit(true);
+        }
+    }
+
+    // return true if the state was updated
+    protected boolean updateState(LRAStatus nextState) {
+        return updateState(nextState, true);
+    }
+
+    // return true if the state was updated
+    protected boolean updateState(LRAStatus nextState, boolean save) {
+        if (status != nextState) {
+            status = nextState; // we trust that nextState is reachable from the current one
+
+            if (save && (pendingList != null && pendingList.size() != 0)) {
+                if (!deactivate()) {
+                    throw new CoordinatorException(CoordinatorException.Reason.UNAVAILABLE,
+                            LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON));
+                }
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    protected void checkParticipant(RecordList participants) {
+        RecordListIterator i = new RecordListIterator(participants);
+        AbstractRecord r;
+
+        while ((r = i.iterate()) != null) {
+            if (r instanceof LRAParticipantRecord) {
+                LRAParticipantRecord rec = (LRAParticipantRecord) r;
+
+                rec.setLraService(getLraService());
+                rec.setLRA(this);
+            }
+        }
+    }
+
+    protected void moveTo(RecordList fromList, RecordList toList, boolean invert) {
+        AbstractRecord record;
+
+        if (fromList != null) {
+            while ((record = fromList.getFront()) != null) {
+                if (invert) {
+                    toList.putRear(record);
+                } else {
+                    toList.putFront(record);
+                }
+            }
+        }
+    }
+
+    protected RecordList invert(RecordList list) {
+        RecordList inverted = new RecordList();
+        AbstractRecord record;
+
+        if (list != null) {
+            while ((record = list.getFront()) != null) {
+                inverted.putFront(record);
+            }
+        }
+
+        return inverted;
+    }
+
+    private boolean allFinished(RecordList... lists) {
+        for (RecordList list : lists) {
+            if (list != null) {
+                RecordListIterator i = new RecordListIterator(list);
+                AbstractRecord r;
+
+                while ((r = i.iterate()) != null) {
+                    if (r instanceof LRAParticipantRecord) {
+                        LRAParticipantRecord rec = (LRAParticipantRecord) r;
+                        if (!rec.isFinished()) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
+    // return true if the status was changed
+    protected boolean endStateCheck() {
+        // update the status first by checking for heuristics and failed participants
+        if (status == LRAStatus.Cancelling && allFinished(heuristicList, failedList)) {
+            return updateState(hasFailure(heuristicList, failedList) ? LRAStatus.FailedToCancel : LRAStatus.Cancelled);
+        }
+
+        if (status == LRAStatus.Closing && allFinished(heuristicList, failedList)) {
+            return updateState(hasFailure(heuristicList, failedList) ? LRAStatus.FailedToClose : LRAStatus.Closed);
+        }
+
+        return false;
+    }
+
+    private boolean hasFailure(RecordList heuristicList, RecordList failedList) {
+        if (failedList != null && failedList.size() > 0) {
+            return true;
+        }
+
+        if (heuristicList == null || heuristicList.size() == 0) {
+            return false;
+        }
+
+        RecordListIterator iterator = new RecordListIterator(heuristicList);
+        AbstractRecord participantRecord;
+
+        while ((participantRecord = iterator.iterate()) != null) {
+            if (participantRecord instanceof LRAParticipantRecord) {
+                if (((LRAParticipantRecord) participantRecord).isFailed()) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private int getSize(RecordList list) {
+        return list == null ? 0 : list.size();
+    }
+
+    protected LRAStatus toLRAStatus(int atomicActionStatus) {
+        switch (atomicActionStatus) {
+            case ActionStatus.ABORTING:
+                // FALLTHROUGH
+            case ActionStatus.ABORT_ONLY:
+                // FALLTHROUGH
+            case ActionStatus.COMMITTING:
+                return status == LRAStatus.Cancelling ? LRAStatus.Cancelling : LRAStatus.Closing;
+            case ActionStatus.ABORTED:
+                // FALLTHROUGH
+            case ActionStatus.H_ROLLBACK:
+                return status == LRAStatus.Cancelling ? LRAStatus.Cancelled : LRAStatus.Closed;
+            case ActionStatus.COMMITTED:
+                return status == LRAStatus.Cancelling ? LRAStatus.Cancelled : LRAStatus.Closed;
+            default:
+                return LRAStatus.Active;
+        }
+    }
+
+    /**
+     * Enlist a participant into this LRA. When {@code childLraId} is non-null the participant is
+     * a nested LRA coordinated by this same coordinator and the callbacks are ignored.
+     */
+    public LRAParticipantRecord enlistParticipant(ParticipantCallbacks callbacks, UUID childLraId,
+            String recoveryUrlBase, long timeLimit, String compensatorData, String partId)
+            throws UnsupportedEncodingException {
+        ReentrantLock lock = tryTimedLockTransaction(participantEnlistTimeout);
+        if (lock == null) {
+            String reason = LRALogger.i18nLogger.warn_enlistment();
+            LRALogger.logger.warn(reason);
+            throw new CoordinatorException(CoordinatorException.Reason.UNAVAILABLE, reason);
+        } else {
+            try {
+                LRAParticipantRecord participant = findLRAParticipantById(partId, false);
+                if (participant != null) {
+                    participant.setCompensatorData(compensatorData);
+                    return participant; // must have already been enlisted
+                }
+                participant = doEnlistParticipant(callbacks, childLraId, recoveryUrlBase, timeLimit,
+                        compensatorData, partId);
+                if (participant != null) {
+                    // need to remember that there is a new participant
+                    if (deactivate()) { // if it fails the superclass will have logged a warning
+                        savedIntentionList = true; // need this clean up if the LRA times out
+                    } else {
+                        throw new CoordinatorException(CoordinatorException.Reason.UNAVAILABLE,
+                                LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON));
+                    }
+                } else {
+                    throw new CoordinatorException(CoordinatorException.Reason.UNAVAILABLE,
+                            LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON));
+                }
+                return participant;
+            } finally {
+                lock.unlock();
+            }
+        }
+
+    }
+
+    private LRAParticipantRecord doEnlistParticipant(ParticipantCallbacks actions, UUID childLraId,
+            String recoveryUrlBase, long timeLimit, String compensatorData, String partId) {
+        LRAParticipantRecord p = new LRAParticipantRecord(this, lraService,
+                actions == null ? null : actions.compensateCallback,
+                actions == null ? null : actions.completeCallback,
+                actions == null ? null : actions.statusCallback,
+                actions == null ? null : actions.forgetCallback,
+                actions == null ? null : actions.afterCallback,
+                childLraId, compensatorData, partId);
+        String pid = p.get_uid().fileStringForm();
+
+        p.setRecoveryURI(recoveryUrlBase, getId().toString(), pid);
+
+        endStateCheck();
+
+        if (isFinished()) {
+            throw new CoordinatorException(CoordinatorException.Reason.GONE,
+                    LRALogger.i18nLogger.error_tooLateToJoin(id.toString(), "finished"));
+        }
+
+        if (add(p) != AddOutcome.AR_REJECTED) {
+            if (setTimeLimit(timeLimit, true) != 200) {
+                // there is no remove(p) so just issue a warning - but note that the caller will also try to
+                // save the state so the time limit will be written then or else it will report it using
+                // 503 Service Unavailable (an instance of ServiceUnavailableException)
+                LRALogger.logger.warn(
+                        LRALogger.i18nLogger.warn_saveState("could not durably record the new time limit"));
+            }
+
+            return p;
+        } else if (isRecovering() && p.getCompensateCallback() == null && p.hasAfterCallback()) {
+            // the participant is an AfterLRA listener so manually add it to heuristic list
+            heuristicList.putRear(p);
+            updateState();
+
+            if (LRALogger.logger.isTraceEnabled()) {
+                trace_progress("enlisted listener " + p.getParticipantId());
+            }
+
+            return p;
+        }
+
+        return null;
+    }
+
+    private void updateCompensatorUserData(String participantId, String userData) {
+        LRAParticipantRecord participant = findLRAParticipantById(participantId, false);
+
+        if (participant != null) {
+            participant.setCompensatorData(userData);
+        } else {
+            LRALogger.i18nLogger.warn_unknownParticipant(participantId.toString());
+        }
+    }
+
+    public boolean forgetParticipant(String uuid) {
+        return findLRAParticipantById(uuid, true) != null;
+    }
+
+    public boolean forgetAllParticipants() {
+        if (pending == null) {
+            return true;
+        }
+
+        pending.removeIf(LRAParticipantRecord::forget);
+
+        return pending.isEmpty();
+    }
+
+    private void savePendingList() {
+        if (pendingList == null) {
+            savedIntentionList = true;
+            return;
+        } else if (pending != null) {
+            return;
+        }
+
+        RecordListIterator i = new RecordListIterator(pendingList);
+        AbstractRecord r;
+
+        pending = new ArrayList<>();
+
+        while ((r = i.iterate()) != null) {
+            if (r instanceof LRAParticipantRecord) {
+                pending.add((LRAParticipantRecord) r);
+            }
+        }
+    }
+
+    public LRAParticipantRecord findLRAParticipantById(String participantId, boolean remove) {
+        var lists = new RecordList[] { pendingList, preparedList, heuristicList, failedList };
+        for (RecordList list : lists) {
+            if (list != null) {
+                RecordListIterator i = new RecordListIterator(list);
+                AbstractRecord r;
+
+                while ((r = i.iterate()) != null) {
+                    if (r instanceof LRAParticipantRecord) {
+                        LRAParticipantRecord rr = (LRAParticipantRecord) r;
+                        // can't use == because this may be a recovery scenario
+                        if (rr.getParticipantId().equals(participantId)) {
+                            if (remove) {
+                                list.remove(rr);
+                            }
+
+                            return rr;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public LRAParticipantRecord findLRAParticipant(String participantUrl, boolean remove) {
+        LRAParticipantRecord rec;
+
+        try {
+            URI recoveryUrl = new URI(lraService.canonicalParticipantUri(participantUrl));
+
+            rec = findLRAParticipantByRecoveryUrl(recoveryUrl, remove, pendingList, preparedList, heuristicList, failedList);
+
+        } catch (URISyntaxException ignore) {
+            String pUrl = participantUrl;
+            if (pUrl.indexOf(',') != -1) {
+                try {
+                    pUrl = lraService.compensatorParticipantUri(pUrl);
+                } catch (URISyntaxException ignored) {
+                }
+            }
+
+            rec = findLRAParticipantByCompensateUri(URI.create(pUrl), remove, pendingList, preparedList, heuristicList,
+                    failedList);
+        }
+
+        return rec;
+    }
+
+    private LRAParticipantRecord findLRAParticipantByCompensateUri(URI participantUrl, boolean remove,
+            RecordList... lists) {
+        for (RecordList list : lists) {
+            if (list != null) {
+                RecordListIterator i = new RecordListIterator(list);
+                AbstractRecord r;
+
+                while ((r = i.iterate()) != null) {
+                    if (r instanceof LRAParticipantRecord) {
+                        LRAParticipantRecord rr = (LRAParticipantRecord) r;
+                        // can't use == because this may be a recovery scenario
+                        CallbackAddress compensateCallback = rr.getCompensateCallback();
+                        String compensator = compensateCallback.callbackUri();
+
+                        if (participantUrl.toASCIIString().equals(compensator)) {
+                            if (remove) {
+                                list.remove(rr);
+                            }
+
+                            return rr;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private LRAParticipantRecord findLRAParticipantByRecoveryUrl(URI recoveryUrl, boolean remove, RecordList... lists) {
+        for (RecordList list : lists) {
+            if (list != null) {
+                RecordListIterator i = new RecordListIterator(list);
+                AbstractRecord r;
+
+                while ((r = i.iterate()) != null) {
+                    if (r instanceof LRAParticipantRecord) {
+                        LRAParticipantRecord rr = (LRAParticipantRecord) r;
+                        // can't use == because this may be a recovery scenario
+                        if (rr.getRecoveryURI().equals(recoveryUrl)) {
+                            if (remove) {
+                                list.remove(rr);
+                            }
+
+                            return rr;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public boolean isTopLevel() {
+        return parentId == null;
+    }
+
+    public CallbackResult getParticipantStatus() {
+        switch (status()) {
+            case ActionStatus.COMMITTED:
+            case ActionStatus.ABORTED:
+                return new CallbackResult(CallbackStatus.OK, null);
+            default:
+                return lraStatusToCallbackStatus();
+        }
+    }
+
+    private CallbackResult lraStatusToCallbackStatus() {
+        if (status == null || status == LRAStatus.Active) {
+            return new CallbackResult(CallbackStatus.ACCEPTED, null);
+        }
+
+        switch (status) {
+            case Closed:
+            case Cancelled:
+                return new CallbackResult(CallbackStatus.OK, null);
+            case Closing:
+            case Cancelling:
+                return new CallbackResult(CallbackStatus.ACCEPTED, null);
+            case FailedToCancel:
+                return new CallbackResult(CallbackStatus.FAILED, ParticipantStatus.FailedToCompensate.name());
+            case FailedToClose:
+                return new CallbackResult(CallbackStatus.FAILED, ParticipantStatus.FailedToComplete.name());
+            default:
+                return new CallbackResult(CallbackStatus.ERROR, null);
+        }
+    }
+
+    public int begin(Long timeLimit) {
+        if (status() != ActionStatus.CREATED) {
+            if (LRALogger.logger.isTraceEnabled()) {
+                trace_progress("begin: already running");
+            }
+
+            return status(); // cannot begin an action twice
+        }
+
+        if (LRALogger.logger.isTraceEnabled()) {
+            trace_progress("begin");
+        }
+
+        int res = super.Begin(null);
+        startTime = LocalDateTime.now(ZoneOffset.UTC);
+
+        // Note: a child LRA is linked to its parent by being enlisted as a participant of the
+        // parent (its childLraId), not by a record here. The parent and child are always
+        // coordinated by this same coordinator, so the parent ends the child directly.
+
+        if (LRALogger.logger.isTraceEnabled()) {
+            trace_progress("begin, deactivating");
+        }
+
+        if (setTimeLimit(timeLimit, true) != 200 || !deactivate()) {
+            // unable to persist the state
+            LRALogger.logger.warn(LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON));
+
+            // the entry to the state model is LRAStatus.Active which was never achieved and
+            // the caller of this method (LRAService) wil notify the client about the failure
+            status = null;
+        }
+
+        return res;
+    }
+
+    public int setTimeLimit(Long timeLimit, boolean save) {
+        if (timeLimit <= 0L) {
+            return 200;
+        }
+
+        return scheduleCancellation(this::abortLRA, timeLimit, save);
+    }
+
+    private int scheduleCancellation(Runnable runnable, Long timeLimit, boolean save) {
+        assert timeLimit > 0L;
+
+        if (status() != ActionStatus.RUNNING) {
+            if (LRALogger.logger.isDebugEnabled()) {
+                LRALogger.logger.debugf("Ignoring timer because the action status is `%e'", status());
+            }
+
+            if (LRALogger.logger.isTraceEnabled()) {
+                trace_progress("scheduleCancellation: wrong state");
+            }
+            return 412;
+        }
+
+        Long nanosToAdd = timeLimit;
+        try {
+            nanosToAdd = Math.multiplyExact(timeLimit, 1000000);
+        } catch (ArithmeticException e) {
+            LRALogger.logger.warn(
+                    LRALogger.i18nLogger.warn_timelimit_too_long(timeLimit, Long.MAX_VALUE));
+            nanosToAdd = Long.MAX_VALUE;
+        }
+        if (finishTime != null) {
+            // check whether the new time limit is less than the current one
+            LocalDateTime ft = LocalDateTime.now(ZoneOffset.UTC).plusNanos(nanosToAdd);
+
+            if (ft.isBefore(finishTime)) {
+                // the new timeout is earlier than the existing one - shortening is not allowed
+                return 200;
+            }
+
+            // it is later so cancel the current timer and reschedule with the extended timeout
+            finishTime = ft;
+
+            if (scheduledAbort != null) {
+                if (LRALogger.logger.isTraceEnabled()) {
+                    trace_progress("scheduleCancellation: later than previous timer, postponing");
+                }
+                scheduledAbort.cancel(false);
+            }
+        } else {
+            // if timeLimit is negative the abort will be scheduled immediately
+            finishTime = LocalDateTime.now(ZoneOffset.UTC).plusNanos(nanosToAdd);
+        }
+
+        if (LRALogger.logger.isTraceEnabled()) {
+            trace_progress("scheduleCancellation update finishTime");
+        }
+
+        try {
+            scheduledAbort = scheduler.schedule(runnable, timeLimit, TimeUnit.MILLISECONDS);
+            if (LRALogger.logger.isTraceEnabled()) {
+                trace_progress("scheduleCancellation accepted");
+            }
+        } catch (RejectedExecutionException executionException) {
+            if (LRALogger.logger.isTraceEnabled()) {
+                trace_progress("scheduleCancellation rejected");
+            }
+            LRALogger.logger.warnf(
+                    "The LRA transaction with ID %s has not correctly scheduled the task to cancel itself." +
+                            "A recovery cycle will eventually cancel this LRA.\n" +
+                            "Exception message: %s",
+                    this.getId(),
+                    executionException.getMessage());
+
+            // This exception does not need to be handled as the periodic recovery
+            // will eventually discover that this LRA is eligible for cancellation.
+            updateState(LRAStatus.Cancelling, save);
+        }
+
+        return 200;
+    }
+
+    private void abortLRA() {
+        ReentrantLock lock = tryLockTransaction();
+
+        if (lock != null) {
+            try {
+                int actionStatus = status();
+
+                scheduledAbort = null;
+
+                if (actionStatus == ActionStatus.RUNNING || actionStatus == ActionStatus.ABORT_ONLY) {
+                    if (LRALogger.logger.isDebugEnabled()) {
+                        LRALogger.logger.debugf("LongRunningAction.abortLRA cancelling LRA `%s", id);
+                    }
+
+                    // nb updateState can throw an exception which is logged and the caller, ie scheduler, ignores it
+                    if (getSize(pendingList) == 0 && getSize(preparedList) == 0 && getSize(heuristicList) == 0) {
+                        updateState(LRAStatus.Cancelled);
+                    } else {
+                        updateState(LRAStatus.Cancelling);
+                    }
+                    if (LRALogger.logger.isTraceEnabled()) {
+                        trace_progress("scheduledAbort fired");
+                    }
+                    finishLRA(true);
+                }
+            } finally {
+                lock.unlock();
+            }
+        }
+    }
+
+    public boolean updateRecoveryURI(ParticipantCallbacks actions, String recoveryUri) {
+        LRAParticipantRecord lraRecord = findLRAParticipant(recoveryUri, false);
+
+        if (lraRecord != null) {
+            try {
+                lraRecord.setRecoveryURI(recoveryUri);
+                lraRecord.updateCallbacks(actions);
+
+                if (!deactivate()) {
+                    LRALogger.logger.warn(LRALogger.i18nLogger.warn_saveState(DEACTIVATE_REASON));
+
+                    return false;
+                }
+
+            } catch (CoordinatorException e) {
+                if (LRALogger.logger.isInfoEnabled()) {
+                    LRALogger.logger.infof("Could not save new recovery URL: %s", e.getMessage());
+                }
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public UUID getParentId() {
+        return parentId;
+    }
+
+    /**
+     * Build the full parent hierarchy as a comma-separated string of UUIDs.
+     * Walks up the parent chain via lraService.lookupTransaction.
+     * Returns null if there is no parent.
+     */
+    public String getParentHierarchy() {
+        if (parentId == null) {
+            return null;
+        }
+        StringBuilder hierarchy = new StringBuilder();
+        hierarchy.append(parentId.toString());
+        UUID current = parentId;
+        while (current != null) {
+            LongRunningAction parent = lraService.lookupTransaction(current);
+            if (parent != null && parent.getParentId() != null) {
+                hierarchy.append(",").append(parent.getParentId().toString());
+                current = parent.getParentId();
+            } else {
+                break;
+            }
+        }
+        return hierarchy.toString();
+    }
+
+    private boolean hasElements(RecordList list) {
+        return list != null && list.size() != 0;
+    }
+
+    /**
+     * Checks whether the LRA has finished and whether all the post LRA actions are complete
+     *
+     * @return true if all post LRA actions are complete
+     */
+    public boolean hasPendingActions() {
+        // if it is not in an end state or has a heuristic hazard
+        return !isFinished() || hasElements(heuristicList);
+    }
+
+    void forget() {
+        if (heuristicList != null && heuristicList.size() != 0) {
+            RecordListIterator i = new RecordListIterator(heuristicList);
+            AbstractRecord r;
+
+            while ((r = i.iterate()) != null) {
+                if (r instanceof LRAParticipantRecord) {
+                    LRAParticipantRecord rec = (LRAParticipantRecord) r;
+
+                    rec.forget();
+                }
+            }
+        }
+
+        if (LRALogger.logger.isTraceEnabled()) {
+            trace_progress("forget okay");
+        }
+    }
+
+    private void trace_progress(String reason) {
+        LRALogger.logger.tracef("%s: LRA id: %s (%s) parent: %s reason: %s state: %s created: %s ttl: %s",
+                LocalDateTime.now(ZoneOffset.UTC), // use the same time function as used for LRA timeouts
+                id,
+                clientId,
+                parentId == null ? "" : parentId,
+                reason,
+                status,
+                startTime,
+                finishTime);
+    }
+}

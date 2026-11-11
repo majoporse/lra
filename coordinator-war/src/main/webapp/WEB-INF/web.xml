@@ -15,7 +15,7 @@
 
     <servlet>
         <servlet-name>LRACoordinator</servlet-name>
-        <servlet-class>io.narayana.lra.coordinator.api.Coordinator</servlet-class>
+        <servlet-class>io.narayana.lra.connectors.http.coordinator.api.Coordinator</servlet-class>
     </servlet>
 
     <servlet-mapping>

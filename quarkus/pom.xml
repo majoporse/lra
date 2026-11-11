@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+   Copyright The Narayana Authors
+   SPDX short identifier: Apache-2.0
+ -->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.jboss.narayana.lra</groupId>
+    <artifactId>lra-parent</artifactId>
+    <version>2.0.0.Final-SNAPSHOT</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>lra-quarkus-parent</artifactId>
+  <packaging>pom</packaging>
+  <name>LRA Quarkus Parent</name>
+  <description>Quarkus participant integration for the Narayana LRA runtime</description>
+
+  <modules>
+    <module>runtime</module>
+    <module>deployment</module>
+    <module>integration-tests</module>
+  </modules>
+
+  <properties>
+    <quarkus.version>3.38.0</quarkus.version>
+    <!-- the root POM pins Jackson 2.18.x; Quarkus 3.38 uses 2.22.x -->
+    <version.fasterxml.jackson.core>2.22.0</version.fasterxml.jackson.core>
+    <!-- the root POM pins Netty 4.2.x for the WildFly modules; Quarkus uses 4.1.x -->
+    <version.io.netty>4.1.136.Final</version.io.netty>
+    <!-- keep smallrye-config aligned with the Quarkus BOM -->
+    <version.io.smallrye.smallrye-config>3.17.2</version.io.smallrye.smallrye-config>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>io.quarkus.platform</groupId>
+        <artifactId>quarkus-bom</artifactId>
+        <version>${quarkus.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <!-- Quarkus uses annotations 2.22 with core/databind 2.22.0; the root POM uses one version for all three -->
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-annotations</artifactId>
+        <version>2.22</version>
+      </dependency>
+      <!-- the Quarkus BOM also manages narayana-lra/lra-service-base at an older release; keep the reactor versions -->
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>narayana-lra</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-service-base</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-common-client</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-connector-common-contracts</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-quarkus</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jboss.narayana.lra</groupId>
+        <artifactId>lra-quarkus-deployment</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+</project>

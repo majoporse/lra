@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="org.jboss.narayana.lra.lra-service-base" xmlns="urn:jboss:module:1.9">
+  <properties>
+    <property name="jboss.api" value="private"/>
+  </properties>
+  <resources>
+    <resource-root path="lra-service-base-${project.version}.jar"/>
+  </resources>
+  <dependencies>
+    <module name="org.eclipse.microprofile.lra.api"/>
+    <module name="org.eclipse.microprofile.config.api"/>
+    <module name="jakarta.enterprise.api"/>
+    <module name="org.jboss.logging"/>
+    <module name="com.fasterxml.jackson.core.jackson-databind"/>
+    <module name="com.fasterxml.jackson.core.jackson-core"/>
+  </dependencies>
+</module>

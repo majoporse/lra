@@ -5,9 +5,8 @@
 
 package io.narayana.lra.arquillian;
 
-import io.narayana.lra.LRAConstants;
 import io.narayana.lra.LRAData;
-import io.narayana.lra.client.NarayanaLRAClient;
+import io.narayana.lra.connectors.http.client.NarayanaLRAClient;
 import jakarta.json.Json;
 import jakarta.json.JsonArray;
 import jakarta.json.JsonReader;
@@ -74,7 +73,7 @@ public abstract class TestBase {
     }
 
     protected JsonArray getAllRecords(URI lra) {
-        String coordinatorUrl = LRAConstants.getLRACoordinatorUrl(lra) + "/";
+        String coordinatorUrl = TestBase.coordinatorUrl + "/";
 
         try (Response response = client.target(coordinatorUrl).path("").request().get()) {
             Assertions.assertTrue(response.hasEntity(), "Missing response body when querying for all LRAs");

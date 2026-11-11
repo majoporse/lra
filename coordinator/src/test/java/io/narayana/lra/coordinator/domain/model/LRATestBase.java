@@ -59,7 +59,7 @@ public class LRATestBase {
     static final AtomicInteger forgetCount = new AtomicInteger(0);
     static final long LRA_SHORT_TIMELIMIT = 10L;
     private static LRAStatus status = LRAStatus.Active;
-    private static final AtomicInteger acceptCount = new AtomicInteger(0);
+    protected static final AtomicInteger acceptCount = new AtomicInteger(0);
     static final String TIMEOUT_BEFORE_JOIN_BUSINESS_DATA = "success";
 
     // count the number of times the AfterLRA notification was delivered.
@@ -439,7 +439,7 @@ public class LRATestBase {
             // return 500 on the first invocation and 200 thereafter so that we can verify that the coordinator
             // keeps reissuing the notification until the resource acknowledges it with a 200 OK response.
             // remark: something in the test env is replaying the end call so we automatically get two afterLRA
-            // notifications, and it is not the ServerLRAFilter that does the double call so test for <= 1
+            // notifications, and it is not the interceptor that does the double call so test for <= 1
             return afterCallCount.getAndIncrement() <= 1 ? Response.status(500).build() : Response.ok().build();
         }
     }

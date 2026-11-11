@@ -62,6 +62,12 @@
     <dependency>
       <groupId>org.jboss.narayana.lra</groupId>
       <artifactId>lra-service-base</artifactId>
+      <version>2.0.0.Final-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss.narayana.lra</groupId>
+      <artifactId>lra-coordinator-core</artifactId>
+      <version>2.0.0.Final-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>org.jboss.narayana.arjunacore</groupId>
@@ -119,7 +125,7 @@
     </dependency>
     <dependency>
       <groupId>org.jboss.narayana.lra</groupId>
-      <artifactId>lra-client</artifactId>
+      <artifactId>lra-connector-http-client</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -165,6 +171,22 @@
       <groupId>org.hamcrest</groupId>
       <artifactId>hamcrest</artifactId>
       <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss.narayana.lra</groupId>
+      <artifactId>lra-connector-common-coordinator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss.narayana.lra</groupId>
+      <artifactId>lra-connector-common-contracts</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss.narayana.lra</groupId>
+      <artifactId>lra-connector-http-contracts</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss.narayana.lra</groupId>
+      <artifactId>lra-connector-http-coordinator</artifactId>
     </dependency>
   </dependencies>
 
@@ -230,29 +252,6 @@
       <properties>
         <server.jvm.args>${jvm.args.other} ${jvm.args.memory} ${jvm.args.jacoco} ${jvm.args.modular}</server.jvm.args>
       </properties>
-    </profile>
-    <profile>
-      <id>openapi-schema</id>
-      <activation>
-        <property>
-          <name>openapi-schema</name>
-        </property>
-      </activation>
-      <build>
-        <plugins>
-          <plugin>
-            <groupId>io.smallrye</groupId>
-            <artifactId>smallrye-open-api-maven-plugin</artifactId>
-            <executions>
-              <execution>
-                <goals>
-                  <goal>generate-schema</goal>
-                </goals>
-              </execution>
-            </executions>
-          </plugin>
-        </plugins>
-      </build>
     </profile>
   </profiles>
 </project>
